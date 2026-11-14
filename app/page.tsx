@@ -1,16 +1,20 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Logo } from "@/components/Logo";
 import { AuthBar } from "@/components/AuthBar";
 import { recordLecture } from "@/lib/cloudProfile";
 import { useAuth } from "@/lib/useAuth";
 import { createMeeting } from "@/lib/useRoom";
+import { LearnedBox, ProgressBox, SignIn } from "@/components/Dashboard";
+import { authEnabled } from "@/lib/supabase";
 
 export default function Home() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, ready } = useAuth();
+  const [guest, setGuest] = useState(false);
+  useEffect(() => { try { setGuest(localStorage.getItem("pacer:guest") === "1"); } catch { /* ignore */ } }, []);
   const [code, setCode] = useState("");
   const [nick, setNick] = useState("");
   const [title, setTitle] = useState("");
@@ -31,9 +35,12 @@ export default function Home() {
     <main className="relative min-h-screen overflow-hidden">
       <div aria-hidden className="glow pointer-events-none absolute left-1/2 top-[42%] h-[720px] w-[720px] rounded-full bg-sky opacity-30 blur-3xl" style={{ transform: "translate(-50%,-50%)" }} />
       <header className="relative mx-auto flex h-16 max-w-[1280px] items-center justify-between px-6"><Logo /><AuthBar /></header>
-      <section className="relative mx-auto flex max-w-xl flex-col items-center px-6 pb-24 pt-16 text-center md:pt-24">
-        <h1 className="display text-[40px] md:text-[56px]">The classroom,<br />in sync.</h1>
-        <p className="mt-4 text-lg text-smoke">One lesson, with every student moving through it their own way.</p>
+      {authEnabled() && !user && !guest ? (ready ? <div className="relative px-6"><SignIn onGuest={() => { try { localStorage.setItem("pacer:guest", "1"); } catch { /* ignore */ } setGuest(true); }} /></div> : null) : (
+      <div className="relative mx-auto grid max-w-[1280px] items-start gap-6 px-6 pb-16 pt-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,440px)_minmax(0,1fr)]">
+      <LearnedBox />
+      <section className="relative flex flex-col items-center text-center">
+        <h1 className="display text-[34px] md:text-[44px]">{user ? `Hi, ${user.name.split(" ")[0]}.` : "The classroom,"}<br />{user ? "Ready to learn?" : "in sync."}</h1>
+        <p className="mt-3 text-base text-smoke">One lesson, with every student moving through it their own way.</p>
 
         {!lobby ? (
           <div className="mt-10 w-full space-y-4 text-left">
@@ -66,6 +73,9 @@ export default function Home() {
           </div>
         )}
       </section>
+      <ProgressBox />
+      </div>
+      )}
     </main>
   );
 }

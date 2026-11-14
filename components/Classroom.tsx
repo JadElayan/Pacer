@@ -17,6 +17,7 @@ import { bump, loadProfile, resetProfile, sampleProfile, saveProfile, subjectOf,
 import { ProfileSheet } from "./ProfileSheet";
 import { mergeProfiles, pullProfile, pushProfile } from "@/lib/cloudProfile";
 import { useAuth } from "@/lib/useAuth";
+import { saveLesson } from "@/lib/lessons";
 import { Logo } from "./Logo";
 import { RichText } from "./RichText";
 import { Popup, PopupData } from "./Popup";
@@ -106,6 +107,9 @@ export function Classroom({ code }: { code: string }) {
     Object.entries(grades).forEach(([id, ok]) => { if (!seenQ.current.has(id)) { seenQ.current.add(id); rec(ok ? "checkRight" : "checkWrong"); } });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grades]);
+
+  // Save what was covered so the student can review it later from the dashboard.
+  useEffect(() => { if (!isTeacher && state) { const t = setTimeout(() => saveLesson(state), 800); return () => clearTimeout(t); } }, [state, isTeacher]);
 
   // ---- student: AI ----
   const selectedBlocks = (a: Anchor | null) => (a && state ? state.blocks.filter((b) => a.ids.includes(b.id)) : []);
