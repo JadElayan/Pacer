@@ -32,8 +32,8 @@ export default function Home() {
       <div aria-hidden className="glow pointer-events-none absolute left-1/2 top-[42%] h-[720px] w-[720px] rounded-full bg-sky opacity-30 blur-3xl" style={{ transform: "translate(-50%,-50%)" }} />
       <header className="relative mx-auto flex h-16 max-w-[1280px] items-center justify-between px-6"><Logo /><AuthBar /></header>
       <section className="relative mx-auto flex max-w-xl flex-col items-center px-6 pb-24 pt-16 text-center md:pt-24">
-        <h1 className="display text-[40px] md:text-[56px]">Every student.<br />Every pace.</h1>
-        <p className="mt-4 text-lg text-smoke">A live classroom companion that helps each student keep up, without interrupting the lesson.</p>
+        <h1 className="display text-[40px] md:text-[56px]">The classroom,<br />in sync.</h1>
+        <p className="mt-4 text-lg text-smoke">One lesson, with every student moving through it their own way.</p>
 
         {!lobby ? (
           <div className="mt-10 w-full space-y-4 text-left">

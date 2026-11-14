@@ -45,7 +45,7 @@
 **Narrator:** "Loop closed: student asks quietly, teacher adjusts, student catches up."
 
 ### 6. Close (20 seconds)
-"One classroom, every pace. The teacher keeps control, each student controls their own support, and the AI connects the two."
+"The classroom, in sync. The teacher keeps control, each student controls their own support, and the AI connects the two."
 
 ## If something goes wrong
 - Student shows "We couldn't find meeting": wrong code, or the teacher hasn't entered the room.
