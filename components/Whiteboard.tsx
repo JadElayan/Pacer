@@ -38,7 +38,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, selectedIds, 
     <div ref={boardRef} className="relative min-h-[440px] flex-1">
       <div className="absolute inset-0 overflow-hidden rounded-[24px] border border-stone bg-taupe">
         <div className="absolute inset-0 overflow-auto p-5 md:p-8" role="region" aria-label="Whiteboard" tabIndex={0}>
-          {blocks.length === 0 && <p className="grid h-full place-items-center text-center text-smoke">{isTeacher ? "Add your first note below. It appears on every student's screen." : "Waiting for your teacher to write something…"}</p>}
+          {blocks.length === 0 && strokes.length === 0 && <p className="grid h-full place-items-center text-center text-smoke">{isTeacher ? "Add your first note below. It appears on every student's screen." : "Waiting for your teacher to write something…"}</p>}
           <div className="space-y-4">
             {blocks.map((b) => {
               const sel = selectedIds.includes(b.id);

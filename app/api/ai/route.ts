@@ -16,11 +16,13 @@ export async function POST(req: Request) {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5", max_tokens: JSON_KINDS.includes(b.kind) ? 900 : b.detail === "long" ? 700 : 350, system: SYSTEM, messages }),
+      body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5", max_tokens: JSON_KINDS.includes(b.kind) ? 1600 : b.detail === "long" ? 1400 : 1000, system: SYSTEM, messages }),
     });
     if (!r.ok) throw new Error(`AI provider returned ${r.status}`);
-    const j = (await r.json()) as { content?: { text?: string }[] };
-    const text = j.content?.[0]?.text?.trim() ?? "";
+    // The reply can start with a "thinking" block; the answer is in the text block(s).
+    const j = (await r.json()) as { content?: { type?: string; text?: string }[]; stop_reason?: string };
+    const text = (j.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("").trim();
+    if (!text) throw new Error("The AI didn't return an answer. Please try again");
     if (b.kind === "summarize") {
       try { const o = JSON.parse(text.replace(/^```json|```$/g, "").trim()); return NextResponse.json({ text: "", title: o.title, summary: o.summary, source: "ai" } satisfies AIResponse); }
       catch { return NextResponse.json(demoAnswer(b)); }

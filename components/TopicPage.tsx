@@ -7,6 +7,7 @@ import { useRoom } from "@/lib/useRoom";
 import { usePrefs } from "@/lib/usePrefs";
 import { Logo } from "./Logo";
 import { MathView } from "./MathView";
+import { RichText } from "./RichText";
 
 export function TopicPage({ code, id }: { code: string; id: string }) {
   const teacher = useSearchParams().get("role") === "teacher";
@@ -36,7 +37,7 @@ export function TopicPage({ code, id }: { code: string; id: string }) {
             <li key={b.id} className="rounded-[20px] border border-stone bg-taupe px-5 py-4">{b.kind === "equation" ? <div className="text-2xl"><MathView tex={b.content} /></div> : <p className="text-xl">{b.content}</p>}</li>))}</ul>
           <div className="mt-8 rounded-[24px] border border-stone p-6">
             <h2 className="text-lg font-medium">Go deeper</h2>
-            {deep ? (<><p className="mt-1 text-xs text-smoke">{deep.source === "demo" ? "Demo response (no AI key set)" : "Extra explanation from AI, not from your teacher"}</p><p className="mt-2 whitespace-pre-wrap">{deep.text}</p></>)
+            {deep ? (<><p className="mt-1 text-xs text-smoke">{deep.source === "demo" ? "Demo response (no AI key set)" : "Extra explanation from AI, not from your teacher"}</p><p className="mt-2 whitespace-pre-wrap"><RichText text={deep.text} /></p></>)
               : <p className="mt-1 text-sm text-smoke">Get a fuller explanation of this topic, with an example.</p>}
             {err && <p role="alert" className="mt-2 text-sm text-sky-deep">{err}</p>}
             <button className="btn btn-primary mt-4" disabled={busy} onClick={go}>{busy ? "Thinking…" : deep ? "Explain again" : "Explain deeper"}</button>

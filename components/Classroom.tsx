@@ -18,6 +18,7 @@ import { ProfileSheet } from "./ProfileSheet";
 import { mergeProfiles, pullProfile, pushProfile } from "@/lib/cloudProfile";
 import { useAuth } from "@/lib/useAuth";
 import { Logo } from "./Logo";
+import { RichText } from "./RichText";
 import { Popup, PopupData } from "./Popup";
 import { SettingsSheet } from "./SettingsSheet";
 import { Anchor, Whiteboard } from "./Whiteboard";
@@ -326,7 +327,7 @@ export function Classroom({ code }: { code: string }) {
           <aside role="dialog" aria-label="Catch me up" className="h-full w-[min(380px,100vw)] overflow-y-auto bg-eggshell p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="display text-3xl">Catch me up</h2>
             <p className="mt-1 text-xs text-smoke">{catchup.source === "demo" ? "Demo response (no AI key set)" : "AI summary of what changed"}</p>
-            <p className="mt-4 whitespace-pre-wrap" aria-live="polite">{catchupLoading ? "Thinking…" : catchup.text}</p>
+            <p className="mt-4 whitespace-pre-wrap" aria-live="polite">{catchupLoading ? "Thinking…" : <RichText text={catchup.text} />}</p>
             <div className="mt-6 flex flex-wrap gap-2">
               <button className="btn btn-outline" disabled={catchupLoading} onClick={() => void openCatchup("long")}>Explain more</button>
               <button className="btn btn-primary" onClick={() => { setCatchup(null); setLastViewed(live); setAnchor(null); boardRef.current?.querySelector("[role=region]")?.scrollTo({ top: 1e6 }); }}>Return to live</button>

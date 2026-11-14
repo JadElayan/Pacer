@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { GraphView, type GraphData } from "./GraphView";
+import { RichText } from "./RichText";
 import { QuizView, type QuizData } from "./QuizView";
 import { VisualView, type VisualData } from "./VisualView";
 import type { Rect } from "./Whiteboard";
@@ -51,7 +52,7 @@ export function AskPanel({ rect, boardW, boardH, excerpt, basedOn, msgs, loading
         ) : (
           <div key={i} ref={i === msgs.length - 1 ? lastRef : undefined} className="rounded-2xl border border-stone p-3 text-sm">
             <p className="mb-1 text-xs text-smoke">{m.source === "demo" ? "Demo response (no AI key set)" : "Extra explanation from AI, not from your teacher"}</p>
-            {m.view?.type === "graph" ? <GraphView data={m.view.data as GraphData} /> : m.view?.type === "visual" ? <VisualView data={m.view.data as VisualData} /> : m.view?.type === "quiz" ? <QuizView data={m.view.data as QuizData} onResult={onQuiz} /> : <p className="whitespace-pre-wrap">{m.text}</p>}
+            {m.view?.type === "graph" ? <GraphView data={m.view.data as GraphData} /> : m.view?.type === "visual" ? <VisualView data={m.view.data as VisualData} /> : m.view?.type === "quiz" ? <QuizView data={m.view.data as QuizData} onResult={onQuiz} /> : <p className="whitespace-pre-wrap"><RichText text={m.text} /></p>}
           </div>
         ))}
         {loading && <p className="text-sm text-smoke" role="status">Thinking…</p>}
