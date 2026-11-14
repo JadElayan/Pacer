@@ -11,7 +11,7 @@ import { usePrefs } from "@/lib/usePrefs";
 import { AskPanel, Msg } from "./AskPanel";
 import { CheckIn } from "./CheckIn";
 import { ConceptColumn } from "./ConceptColumn";
-import { computeRows, MIN_GROUP } from "@/lib/insights";
+import { checkinStats, computeRows, MIN_GROUP } from "@/lib/insights";
 import { Insights } from "./Insights";
 import { bump, loadProfile, resetProfile, sampleProfile, saveProfile, subjectOf, type Profile, type Stats } from "@/lib/profile";
 import { ProfileSheet } from "./ProfileSheet";
@@ -182,7 +182,11 @@ export function Classroom({ code }: { code: string }) {
     mutate((s) => ({ ...s, question: { id, text: qText.trim(), ts: Date.now(), open: true } }));
     setQText(""); setQAnswer("");
   };
-  const closeQuestion = () => mutate((s) => ({ ...s, question: s.question ? { ...s.question, open: false } : null }));
+  const closeQuestion = () => {
+    let answer: string | undefined; try { answer = JSON.parse(localStorage.getItem(`pacer:key:${code}`) ?? "null")?.answer; } catch { /* ignore */ }
+    const st = state ? checkinStats(state, events) : null;
+    mutate((s) => ({ ...s, question: s.question ? { ...s.question, open: false, answer, correct: st?.correct ?? 0, total: st?.total ?? 0 } : null }));
+  };
   const revisit = (blockId: string) => mutate((s) => ({ ...s, spotlight: { blockId, ts: Date.now() } }));
   const spotTs = state?.spotlight?.ts;
   useEffect(() => {
@@ -253,7 +257,7 @@ export function Classroom({ code }: { code: string }) {
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col gap-3">
-          {!isTeacher && state.question && <CheckIn key={state.question.id} text={state.question.text} open={state.question.open} grade={grades[state.question.id]} onSubmit={(v) => submitAnswer(state.question!.id, v)} />}
+          {!isTeacher && state.question && <CheckIn key={state.question.id} text={state.question.text} open={state.question.open} answer={state.question.answer} correct={state.question.correct} total={state.question.total} grade={grades[state.question.id]} onSubmit={(v) => submitAnswer(state.question!.id, v)} />}
           {!isTeacher && spotBlock && spot && spot.ts !== spotSeen && (
             <div role="status" className="pop-in flex flex-wrap items-center gap-3 rounded-[20px] border border-sky bg-sky-soft p-3 text-sm">
               <span className="min-w-0 flex-1">Your teacher is going back over: <b>{spotBlock.content}</b></span>

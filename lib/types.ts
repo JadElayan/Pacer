@@ -6,7 +6,7 @@ export interface RoomState {
   code: string; title: string; blocks: Block[]; topics: Topic[]; strokes: Stroke[];
   currentTopicId: string | null; ended: boolean; rev: number;
   spotlight?: { blockId: string; ts: number } | null;
-  question?: { id: string; text: string; ts: number; open: boolean } | null;
+  question?: { id: string; text: string; ts: number; open: boolean; answer?: string; correct?: number; total?: number } | null;
   subject?: string;
 }
 export interface FeedbackEvent { id: string; sid: string; kind: "ask" | "confused" | "helped" | "answer"; blockId: string | null; topicId: string | null; ts: number; correct?: boolean; questionId?: string }

@@ -4,6 +4,31 @@ import { askAI } from "@/lib/ai";
 import { checkinStats, computeRows, MIN_GROUP, type Row } from "@/lib/insights";
 import type { FeedbackEvent, RoomState } from "@/lib/types";
 
+/** Live check-in poll: two rounded bars (correct / incorrect) that grow with each answer. Counts only, never names. */
+function Poll({ ck, classSize }: { ck: { text: string; open: boolean; total: number; correct: number }; classSize: number }) {
+  const wrong = ck.total - ck.correct;
+  const denom = Math.max(classSize, ck.total, 1);
+  const pct = ck.total ? Math.round((100 * ck.correct) / ck.total) : 0;
+  const bar = (label: string, n: number, color: string, soft: string) => (
+    <div className="flex flex-1 flex-col items-center gap-2">
+      <span className="text-2xl font-light tabular-nums">{n}</span>
+      <div className="relative h-28 w-full max-w-[72px] overflow-hidden rounded-full" style={{ background: soft }} role="img" aria-label={`${label}: ${n} of ${denom}`}>
+        <div className="absolute inset-x-0 bottom-0 rounded-full transition-[height] duration-500 ease-out" style={{ height: `${n ? Math.max(14, (n / denom) * 100) : 0}%`, background: color }} />
+      </div>
+      <span className="text-xs font-medium">{label}</span>
+    </div>
+  );
+  return (
+    <div className="mt-4 rounded-[20px] border border-stone p-4">
+      <div className="flex items-center justify-between"><p className="text-xs text-smoke">Check-in poll</p><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${ck.open ? "bg-sky-soft text-sky-deep" : "bg-taupe text-smoke"}`}>{ck.open ? "Live" : "Closed"}</span></div>
+      <p className="mt-1 truncate text-sm font-medium">{ck.text}</p>
+      <div className="mt-3 flex gap-4">{bar("Correct", ck.correct, "#2fbf71", "#e3f6ec")}{bar("Incorrect", wrong, "#ef5b5b", "#fde8e8")}</div>
+      <p className="mt-3 text-center text-xs text-smoke">{ck.total} of {Math.max(classSize, ck.total)} in class answered{ck.total ? ` · ${pct}% correct` : ""}</p>
+      {ck.total >= 2 && wrong / ck.total >= 0.5 && <p className="mt-2 rounded-xl bg-taupe p-2 text-center text-xs">Half the class missed this. Consider re-explaining.</p>}
+    </div>
+  );
+}
+
 export function Insights({ state, events, connected, demo }: { state: RoomState; events: FeedbackEvent[]; connected: number; demo: boolean }) {
   const [open, setOpen] = useState<string | null>(null);
   const [tip, setTip] = useState<Record<string, string>>({});
@@ -36,13 +61,7 @@ export function Insights({ state, events, connected, demo }: { state: RoomState;
         {[["Connected", connected], ["Need help", needHelp], ["Questions", totalAsks]].map(([l, v]) => (
           <div key={l as string} className="rounded-[16px] bg-taupe p-3"><div className="text-2xl font-light">{v}</div><div className="text-xs text-smoke">{l}</div></div>))}
       </div>
-      {ck && (
-        <div className="mt-4 rounded-[16px] border border-stone p-3">
-          <p className="text-xs text-smoke">Check-in question{ck.open ? " (open)" : ""}</p>
-          <p className="truncate text-sm font-medium">{ck.text}</p>
-          <p className="text-sm">{demo || ck.total >= MIN_GROUP ? `${ck.correct} of ${ck.total} correct` : `${ck.total} answered. Results hidden under ${MIN_GROUP} students.`}</p>
-        </div>
-      )}
+      {ck && <Poll ck={ck} classSize={connected} />}
       <div className="mt-4"><p className="text-xs text-smoke">Confusion flags, last 10 minutes</p>
         <div className="mt-1 flex h-10 items-end gap-1" role="img" aria-label={`Confusion flags per minute: ${bars.join(", ")}`}>{bars.map((n, i) => <div key={i} className="flex-1 rounded-sm bg-sky" style={{ height: `${Math.max(6, (n / maxBar) * 100)}%`, opacity: n ? 1 : 0.25 }} />)}</div></div>
       <h3 className="mt-5 text-sm font-medium">Concepts needing attention</h3>

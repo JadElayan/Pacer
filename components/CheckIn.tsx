@@ -2,14 +2,21 @@
 import { useState } from "react";
 
 /** Student card for a teacher's check-in question. Keyed by question id so it resets for each new question. */
-export function CheckIn({ text, open, grade, onSubmit }: { text: string; open: boolean; grade?: boolean; onSubmit: (v: string) => void }) {
+export function CheckIn({ text, open, grade, answer, correct, total, onSubmit }: { text: string; open: boolean; grade?: boolean; answer?: string; correct?: number; total?: number; onSubmit: (v: string) => void }) {
   const [v, setV] = useState(""); const [sent, setSent] = useState(false); const [hide, setHide] = useState(false);
-  if (hide || (!open && !sent)) return null;
+  if (hide || (!open && !sent && !answer)) return null;
   return (
     <div role="group" aria-label="Check-in question" className="pop-in rounded-[20px] border-2 border-sky bg-sky-soft p-4">
       <p className="text-xs font-medium text-sky-deep">Question from your teacher (not graded)</p>
       <p className="mt-1 text-lg">{text}</p>
-      {grade === undefined ? (
+      {!open && answer ? (
+        <div className="mt-3 space-y-1" role="status">
+          <p className="text-base font-medium">Answer: <span className="rounded-lg bg-white px-2 py-0.5">{answer}</span></p>
+          {grade !== undefined && <p className="text-sm">{grade ? "You got it right." : "Yours was not quite right."}</p>}
+          {!!total && <p className="text-sm text-smoke">Class: {correct} of {total} got it right.</p>}
+          <button className="btn btn-outline btn-sm mt-1" onClick={() => setHide(true)}>Close</button>
+        </div>
+      ) : grade === undefined ? (
         sent ? <p className="mt-3 text-sm text-smoke" role="status">Checking your answer…</p> : (
           <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); if (v.trim() && open) { onSubmit(v.trim()); setSent(true); } }}>
             <label className="sr-only" htmlFor="ck-in">Your answer</label>
