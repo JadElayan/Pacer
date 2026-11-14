@@ -15,6 +15,8 @@ import { computeRows, MIN_GROUP } from "@/lib/insights";
 import { Insights } from "./Insights";
 import { bump, loadProfile, resetProfile, sampleProfile, saveProfile, subjectOf, type Profile, type Stats } from "@/lib/profile";
 import { ProfileSheet } from "./ProfileSheet";
+import { mergeProfiles, pullProfile, pushProfile } from "@/lib/cloudProfile";
+import { useAuth } from "@/lib/useAuth";
 import { Logo } from "./Logo";
 import { Popup, PopupData } from "./Popup";
 import { SettingsSheet } from "./SettingsSheet";
@@ -48,6 +50,7 @@ export function Classroom({ code }: { code: string }) {
   const [spotSeen, setSpotSeen] = useState(0);
   const [profile, setProfile] = useState<Profile>({}); const [showProfile, setShowProfile] = useState(false);
   const seenQ = useRef<Set<string>>(new Set());
+  const { user } = useAuth(); const pulled = useRef<string | null>(null);
   const [qText, setQText] = useState(""); const [qAnswer, setQAnswer] = useState("");
   const lastPopup = useRef(0); const prevTopics = useRef<number | null>(null); const demoIdx = useRef(0);
   const sumTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -87,6 +90,17 @@ export function Classroom({ code }: { code: string }) {
   // ---- student: private learning profile (this device only) ----
   const rec = (f: keyof Stats) => setProfile(bump(subjectOf(state?.title ?? "", state?.subject), f));
   useEffect(() => { setProfile(loadProfile()); }, []);
+  // Signed-in students: merge the saved account profile with this device, then keep it saved. Guests stay on-device only.
+  useEffect(() => {
+    if (!user || pulled.current === user.id) return;
+    pulled.current = user.id;
+    void pullProfile(user.id).then((remote) => { const merged = mergeProfiles(loadProfile(), remote ?? {}); saveProfile(merged); setProfile(merged); void pushProfile(user.id, merged); }).catch(() => { /* offline: keep local */ });
+  }, [user]);
+  useEffect(() => {
+    if (!user || pulled.current !== user.id) return;
+    const t = setTimeout(() => void pushProfile(user.id, profile).catch(() => { /* ignore */ }), 1500);
+    return () => clearTimeout(t);
+  }, [profile, user]);
   useEffect(() => {
     Object.entries(grades).forEach(([id, ok]) => { if (!seenQ.current.has(id)) { seenQ.current.add(id); rec(ok ? "checkRight" : "checkWrong"); } });
     // eslint-disable-next-line react-hooks/exhaustive-deps

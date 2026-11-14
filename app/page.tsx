@@ -3,10 +3,14 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Logo } from "@/components/Logo";
+import { AuthBar } from "@/components/AuthBar";
+import { recordLecture } from "@/lib/cloudProfile";
+import { useAuth } from "@/lib/useAuth";
 import { createMeeting } from "@/lib/useRoom";
 
 export default function Home() {
   const router = useRouter();
+  const { user } = useAuth();
   const [code, setCode] = useState("");
   const [nick, setNick] = useState("");
   const [title, setTitle] = useState("");
@@ -26,7 +30,7 @@ export default function Home() {
   return (
     <main className="relative min-h-screen overflow-hidden">
       <div aria-hidden className="glow pointer-events-none absolute left-1/2 top-[42%] h-[720px] w-[720px] rounded-full bg-sky opacity-30 blur-3xl" style={{ transform: "translate(-50%,-50%)" }} />
-      <header className="relative mx-auto flex h-16 max-w-[1280px] items-center px-6"><Logo /></header>
+      <header className="relative mx-auto flex h-16 max-w-[1280px] items-center justify-between px-6"><Logo /><AuthBar /></header>
       <section className="relative mx-auto flex max-w-xl flex-col items-center px-6 pb-24 pt-16 text-center md:pt-24">
         <h1 className="display text-[40px] md:text-[56px]">Every student.<br />Every pace.</h1>
         <p className="mt-4 text-lg text-smoke">A live classroom companion that helps each student keep up, without interrupting the lesson.</p>
@@ -41,7 +45,7 @@ export default function Home() {
               <p id="code-err" role="alert" className="mt-2 min-h-5 text-sm text-sky-deep">{err}</p>
               <button className="btn btn-primary mt-2 w-full text-base" type="submit">Join Meeting</button>
             </form>
-            <form onSubmit={(e) => { e.preventDefault(); setLobby(createMeeting(title.trim(), subject)); }} className="card rounded-[24px] border border-stone bg-eggshell/90 p-6 shadow-[var(--shadow-whisper)]">
+            <form onSubmit={(e) => { e.preventDefault(); { const c = createMeeting(title.trim(), subject); setLobby(c); if (user) void recordLecture(user.id, { code: c, title: title.trim() || "Untitled lecture", subject }); }; }} className="card rounded-[24px] border border-stone bg-eggshell/90 p-6 shadow-[var(--shadow-whisper)]">
               <label htmlFor="title" className="block text-sm font-medium">Teaching? Name your lecture</label>
               <input id="title" className="input mt-2" placeholder="Solving Linear Equations" value={title} onChange={(e) => setTitle(e.target.value)} />
               <label htmlFor="subject" className="mt-4 block text-sm font-medium">Subject <span className="text-smoke">(optional)</span></label>

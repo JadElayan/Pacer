@@ -1,13 +1,11 @@
-import { createClient } from "@supabase/supabase-js";
+import { getSupabase } from "./supabase";
 
 export interface Msg { type: "hello" | "state" | "hb" | "event" | "answer" | "grade"; from: string; to?: string; payload?: unknown }
 export interface Transport { kind: "supabase" | "local"; send(m: Msg): void; on(cb: (m: Msg) => void): void; close(): void }
 
 export function createTransport(code: string): Transport {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (url && key) {
-    const sb = createClient(url, key, { realtime: { params: { eventsPerSecond: 20 } } });
+  const sb = getSupabase();
+  if (sb) {
     const ch = sb.channel(`pacer:${code}`, { config: { broadcast: { self: false } } });
     let ready = false; const queue: Msg[] = []; let cb: (m: Msg) => void = () => {};
     ch.on("broadcast", { event: "m" }, ({ payload }) => cb(payload as Msg));
