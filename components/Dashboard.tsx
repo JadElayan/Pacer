@@ -2,17 +2,22 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { accuracy, loadProfile, sampleProfile, saveProfile, summarize, type Profile } from "@/lib/profile";
-import { loadLessons, type Lesson } from "@/lib/lessons";
+import { loadLessons, mergeLessons, pullLessons, storeLessons, type Lesson } from "@/lib/lessons";
+import { BoardPreview } from "./ArchiveSheet";
 import { mergeProfiles, pullProfile } from "@/lib/cloudProfile";
 import { useAuth } from "@/lib/useAuth";
 
-const study = (s: string) => `https://www.khanacademy.org/search?page_search_query=${encodeURIComponent(s)}`;
+const KHAN: Record<string, string> = { algebra: "math/algebra", trigonometry: "math/trigonometry", geometry: "math/geometry", calculus: "math/calculus-1" };
+const study = (s: string) => { const k = KHAN[s.toLowerCase()]; return k ? `https://www.khanacademy.org/${k}` : `https://www.khanacademy.org/search?page_search_query=${encodeURIComponent(s)}`; };
+const video = (s: string) => `https://www.youtube.com/results?search_query=${encodeURIComponent(s + " lesson for students")}`;
 const when = (t: number) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
 /** Left and right boxes around the join/host area: what you learned, and how you're doing. */
 export function LearnedBox() {
   const [lessons, setLessons] = useState<Lesson[]>([]); const [open, setOpen] = useState<string | null>(null);
+  const { user } = useAuth();
   useEffect(() => { setLessons(loadLessons()); }, []);
+  useEffect(() => { if (user) void pullLessons(user.id).then((r) => { const m = mergeLessons(loadLessons(), r); storeLessons(m); setLessons(m); }).catch(() => {}); }, [user]);
   return (
     <section aria-label="What you've learned" className="flex min-h-[420px] flex-col rounded-[28px] border border-stone bg-eggshell/95 p-6 shadow-[var(--shadow-whisper)] lg:min-h-[560px]">
       <p className="text-xs font-medium uppercase tracking-wide text-sky-deep">What you've learned</p>
@@ -23,11 +28,11 @@ export function LearnedBox() {
         {lessons.map((l) => (
           <div key={l.code} className="rounded-[20px] border border-stone p-4">
             <button className="flex w-full items-center justify-between gap-3 text-left" aria-expanded={open === l.code} onClick={() => setOpen(open === l.code ? null : l.code)}>
-              <span><span className="block font-medium">{l.title}</span><span className="text-xs text-smoke">{l.subject ? `${l.subject} · ` : ""}{when(l.ts)} · {l.topics.length} topic{l.topics.length === 1 ? "" : "s"}</span></span>
+              <span><span className="block font-medium">{l.title}</span><span className="text-xs text-smoke">{l.subject ? `${l.subject} · ` : ""}{when(l.ts)} · {l.topics.length} topic{l.topics.length === 1 ? "" : "s"}{l.boards?.length ? ` · ${l.boards.length} saved board${l.boards.length === 1 ? "" : "s"}` : ""}</span></span>
               <span aria-hidden className="text-smoke">{open === l.code ? "–" : "+"}</span>
             </button>
             {open === l.code && <ul className="mt-3 space-y-2">{l.topics.map((t, i) => (
-              <li key={i} className="rounded-2xl bg-taupe p-3"><p className="text-sm font-medium">{t.title}</p><p className="text-xs text-smoke">{t.summary}</p><p className="mt-1 text-xs">{t.notes.join("  ·  ")}</p></li>))}</ul>}
+              <li key={i} className="rounded-2xl bg-taupe p-3"><p className="text-sm font-medium">{t.title}</p><p className="text-xs text-smoke">{t.summary}</p><p className="mt-1 text-xs">{t.notes.join("  ·  ")}</p></li>))}{(l.boards ?? []).map((b, i) => <li key={b.id}><p className="mb-1 text-xs text-smoke">Saved board {i + 1}</p><BoardPreview b={b} /></li>)}</ul>}
           </div>))}
       </div>
     </section>
@@ -57,7 +62,7 @@ export function ProgressBox() {
           <div className="rounded-[20px] bg-sky-soft p-4">
             <p className="text-sm font-medium">What to study</p>
             <ul className="mt-2 space-y-2 text-sm">
-              {weak.map(([n]) => <li key={n}>Review <b>{n}</b>: you're missing a lot of these. <a className="text-sky-deep underline" href={study(n)} target="_blank" rel="noreferrer">Study resources</a></li>)}
+              {weak.map(([n]) => <li key={n}>Review <b>{n}</b>: you're missing a lot of these. <a className="text-sky-deep underline" href={study(n)} target="_blank" rel="noreferrer">Khan Academy</a> · <a className="text-sky-deep underline" href={video(n)} target="_blank" rel="noreferrer">Videos</a></li>)}
               {strong.map(([n]) => <li key={n}>You're strong in <b>{n}</b>. Nice work.</li>)}
             </ul>
             <p className="mt-2 text-xs text-smoke">Later, this will link to your class on Canvas and other tools.</p>

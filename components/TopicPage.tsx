@@ -17,7 +17,7 @@ export function TopicPage({ code, id }: { code: string; id: string }) {
   const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
   const back = `/room/${code}${teacher ? "?role=teacher" : ""}`;
   const topic = state?.topics.find((t) => t.id === id);
-  const blocks = state?.blocks.filter((b) => b.topicId === id) ?? [];
+  const blocks = [...(state?.archive ?? []).flatMap((a) => a.blocks), ...(state?.blocks ?? [])].filter((b) => b.topicId === id).filter((b, i, arr) => arr.findIndex((x) => x.id === b.id) === i);
 
   const go = async () => {
     setBusy(true); setErr("");

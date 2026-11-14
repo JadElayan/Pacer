@@ -17,7 +17,8 @@ import { bump, loadProfile, resetProfile, sampleProfile, saveProfile, subjectOf,
 import { ProfileSheet } from "./ProfileSheet";
 import { mergeProfiles, pullProfile, pushProfile } from "@/lib/cloudProfile";
 import { useAuth } from "@/lib/useAuth";
-import { saveLesson } from "@/lib/lessons";
+import { pushLesson, saveLesson } from "@/lib/lessons";
+import { ArchiveSheet } from "./ArchiveSheet";
 import { Logo } from "./Logo";
 import { RichText } from "./RichText";
 import { Popup, PopupData } from "./Popup";
@@ -43,6 +44,7 @@ export function Classroom({ code }: { code: string }) {
   const [showInsights, setShowInsights] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
   const [catchup, setCatchup] = useState<{ text: string; source: string } | null>(null);
   const [catchupLoading, setCatchupLoading] = useState(false);
   const [lastViewed, setLastViewed] = useState<string | null>(null);
@@ -109,7 +111,7 @@ export function Classroom({ code }: { code: string }) {
   }, [grades]);
 
   // Save what was covered so the student can review it later from the dashboard.
-  useEffect(() => { if (!isTeacher && state) { const t = setTimeout(() => saveLesson(state), 800); return () => clearTimeout(t); } }, [state, isTeacher]);
+  useEffect(() => { if (!isTeacher && state) { const t = setTimeout(() => { const l = saveLesson(state); if (l && user) void pushLesson(user.id, l).catch(() => { /* offline */ }); }, 800); return () => clearTimeout(t); } }, [state, isTeacher, user]);
 
   // ---- student: AI ----
   const selectedBlocks = (a: Anchor | null) => (a && state ? state.blocks.filter((b) => a.ids.includes(b.id)) : []);
@@ -191,6 +193,12 @@ export function Classroom({ code }: { code: string }) {
     const st = state ? checkinStats(state, events) : null;
     mutate((s) => ({ ...s, question: s.question ? { ...s.question, open: false, answer, correct: st?.correct ?? 0, total: st?.total ?? 0 } : null }));
   };
+  /** Every clear first saves a copy of the board (notes + pen) to the archive, so students can still look back at it. */
+  const clearBoard = (what: "pen" | "all") => mutate((s) => {
+    if (!s.blocks.length && !s.strokes.length) return s;
+    const snap = { id: uid(), ts: Date.now(), blocks: s.blocks.map((b) => ({ id: b.id, topicId: b.topicId, kind: b.kind, content: b.content })), strokes: s.strokes };
+    return { ...s, archive: [...(s.archive ?? []), snap].slice(-20), strokes: [], blocks: what === "all" ? [] : s.blocks };
+  });
   const revisit = (blockId: string) => mutate((s) => ({ ...s, spotlight: { blockId, ts: Date.now() } }));
   const spotTs = state?.spotlight?.ts;
   useEffect(() => {
@@ -229,6 +237,7 @@ export function Classroom({ code }: { code: string }) {
         <span className="inline-flex items-center gap-2 rounded-full border border-stone px-3 py-1 text-xs"><span aria-hidden className={`h-2 w-2 rounded-full ${isTeacher || status === "live" ? "bg-sky" : "bg-ash"}`} />{isTeacher ? `${connected} connected` : pill}</span>
         {isTeacher ? (
           <>
+            <button className="btn btn-outline btn-sm" onClick={() => setShowArchive(true)}>Board archive{state.archive?.length ? ` (${state.archive.length})` : ""}</button>
             <button className="btn btn-outline btn-sm" onClick={() => setShowInvite((v) => !v)}>Invite · {code}</button>
             <button className="btn btn-outline btn-sm" onClick={toggleDemo} aria-pressed={demoMode} title="Alert and show insights even for 1-2 students (for small demos)">Small class: {demoMode ? "on" : "off"}</button>
             <button className="btn btn-outline btn-sm" onClick={() => setShowInsights((v) => !v)} aria-pressed={showInsights}>Insights{alerts.length ? ` (${alerts.length})` : ""}</button>
@@ -238,6 +247,7 @@ export function Classroom({ code }: { code: string }) {
           <>
             <button className={`btn btn-sm ${snip ? "btn-primary" : "btn-outline"}`} aria-pressed={snip} onClick={() => { setSnip((v) => !v); setAnchor(null); }}>Snip</button>
             <button className="btn btn-outline btn-sm" onClick={() => void openCatchup()}>Catch me up</button>
+            <button className="btn btn-outline btn-sm" onClick={() => setShowArchive(true)}>Board archive{state.archive?.length ? ` (${state.archive.length})` : ""}</button>
             <button className="btn btn-outline btn-sm" onClick={() => setShowProfile(true)}>My profile</button>
             <button className="btn btn-outline btn-sm" onClick={() => setShowSettings(true)}>Mode: {prefs.mode}</button>
           </>
@@ -291,7 +301,8 @@ export function Classroom({ code }: { code: string }) {
               <button className="btn btn-primary btn-sm" disabled={!draft.trim()}>Add</button>
               <button type="button" className={`btn btn-sm btn-outline ${pendingNew ? "chip-on" : ""}`} aria-pressed={pendingNew} onClick={() => setPendingNew((v) => !v)}>{pendingNew ? "Next note starts a new topic" : "Start new topic"}</button>
               <button type="button" className={`btn btn-sm btn-outline ${pen ? "chip-on" : ""}`} aria-pressed={pen} onClick={() => setPen((v) => !v)}>Pen</button>
-              {state.strokes.length > 0 && <button type="button" className="btn btn-sm btn-outline" onClick={() => mutate((s) => ({ ...s, strokes: [] }))}>Clear pen</button>}
+              {state.strokes.length > 0 && <button type="button" className="btn btn-sm btn-outline" onClick={() => clearBoard("pen")}>Clear pen</button>}
+              {(state.blocks.length > 0 || state.strokes.length > 0) && <button type="button" className="btn btn-sm btn-outline" onClick={() => clearBoard("all")}>Clear board</button>}
               <button type="button" className="btn btn-sm btn-outline" onClick={demoStep}>Add demo step</button>
             </form>
           )}
@@ -329,6 +340,7 @@ export function Classroom({ code }: { code: string }) {
       )}
       {popup && !isTeacher && <Popup p={popup} onDismiss={() => setPopup(null)} onNever={() => { update({ popups: false }); setPopup(null); }} />}
       {showProfile && !isTeacher && <ProfileSheet profile={profile} onClose={() => setShowProfile(false)} onReset={() => { resetProfile(); setProfile({}); }} onSample={() => setProfile(sampleProfile())} />}
+      {showArchive && <ArchiveSheet boards={state.archive ?? []} onClose={() => setShowArchive(false)} />}
       {showSettings && <SettingsSheet prefs={prefs} update={update} reset={reset} onClose={() => setShowSettings(false)} />}
       {catchup && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/20" onClick={() => setCatchup(null)}>

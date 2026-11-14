@@ -2,12 +2,14 @@ export type BlockKind = "text" | "equation";
 export interface Block { id: string; topicId: string; kind: BlockKind; content: string; order: number; ts: number }
 export interface Topic { id: string; title: string; summary: string; ts: number; auto: boolean }
 export interface Stroke { id: string; pts: [number, number][] }
+export interface Archived { id: string; ts: number; blocks: { id: string; topicId: string; kind: BlockKind; content: string }[]; strokes: Stroke[] }
 export interface RoomState {
   code: string; title: string; blocks: Block[]; topics: Topic[]; strokes: Stroke[];
   currentTopicId: string | null; ended: boolean; rev: number;
   spotlight?: { blockId: string; ts: number } | null;
   question?: { id: string; text: string; ts: number; open: boolean; answer?: string; correct?: number; total?: number } | null;
   subject?: string;
+  archive?: Archived[];
 }
 export interface FeedbackEvent { id: string; sid: string; kind: "ask" | "confused" | "helped" | "answer"; blockId: string | null; topicId: string | null; ts: number; correct?: boolean; questionId?: string }
 export type Mode = "standard" | "focus" | "guided" | "example";
