@@ -47,6 +47,7 @@ export function AskPanel({ rect, boardW, boardH, excerpt, basedOn, msgs, loading
       </div>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4" aria-live="polite">
         {empty && <p className="text-sm text-smoke">There are no notes inside that box. Try drawing it around some writing.</p>}
+        {!empty && msgs.length === 0 && !loading && <p className="text-sm text-smoke">Type your question below. Not sure where to start? Open <b>Tools</b> and pick <b>Explain in depth</b>.</p>}
         {msgs.map((m, i) => m.role === "user" ? (
           <p key={i} className="ml-8 rounded-2xl bg-taupe px-3 py-2 text-sm">{m.text}</p>
         ) : (
@@ -82,7 +83,7 @@ export function AskPanel({ rect, boardW, boardH, excerpt, basedOn, msgs, loading
           </div>
           <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (q.trim()) { onSend("followup", q.trim()); setQ(""); } }}>
             <label className="sr-only" htmlFor="ask-q">Ask a question</label>
-            <input id="ask-q" className="input !min-h-10 !text-sm" placeholder="Ask your own question…" value={q} onChange={(e) => setQ(e.target.value)} />
+            <input id="ask-q" autoFocus className="input !min-h-10 !text-sm" placeholder="Ask about this, e.g. what does x equal?" value={q} onChange={(e) => setQ(e.target.value)} />
             <button className="btn btn-primary btn-sm" disabled={loading || !q.trim()}>Ask</button>
           </form>
         </div>

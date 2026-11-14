@@ -117,7 +117,7 @@ export function Classroom({ code }: { code: string }) {
     if (!state) return;
     const sel = selectedBlocks(a); const tp = state.topics.find((t) => t.id === sel[0]?.topicId);
     const label: Record<AIKind, string> = { explain: "Explain this", why: "Why this step?", simplify: "Simplify", example: "Give an example", snip: "Explain in depth", followup: question ?? "", another: "Try another explanation", deeper: "More depth", catchup: "", summarize: "", clarify: "", graph: "Graph it", visual: "Visualize it", quiz: "Quiz me" };
-    const history = msgs.slice(-6).map((m) => ({ role: m.role, text: m.text }));
+    const history = msgs.slice(-6).filter((m) => m.text.trim()).map((m) => ({ role: m.role, text: m.text })).filter((m, i, arr) => !(i === 0 && m.role === "assistant" && arr.length > 0));
     setMsgs((m) => [...m, { role: "user", text: guided ? "Step by step" : label[k] }]); setLoading(true); setError(""); setFed("");
     sendEvent("ask", sel[0]?.id ?? null, sel[0]?.topicId ?? null); rec("asks");
     try {
@@ -270,7 +270,7 @@ export function Classroom({ code }: { code: string }) {
           )}
           <Whiteboard boardRef={boardRef} spotlightId={spotBlock?.id} blocks={blocks} strokes={state.strokes} isTeacher={isTeacher} selectedIds={anchor?.ids ?? []}
             onSelect={(a) => { if (!isTeacher) openAnchor(a); }} snipActive={snip && !isTeacher} penActive={pen}
-            onSnip={(a) => { if (!a) { setSnip(false); return; } openAnchor(a, "snip"); }}
+            onSnip={(a) => { if (!a) { setSnip(false); return; } openAnchor(a); }}
             onStroke={(pts) => mutate((s) => ({ ...s, strokes: [...s.strokes, { id: uid(), pts }] }))}
             onDelete={(id) => mutate((s) => ({ ...s, blocks: s.blocks.filter((b) => b.id !== id) }))}>
             {anchor && !isTeacher && board && (
