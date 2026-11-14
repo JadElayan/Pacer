@@ -28,7 +28,44 @@ const KNOWN: Record<string, { why: string; simple: string; example: string }> = 
   },
 };
 
+/** Parse "2x + 6 = 14", "3x = 12", "x = 4" into ax + b = c. */
+function parseLinear(list: string[]): { a: number; b: number; c: number } | null {
+  for (const raw of list) {
+    const s = raw.replace(/\\[a-z]+/gi, "").replace(/\s+/g, "").replace(/[−–]/g, "-");
+    const m = s.match(/^(-?\d*\.?\d*)x([+-]\d+\.?\d*)?=(-?\d+\.?\d*)$/);
+    if (!m) continue;
+    const a = m[1] === "" ? 1 : m[1] === "-" ? -1 : Number(m[1]);
+    const b = m[2] ? Number(m[2]) : 0; const c = Number(m[3]);
+    if (a !== 0 && [a, b, c].every(Number.isFinite)) return { a, b, c };
+  }
+  return null;
+}
+const tex = (a: number, b: number) => `${a === 1 ? "" : a === -1 ? "-" : a}x${b === 0 ? "" : b > 0 ? ` + ${b}` : ` - ${Math.abs(b)}`}`;
+
+function demoTool(r: AIRequest): AIResponse {
+  const lin = parseLinear(r.selected);
+  if (r.kind === "graph") {
+    if (!lin) return { text: "", data: { title: "Demo graph", series: [{ label: "y = x", expr: "x" }, { label: "y = 2", expr: "2" }], xRange: [-5, 5], note: "Demo response: select an equation like 2x + 6 = 14 for a matching graph." }, source: "demo" };
+    const x0 = (lin.c - lin.b) / lin.a;
+    return { text: "", data: { title: `Each side of ${tex(lin.a, lin.b)} = ${lin.c} as a line`, series: [{ label: `y = ${tex(lin.a, lin.b)}`, expr: `${lin.a}*x${lin.b >= 0 ? "+" : "-"}${Math.abs(lin.b)}` }, { label: `y = ${lin.c}`, expr: String(lin.c) }], xRange: [Math.floor(x0) - 4, Math.ceil(x0) + 4], note: `The lines cross at x = ${Number(x0.toFixed(2))}. That crossing is the solution.` }, source: "demo" };
+  }
+  if (r.kind === "visual") {
+    if (!lin) return { text: "", data: { steps: [{ caption: "Start balanced", left: "?", right: "?" }, { caption: "Do the same to both sides", left: "?", right: "?" }] }, source: "demo" };
+    const steps = [{ caption: "Start: both sides are balanced", left: tex(lin.a, lin.b), right: String(lin.c) }];
+    if (lin.b !== 0) steps.push({ caption: `${lin.b > 0 ? "Subtract" : "Add"} ${Math.abs(lin.b)} on both sides`, left: tex(lin.a, 0), right: String(lin.c - lin.b) });
+    if (lin.a !== 1) steps.push({ caption: `Divide both sides by ${lin.a}`, left: "x", right: String(Number(((lin.c - lin.b) / lin.a).toFixed(3))) });
+    return { text: "", data: { steps }, source: "demo" };
+  }
+  // quiz
+  if (lin) {
+    const a2 = lin.a + 1, x2 = Math.round((lin.c - lin.b) / lin.a) + 1;
+    return { text: "", data: { question: `Practice: solve ${tex(a2, lin.b)} = ${a2 * x2 + lin.b}`, answer: String(x2), hint: `${lin.b === 0 ? "" : `${lin.b > 0 ? "Subtract" : "Add"} ${Math.abs(lin.b)} from both sides, then `}divide by ${a2}.` }, source: "demo" };
+  }
+  return { text: "", data: { question: "Practice: solve 3x + 2 = 11", answer: "3", hint: "Subtract 2 from both sides, then divide by 3." }, source: "demo" };
+}
+
 export function demoAnswer(r: AIRequest): AIResponse {
+  if (r.kind === "graph" || r.kind === "visual" || r.kind === "quiz") return demoTool(r);
   const sel = r.selected[0] ?? "";
   const k = KNOWN[norm(sel)];
   if (r.kind === "summarize") {

@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { askAI } from "@/lib/ai";
-import { computeRows, MIN_GROUP, type Row } from "@/lib/insights";
+import { checkinStats, computeRows, MIN_GROUP, type Row } from "@/lib/insights";
 import type { FeedbackEvent, RoomState } from "@/lib/types";
 
 export function Insights({ state, events, connected, demo }: { state: RoomState; events: FeedbackEvent[]; connected: number; demo: boolean }) {
@@ -10,6 +10,7 @@ export function Insights({ state, events, connected, demo }: { state: RoomState;
   const { all, needHelp, totalAsks } = useMemo(() => { const r = computeRows(state, events); return { all: r.rows, needHelp: r.needHelp, totalAsks: r.totalAsks }; }, [events, state]);
   const rows = all.filter((r) => demo || r.students >= MIN_GROUP);
   const hidden = all.length - rows.length;
+  const ck = checkinStats(state, events);
 
   const bars = useMemo(() => {
     const end = Date.now(); const out = Array(10).fill(0) as number[];
@@ -35,6 +36,13 @@ export function Insights({ state, events, connected, demo }: { state: RoomState;
         {[["Connected", connected], ["Need help", needHelp], ["Questions", totalAsks]].map(([l, v]) => (
           <div key={l as string} className="rounded-[16px] bg-taupe p-3"><div className="text-2xl font-light">{v}</div><div className="text-xs text-smoke">{l}</div></div>))}
       </div>
+      {ck && (
+        <div className="mt-4 rounded-[16px] border border-stone p-3">
+          <p className="text-xs text-smoke">Check-in question{ck.open ? " (open)" : ""}</p>
+          <p className="truncate text-sm font-medium">{ck.text}</p>
+          <p className="text-sm">{demo || ck.total >= MIN_GROUP ? `${ck.correct} of ${ck.total} correct` : `${ck.total} answered. Results hidden under ${MIN_GROUP} students.`}</p>
+        </div>
+      )}
       <div className="mt-4"><p className="text-xs text-smoke">Confusion flags, last 10 minutes</p>
         <div className="mt-1 flex h-10 items-end gap-1" role="img" aria-label={`Confusion flags per minute: ${bars.join(", ")}`}>{bars.map((n, i) => <div key={i} className="flex-1 rounded-sm bg-sky" style={{ height: `${Math.max(6, (n / maxBar) * 100)}%`, opacity: n ? 1 : 0.25 }} />)}</div></div>
       <h3 className="mt-5 text-sm font-medium">Concepts needing attention</h3>

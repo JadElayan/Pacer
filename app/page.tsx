@@ -10,6 +10,7 @@ export default function Home() {
   const [code, setCode] = useState("");
   const [nick, setNick] = useState("");
   const [title, setTitle] = useState("");
+  const [subject, setSubject] = useState("");
   const [err, setErr] = useState("");
   const [lobby, setLobby] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -40,9 +41,11 @@ export default function Home() {
               <p id="code-err" role="alert" className="mt-2 min-h-5 text-sm text-sky-deep">{err}</p>
               <button className="btn btn-primary mt-2 w-full text-base" type="submit">Join Meeting</button>
             </form>
-            <form onSubmit={(e) => { e.preventDefault(); setLobby(createMeeting(title.trim())); }} className="card rounded-[24px] border border-stone bg-eggshell/90 p-6 shadow-[var(--shadow-whisper)]">
+            <form onSubmit={(e) => { e.preventDefault(); setLobby(createMeeting(title.trim(), subject)); }} className="card rounded-[24px] border border-stone bg-eggshell/90 p-6 shadow-[var(--shadow-whisper)]">
               <label htmlFor="title" className="block text-sm font-medium">Teaching? Name your lecture</label>
               <input id="title" className="input mt-2" placeholder="Solving Linear Equations" value={title} onChange={(e) => setTitle(e.target.value)} />
+              <label htmlFor="subject" className="mt-4 block text-sm font-medium">Subject <span className="text-smoke">(optional)</span></label>
+              <input id="subject" className="input mt-2" placeholder="Algebra" value={subject} onChange={(e) => setSubject(e.target.value)} />
               <button className="btn btn-dark mt-4 w-full text-base" type="submit">Start Meeting</button>
             </form>
           </div>

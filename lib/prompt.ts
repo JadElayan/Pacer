@@ -34,6 +34,20 @@ export function buildUser(r: AIRequest): string {
   return parts.join("\n\n");
 }
 
+export const JSON_KINDS = ["graph", "visual", "quiz"];
+const SPEC: Record<string, string> = {
+  graph: '{"title":"string","series":[{"label":"y = 2x + 6","expr":"2*x+6"},{"label":"y = 14","expr":"14"}],"xRange":[-2,8],"note":"one short sentence"}. Use "x" as the variable; expr may only use numbers, x, + - * / ^, parentheses, pi, sin, cos, tan, sqrt, abs, ln. If the content is an equation such as 2x + 6 = 14, plot each side as its own series so the crossing shows the solution. At most 3 series.',
+  visual: '{"steps":[{"caption":"short action","left":"LaTeX","right":"LaTeX"}]}. Show 3 to 5 steps that keep an equation balanced like a balance scale; left and right are short LaTeX strings. If the content is not an equation, show the idea as balanced steps anyway.',
+  quiz: '{"question":"string","answer":"string","hint":"string"}. Write ONE short practice question similar to the selected content. The answer must be a short number or expression.',
+};
+export function buildJson(r: AIRequest): string {
+  const parts = [`Reply with ONLY one JSON object, no markdown, in this shape: ${SPEC[r.kind]}`];
+  if (r.topicTitle) parts.push(`Current topic: ${r.topicTitle}`);
+  if (r.context.length) parts.push("Lecture content (in order):\n" + r.context.map((c, i) => `${i + 1}. ${c}`).join("\n"));
+  if (r.selected.length) parts.push("Selected by student:\n" + r.selected.map((c) => `> ${c}`).join("\n"));
+  return parts.join("\n\n");
+}
+
 export function buildSummarize(r: AIRequest): string {
   return `Summarize this lecture topic from the teacher's notes. Reply with ONLY JSON: {"title": "<max 5 words>", "summary": "<max 20 words>"}.\n\nNotes:\n${r.selected.map((c) => `- ${c}`).join("\n")}`;
 }

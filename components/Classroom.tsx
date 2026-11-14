@@ -9,9 +9,12 @@ import { AIKind, Mode, uid } from "@/lib/types";
 import { useRoom } from "@/lib/useRoom";
 import { usePrefs } from "@/lib/usePrefs";
 import { AskPanel, Msg } from "./AskPanel";
+import { CheckIn } from "./CheckIn";
 import { ConceptColumn } from "./ConceptColumn";
 import { computeRows, MIN_GROUP } from "@/lib/insights";
 import { Insights } from "./Insights";
+import { bump, loadProfile, resetProfile, sampleProfile, saveProfile, subjectOf, type Profile, type Stats } from "@/lib/profile";
+import { ProfileSheet } from "./ProfileSheet";
 import { Logo } from "./Logo";
 import { Popup, PopupData } from "./Popup";
 import { SettingsSheet } from "./SettingsSheet";
@@ -20,7 +23,7 @@ import { Anchor, Whiteboard } from "./Whiteboard";
 export function Classroom({ code }: { code: string }) {
   const sp = useSearchParams();
   const wantTeacher = sp.get("role") === "teacher";
-  const { state, events, status, isTeacher, mutate, sendEvent, connected, transportKind, getState } = useRoom(code, wantTeacher);
+  const { state, events, status, isTeacher, mutate, sendEvent, submitAnswer, grades, connected, transportKind, getState } = useRoom(code, wantTeacher);
   const { prefs, update, reset, score } = usePrefs();
   const boardRef = useRef<HTMLDivElement>(null);
 
@@ -43,6 +46,9 @@ export function Classroom({ code }: { code: string }) {
   const [demoMode, setDemoMode] = useState(false);
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [spotSeen, setSpotSeen] = useState(0);
+  const [profile, setProfile] = useState<Profile>({}); const [showProfile, setShowProfile] = useState(false);
+  const seenQ = useRef<Set<string>>(new Set());
+  const [qText, setQText] = useState(""); const [qAnswer, setQAnswer] = useState("");
   const lastPopup = useRef(0); const prevTopics = useRef<number | null>(null); const demoIdx = useRef(0);
   const sumTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -78,18 +84,27 @@ export function Classroom({ code }: { code: string }) {
   };
   const demoStep = () => { const d = DEMO_STEPS[demoIdx.current % DEMO_STEPS.length]; demoIdx.current++; addBlock(d.kind, d.content, { title: d.topic, summary: d.summary }); };
 
+  // ---- student: private learning profile (this device only) ----
+  const rec = (f: keyof Stats) => setProfile(bump(subjectOf(state?.title ?? "", state?.subject), f));
+  useEffect(() => { setProfile(loadProfile()); }, []);
+  useEffect(() => {
+    Object.entries(grades).forEach(([id, ok]) => { if (!seenQ.current.has(id)) { seenQ.current.add(id); rec(ok ? "checkRight" : "checkWrong"); } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grades]);
+
   // ---- student: AI ----
   const selectedBlocks = (a: Anchor | null) => (a && state ? state.blocks.filter((b) => a.ids.includes(b.id)) : []);
   const ask = async (a: Anchor, k: AIKind, question?: string, guided?: boolean) => {
     if (!state) return;
     const sel = selectedBlocks(a); const tp = state.topics.find((t) => t.id === sel[0]?.topicId);
-    const label = { explain: "Explain this", why: "Why this step?", simplify: "Simplify", example: "Give an example", snip: "Explain this in depth", followup: question ?? "", another: "Try another explanation", deeper: "More depth", catchup: "", summarize: "", clarify: "" }[k];
+    const label: Record<AIKind, string> = { explain: "Explain this", why: "Why this step?", simplify: "Simplify", example: "Give an example", snip: "Explain in depth", followup: question ?? "", another: "Try another explanation", deeper: "More depth", catchup: "", summarize: "", clarify: "", graph: "Graph it", visual: "Visualize it", quiz: "Quiz me" };
     const history = msgs.slice(-6).map((m) => ({ role: m.role, text: m.text }));
-    setMsgs((m) => [...m, { role: "user", text: guided ? "Step by step" : label }]); setLoading(true); setError(""); setFed("");
-    sendEvent("ask", sel[0]?.id ?? null, sel[0]?.topicId ?? null);
+    setMsgs((m) => [...m, { role: "user", text: guided ? "Step by step" : label[k] }]); setLoading(true); setError(""); setFed("");
+    sendEvent("ask", sel[0]?.id ?? null, sel[0]?.topicId ?? null); rec("asks");
     try {
       const r = await askAI({ kind: k, selected: sel.map((b) => b.content), context: state.blocks.map((b) => b.content), topicTitle: tp?.title, mode: guided ? "guided" : prefs.mode, question, history });
-      setMsgs((m) => [...m, { role: "assistant", text: r.text, source: r.source }]);
+      const view = (k === "graph" || k === "visual" || k === "quiz") && r.data ? { type: k, data: r.data } : undefined;
+      setMsgs((m) => [...m, { role: "assistant", text: r.text, source: r.source, view }]);
     } catch (e) { setError(e instanceof Error ? `${e.message}.` : "Something went wrong."); }
     finally { setLoading(false); }
   };
@@ -101,7 +116,7 @@ export function Classroom({ code }: { code: string }) {
   const feedback = (f: "helped" | "confused" | "another") => {
     if (!anchor) return; const sel = selectedBlocks(anchor)[0];
     if (f === "another") { void ask(anchor, "another"); return; }
-    setFed(f); sendEvent(f, sel?.id ?? null, sel?.topicId ?? null); score(prefs.mode, f === "helped" ? 1 : -1);
+    setFed(f); sendEvent(f, sel?.id ?? null, sel?.topicId ?? null); score(prefs.mode, f === "helped" ? 1 : -1); rec(f === "helped" ? "helped" : "confused");
   };
   const suggestion = (() => {
     const best = (Object.entries(prefs.scores) as [Mode, number][]).sort((a, b) => b[1] - a[1])[0];
@@ -120,11 +135,11 @@ export function Classroom({ code }: { code: string }) {
 
   // ---- AI pop-ups (one at a time, cooldown, never over the board centre) ----
   const offer = useCallback((p: PopupData) => {
-    if (!prefs.popups || popup || anchor || snip) return;
+    if (!prefs.popups || popup || anchor || snip || state?.question?.open) return;
     const gap = prefs.mode === "focus" ? 75000 : 25000;
     if (Date.now() - lastPopup.current < gap) return;
     lastPopup.current = Date.now(); setPopup(p);
-  }, [prefs.popups, prefs.mode, popup, anchor, snip]);
+  }, [prefs.popups, prefs.mode, popup, anchor, snip, state?.question?.open]);
   useEffect(() => { if (anchor || snip) setPopup(null); }, [anchor, snip]);
   useEffect(() => { if (!popup) return; const t = setTimeout(() => setPopup(null), 15000); return () => clearTimeout(t); }, [popup]);
   useEffect(() => {
@@ -145,6 +160,14 @@ export function Classroom({ code }: { code: string }) {
 
   useEffect(() => { try { setDemoMode(localStorage.getItem("pacer:demo") === "1"); } catch { /* ignore */ } }, []);
   const toggleDemo = () => setDemoMode((v) => { const n = !v; try { localStorage.setItem("pacer:demo", n ? "1" : "0"); } catch { /* ignore */ } return n; });
+  const postQuestion = () => {
+    if (!qText.trim() || !qAnswer.trim()) return;
+    const id = uid();
+    try { localStorage.setItem(`pacer:key:${code}`, JSON.stringify({ id, answer: qAnswer.trim() })); } catch { /* ignore */ }
+    mutate((s) => ({ ...s, question: { id, text: qText.trim(), ts: Date.now(), open: true } }));
+    setQText(""); setQAnswer("");
+  };
+  const closeQuestion = () => mutate((s) => ({ ...s, question: s.question ? { ...s.question, open: false } : null }));
   const revisit = (blockId: string) => mutate((s) => ({ ...s, spotlight: { blockId, ts: Date.now() } }));
   const spotTs = state?.spotlight?.ts;
   useEffect(() => {
@@ -192,6 +215,7 @@ export function Classroom({ code }: { code: string }) {
           <>
             <button className={`btn btn-sm ${snip ? "btn-primary" : "btn-outline"}`} aria-pressed={snip} onClick={() => { setSnip((v) => !v); setAnchor(null); }}>Snip</button>
             <button className="btn btn-outline btn-sm" onClick={() => void openCatchup()}>Catch me up</button>
+            <button className="btn btn-outline btn-sm" onClick={() => setShowProfile(true)}>My profile</button>
             <button className="btn btn-outline btn-sm" onClick={() => setShowSettings(true)}>Mode: {prefs.mode}</button>
           </>
         )}
@@ -214,6 +238,7 @@ export function Classroom({ code }: { code: string }) {
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col gap-3">
+          {!isTeacher && state.question && <CheckIn key={state.question.id} text={state.question.text} open={state.question.open} grade={grades[state.question.id]} onSubmit={(v) => submitAnswer(state.question!.id, v)} />}
           {!isTeacher && spotBlock && spot && spot.ts !== spotSeen && (
             <div role="status" className="pop-in flex flex-wrap items-center gap-3 rounded-[20px] border border-sky bg-sky-soft p-3 text-sm">
               <span className="min-w-0 flex-1">Your teacher is going back over: <b>{spotBlock.content}</b></span>
@@ -229,7 +254,7 @@ export function Classroom({ code }: { code: string }) {
               <AskPanel rect={anchor.rect} boardW={board.width} boardH={board.height} empty={anchor.ids.length === 0}
                 excerpt={sel.map((b) => b.content).join("  ·  ")} basedOn={`${state.topics.find((t) => t.id === sel[0]?.topicId)?.title ?? "lecture"} · ${sel.length} note${sel.length === 1 ? "" : "s"}, plus nearby lecture context`}
                 msgs={msgs} loading={loading} error={error} suggestion={suggestion} fed={fed}
-                onSend={(k, q, g) => void ask(anchor, k as AIKind, q, g)} onClose={() => { setAnchor(null); setMsgs([]); }} onFeedback={feedback} />
+                onSend={(k, q, g) => void ask(anchor, k as AIKind, q, g)} onQuiz={(ok) => rec(ok ? "quizRight" : "quizWrong")} onClose={() => { setAnchor(null); setMsgs([]); }} onFeedback={feedback} />
             )}
           </Whiteboard>
 
@@ -246,6 +271,22 @@ export function Classroom({ code }: { code: string }) {
               {state.strokes.length > 0 && <button type="button" className="btn btn-sm btn-outline" onClick={() => mutate((s) => ({ ...s, strokes: [] }))}>Clear pen</button>}
               <button type="button" className="btn btn-sm btn-outline" onClick={demoStep}>Add demo step</button>
             </form>
+          )}
+          {isTeacher && !state.ended && (
+            state.question?.open ? (
+              <div className="flex flex-wrap items-center gap-3 rounded-[20px] border-2 border-sky bg-sky-soft p-3 text-sm">
+                <span className="min-w-0 flex-1">Question open: <b>{state.question.text}</b> · {new Set(events.filter((e) => e.kind === "answer" && e.questionId === state.question!.id).map((e) => e.sid)).size} answered</span>
+                <button className="btn btn-dark btn-sm" onClick={closeQuestion}>Close question</button>
+              </div>
+            ) : (
+              <form className="flex flex-wrap items-center gap-2 rounded-[20px] border border-stone bg-eggshell p-3" onSubmit={(e) => { e.preventDefault(); postQuestion(); }}>
+                <label className="sr-only" htmlFor="q-text">Question for students</label>
+                <input id="q-text" className="input !min-h-10 min-w-[180px] flex-[2]" placeholder="Ask the class a question, e.g. What is x?" value={qText} onChange={(e) => setQText(e.target.value)} />
+                <label className="sr-only" htmlFor="q-ans">Correct answer (only you see this)</label>
+                <input id="q-ans" className="input !min-h-10 min-w-[120px] flex-1" placeholder="Answer key (hidden)" value={qAnswer} onChange={(e) => setQAnswer(e.target.value)} />
+                <button className="btn btn-primary btn-sm" disabled={!qText.trim() || !qAnswer.trim()}>Ask class</button>
+              </form>
+            )
           )}
         </main>
 
@@ -264,6 +305,7 @@ export function Classroom({ code }: { code: string }) {
         </div>
       )}
       {popup && !isTeacher && <Popup p={popup} onDismiss={() => setPopup(null)} onNever={() => { update({ popups: false }); setPopup(null); }} />}
+      {showProfile && !isTeacher && <ProfileSheet profile={profile} onClose={() => setShowProfile(false)} onReset={() => { resetProfile(); setProfile({}); }} onSample={() => setProfile(sampleProfile())} />}
       {showSettings && <SettingsSheet prefs={prefs} update={update} reset={reset} onClose={() => setShowSettings(false)} />}
       {catchup && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/20" onClick={() => setCatchup(null)}>

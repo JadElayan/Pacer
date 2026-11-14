@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
-export interface Msg { type: "hello" | "state" | "hb" | "event"; from: string; payload?: unknown }
+export interface Msg { type: "hello" | "state" | "hb" | "event" | "answer" | "grade"; from: string; to?: string; payload?: unknown }
 export interface Transport { kind: "supabase" | "local"; send(m: Msg): void; on(cb: (m: Msg) => void): void; close(): void }
 
 export function createTransport(code: string): Transport {

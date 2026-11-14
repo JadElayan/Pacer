@@ -30,6 +30,12 @@
 **Student:** tap **Still confused**.
 **Narrator:** "This is the key moment. The student never had to speak up."
 
+### 4b. Check-in question and snip tools (60 seconds, optional)
+**Teacher:** type "What is x?" with the answer `4` in the question bar and click **Ask class**.
+**Student:** a card appears above the board. Type `4` and send: "Correct!" (not graded, only so Pacer learns the student's level). Teacher's Insights shows "1 of 1 correct".
+**Student:** tap `2x + 6 = 14`, open **Tools** and pick **Graph it** (a plot where the lines cross at x = 4), **Visualize it** (balance-scale steps) or **Quiz me** (private practice question).
+**Student:** open **My profile** to show the private learning profile (use **Load sample data** to show what it looks like after weeks of use).
+
 ### 5. The teacher is alerted (60 seconds)
 **Teacher:** the alert appears: "1 student is still confused about `2x = 8`." Open **Insights**.
 **Narrator:** "The teacher sees where the class is stuck, anonymously. Never who, only what. In a real class this appears when several students are stuck, which protects privacy."

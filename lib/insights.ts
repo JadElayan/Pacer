@@ -6,7 +6,7 @@ export interface Row { key: string; label: string; topic: string; asks: number; 
 
 export function computeRows(state: RoomState, events: FeedbackEvent[]) {
   const by = new Map<string, FeedbackEvent[]>();
-  events.forEach((e) => { const k = e.blockId ?? e.topicId ?? "?"; by.set(k, [...(by.get(k) ?? []), e]); });
+  events.filter((e) => e.kind !== "answer").forEach((e) => { const k = e.blockId ?? e.topicId ?? "?"; by.set(k, [...(by.get(k) ?? []), e]); });
   const rows: Row[] = []; const helpSet = new Set<string>();
   by.forEach((evs, key) => {
     const b = state.blocks.find((x) => x.id === key); const tp = state.topics.find((x) => x.id === (b?.topicId ?? key));
@@ -18,4 +18,12 @@ export function computeRows(state: RoomState, events: FeedbackEvent[]) {
   });
   rows.sort((a, b) => b.unresolved - a.unresolved || b.asks - a.asks);
   return { rows, needHelp: helpSet.size, totalAsks: events.filter((e) => e.kind === "ask").length };
+}
+
+/** Latest check-in question: how many distinct students answered and how many got it right. */
+export function checkinStats(state: RoomState, events: FeedbackEvent[]) {
+  const q = state.question; if (!q) return null;
+  const last = new Map<string, boolean>();
+  [...events].sort((a, b) => a.ts - b.ts).forEach((e) => { if (e.kind === "answer" && e.questionId === q.id) last.set(e.sid, !!e.correct); });
+  return { text: q.text, open: q.open, total: last.size, correct: [...last.values()].filter(Boolean).length };
 }

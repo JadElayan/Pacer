@@ -34,6 +34,11 @@ See **DEMO_SCRIPT.md** for the full on-stage script with teacher/student roles.
 
 Zoom-style home, room codes + QR, live-synced whiteboard (typed notes, KaTeX equations, pen), AI topic cards + topic pages, click-to-ask and snip tool, AI pop-ups (one at a time, cooldown, dismissible), Focus/Guided/Example/Standard modes, Catch Me Up, local preference scoring, teacher insights with small-group suppression, a live "students need help" alert with a **Revisit this** button that highlights the block on every student's screen.
 
+## New in this version
+- **Check-in questions:** the teacher asks a question with a hidden answer key; students answer in a card above the board; grading happens on the teacher's side (the key is never sent to students); results appear anonymously in Insights. Not for a grade.
+- **Snip tools:** a **Tools** menu beside the snip panel: Explain in depth, Graph it (SVG plot), Visualize it (balance-scale steps), Quiz me (private practice). With no AI key these show clearly labeled demo content.
+- **Learning profile:** a private, on-device profile per subject (questions asked, confusion, check-in and quiz accuracy) with plain-language suggestions. Teachers never see it.
+
 ## Known prototype limits
 
 - No real teacher auth: room ownership is a token in the teacher's browser. Anyone who can reach the channel could spoof messages. Needs Supabase RLS + signed tokens for production.
