@@ -117,7 +117,7 @@ export function Classroom({ code }: { code: string }) {
     setMsgs((m) => [...m, { role: "user", text: guided ? "Step by step" : label[k] }]); setLoading(true); setError(""); setFed("");
     sendEvent("ask", sel[0]?.id ?? null, sel[0]?.topicId ?? null); rec("asks");
     try {
-      const r = await askAI({ kind: k, selected: sel.map((b) => b.content), context: state.blocks.map((b) => b.content), topicTitle: tp?.title, mode: guided ? "guided" : prefs.mode, question, history });
+      const r = await askAI({ kind: k, selected: sel.map((b) => b.content), context: state.blocks.map((b) => b.content), topicTitle: tp?.title, mode: guided ? "guided" : prefs.mode, question, history, image: a.image });
       const view = (k === "graph" || k === "visual" || k === "quiz") && r.data ? { type: k, data: r.data } : undefined;
       setMsgs((m) => [...m, { role: "assistant", text: r.text, source: r.source, view }]);
     } catch (e) { setError(e instanceof Error ? `${e.message}.` : "Something went wrong."); }
@@ -126,7 +126,7 @@ export function Classroom({ code }: { code: string }) {
   const openAnchor = (a: Anchor, auto?: AIKind) => {
     setAnchor(a); setMsgs([]); setError(""); setFed(""); setSnip(false);
     const first = state?.blocks.find((b) => b.id === a.ids[0]); if (first) setLastViewed(first.topicId);
-    if (auto && a.ids.length) void ask(a, auto);
+    if (auto && (a.ids.length || a.image)) void ask(a, auto);
   };
   const feedback = (f: "helped" | "confused" | "another") => {
     if (!anchor) return; const sel = selectedBlocks(anchor)[0];
@@ -266,8 +266,8 @@ export function Classroom({ code }: { code: string }) {
             onStroke={(pts) => mutate((s) => ({ ...s, strokes: [...s.strokes, { id: uid(), pts }] }))}
             onDelete={(id) => mutate((s) => ({ ...s, blocks: s.blocks.filter((b) => b.id !== id) }))}>
             {anchor && !isTeacher && board && (
-              <AskPanel rect={anchor.rect} boardW={board.width} boardH={board.height} empty={anchor.ids.length === 0}
-                excerpt={sel.map((b) => b.content).join("  ·  ")} basedOn={`${state.topics.find((t) => t.id === sel[0]?.topicId)?.title ?? "lecture"} · ${sel.length} note${sel.length === 1 ? "" : "s"}, plus nearby lecture context`}
+              <AskPanel rect={anchor.rect} boardW={board.width} boardH={board.height} empty={anchor.ids.length === 0 && !anchor.image}
+                excerpt={[...(anchor.image ? ["✎ handwriting"] : []), ...sel.map((b) => b.content)].join("  ·  ")} basedOn={`${state.topics.find((t) => t.id === sel[0]?.topicId)?.title ?? "lecture"} · ${sel.length} note${sel.length === 1 ? "" : "s"}, plus nearby lecture context`}
                 msgs={msgs} loading={loading} error={error} suggestion={suggestion} fed={fed}
                 onSend={(k, q, g) => void ask(anchor, k as AIKind, q, g)} onQuiz={(ok) => rec(ok ? "quizRight" : "quizWrong")} onClose={() => { setAnchor(null); setMsgs([]); }} onFeedback={feedback} />
             )}

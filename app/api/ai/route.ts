@@ -8,11 +8,13 @@ const clip = (a: string[] | undefined, n: number) => (a ?? []).slice(0, n).map((
 export async function POST(req: Request) {
   let b: AIRequest;
   try { b = (await req.json()) as AIRequest; } catch { return NextResponse.json({ text: "", source: "demo", error: "Bad request" }, { status: 400 }); }
-  b = { ...b, selected: clip(b.selected, 12), context: clip(b.context, 40), question: b.question?.slice(0, 500), history: (b.history ?? []).slice(-6) };
+  b = { ...b, image: typeof b.image === "string" ? b.image : undefined, selected: clip(b.selected, 12), context: clip(b.context, 40), question: b.question?.slice(0, 500), history: (b.history ?? []).slice(-6) };
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return NextResponse.json(demoAnswer(b));
   try {
-    const messages = [...(b.history ?? []).map((h) => ({ role: h.role, content: h.text })), { role: "user" as const, content: b.kind === "summarize" ? buildSummarize(b) : JSON_KINDS.includes(b.kind) ? buildJson(b) : buildUser(b) }];
+    const img = typeof b.image === "string" && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(b.image) && b.image.length < 400_000 ? b.image.split(",")[1] : null;
+    const prompt = b.kind === "summarize" ? buildSummarize(b) : JSON_KINDS.includes(b.kind) ? buildJson(b) : buildUser(b);
+    const messages = [...(b.history ?? []).map((h) => ({ role: h.role, content: h.text })), { role: "user" as const, content: img ? [{ type: "image", source: { type: "base64", media_type: "image/png", data: img } }, { type: "text", text: prompt }] : prompt }];
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },

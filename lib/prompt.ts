@@ -29,6 +29,7 @@ export function buildUser(r: AIRequest): string {
   if (r.topics?.length) parts.push("Topics:\n" + r.topics.map((t) => `- ${t.title}: ${t.summary}`).join("\n"));
   if (r.context.length) parts.push("Lecture content (in order):\n" + r.context.map((c, i) => `${i + 1}. ${c}`).join("\n"));
   if (r.selected.length) parts.push("Selected by student:\n" + r.selected.map((c) => `> ${c}`).join("\n"));
+  if (r.image) parts.push("The attached image is the teacher's handwriting inside the student's box. First say what it reads (e.g. \"Your teacher wrote 2x = 10\"), then explain or solve it in 2-4 simple sentences. If you cannot read it, say so.");
   if (r.stats) parts.push("Aggregated class stats: " + r.stats);
   if (r.question) parts.push(`Student question: ${r.question}`);
   return parts.join("\n\n");

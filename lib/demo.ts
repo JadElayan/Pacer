@@ -66,6 +66,7 @@ function demoTool(r: AIRequest): AIResponse {
 
 export function demoAnswer(r: AIRequest): AIResponse {
   if (r.kind === "graph" || r.kind === "visual" || r.kind === "quiz") return demoTool(r);
+  if (r.image && !r.selected.length) return { text: "Demo response: reading handwriting needs the AI key. With it, Pacer reads what the teacher drew (like 2x = 10) and explains it (x = 5).", source: "demo" };
   const sel = r.selected[0] ?? "";
   const k = KNOWN[norm(sel)];
   if (r.kind === "summarize") {

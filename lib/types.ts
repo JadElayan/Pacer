@@ -16,7 +16,7 @@ export const DEFAULT_PREFS: Prefs = { mode: "standard", textSize: 100, reduceMot
 export type AIKind = "explain" | "why" | "simplify" | "example" | "snip" | "followup" | "another" | "summarize" | "catchup" | "deeper" | "clarify" | "graph" | "visual" | "quiz";
 export interface AIRequest {
   kind: AIKind; selected: string[]; context: string[]; topicTitle?: string; topics?: { title: string; summary: string }[];
-  mode: Mode; question?: string; history?: { role: "user" | "assistant"; text: string }[]; detail?: "short" | "long"; stats?: string;
+  mode: Mode; image?: string; question?: string; history?: { role: "user" | "assistant"; text: string }[]; detail?: "short" | "long"; stats?: string;
 }
 export interface AIResponse { text: string; title?: string; summary?: string; data?: unknown; source: "ai" | "demo"; error?: string }
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);

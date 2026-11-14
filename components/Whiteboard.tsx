@@ -4,7 +4,21 @@ import type { Block, Stroke } from "@/lib/types";
 import { MathView } from "./MathView";
 
 export interface Rect { left: number; top: number; right: number; bottom: number }
-export interface Anchor { ids: string[]; rect: Rect; source: "block" | "snip" }
+export interface Anchor { ids: string[]; rect: Rect; source: "block" | "snip"; image?: string }
+
+/** Draws the pen strokes that fall inside the snip box onto a small white PNG (max 480px wide) so the AI can read handwriting. */
+function strokesImage(strokes: Stroke[], box: Rect, w: number, h: number): string | undefined {
+  const hit = strokes.filter((s) => s.pts.some(([x, y]) => x * w >= box.left && x * w <= box.right && y * h >= box.top && y * h <= box.bottom));
+  if (!hit.length) return undefined;
+  const bw = box.right - box.left, bh = box.bottom - box.top;
+  const k = Math.min(1, 480 / bw);
+  const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(bw * k)); c.height = Math.max(1, Math.round(bh * k));
+  const g = c.getContext("2d"); if (!g) return undefined;
+  g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+  g.strokeStyle = "#000"; g.lineWidth = 3; g.lineCap = "round"; g.lineJoin = "round";
+  hit.forEach((s) => { g.beginPath(); s.pts.forEach(([x, y], i) => { const px = (x * w - box.left) * k, py = (y * h - box.top) * k; i ? g.lineTo(px, py) : g.moveTo(px, py); }); g.stroke(); });
+  return c.toDataURL("image/png");
+}
 
 export function Whiteboard({ boardRef, blocks, strokes, isTeacher, selectedIds, spotlightId, onSelect, snipActive, onSnip, penActive, onStroke, onDelete, children }: {
   boardRef: React.RefObject<HTMLDivElement | null>; blocks: Block[]; strokes: Stroke[]; isTeacher: boolean; selectedIds: string[]; spotlightId?: string;
@@ -29,7 +43,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, selectedIds, 
       const r = el.getBoundingClientRect();
       if (r.left < box.right + b.left && r.right > box.left + b.left && r.top < box.bottom + b.top && r.bottom > box.top + b.top) ids.push(el.dataset.blockId!);
     });
-    onSnip({ ids, rect: box, source: "snip" });
+    onSnip({ ids, rect: box, source: "snip", image: strokesImage(strokes, box, b.width, b.height) });
   };
   const pt = (e: React.PointerEvent) => { const b = boardRef.current!.getBoundingClientRect(); return [(e.clientX - b.left) / b.width, (e.clientY - b.top) / b.height] as [number, number]; };
   const path = (p: [number, number][]) => p.map((q, i) => `${i ? "L" : "M"}${q[0]} ${q[1]}`).join(" ");
