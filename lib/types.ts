@@ -5,6 +5,7 @@ export interface Stroke { id: string; pts: [number, number][] }
 export interface RoomState {
   code: string; title: string; blocks: Block[]; topics: Topic[]; strokes: Stroke[];
   currentTopicId: string | null; ended: boolean; rev: number;
+  spotlight?: { blockId: string; ts: number } | null;
 }
 export interface FeedbackEvent { id: string; sid: string; kind: "ask" | "confused" | "helped"; blockId: string | null; topicId: string | null; ts: number }
 export type Mode = "standard" | "focus" | "guided" | "example";

@@ -32,7 +32,7 @@ export function AskPanel({ rect, boardW, boardH, excerpt, basedOn, msgs, loading
         </div>
         <button className="btn btn-outline btn-sm shrink-0" onClick={onClose} aria-label="Close AI panel">Close</button>
       </div>
-      <div className="flex-1 space-y-3 overflow-y-auto p-4" aria-live="polite">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4" aria-live="polite">
         {empty && <p className="text-sm text-smoke">There are no notes inside that box. Try drawing it around some writing.</p>}
         {msgs.map((m, i) => m.role === "user" ? (
           <p key={i} className="ml-8 rounded-2xl bg-taupe px-3 py-2 text-sm">{m.text}</p>

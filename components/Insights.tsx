@@ -1,32 +1,15 @@
 "use client";
 import { useMemo, useState } from "react";
 import { askAI } from "@/lib/ai";
+import { computeRows, MIN_GROUP, type Row } from "@/lib/insights";
 import type { FeedbackEvent, RoomState } from "@/lib/types";
 
-const MIN_GROUP = 3;
-interface Row { key: string; label: string; topic: string; asks: number; students: number; unresolved: number }
-
-export function Insights({ state, events, connected }: { state: RoomState; events: FeedbackEvent[]; connected: number }) {
-  const [showSmall, setShowSmall] = useState(false);
+export function Insights({ state, events, connected, demo }: { state: RoomState; events: FeedbackEvent[]; connected: number; demo: boolean }) {
   const [open, setOpen] = useState<string | null>(null);
   const [tip, setTip] = useState<Record<string, string>>({});
-
-  const { rows, hidden, needHelp, totalAsks } = useMemo(() => {
-    const by = new Map<string, FeedbackEvent[]>();
-    events.forEach((e) => { const k = e.blockId ?? e.topicId ?? "?"; by.set(k, [...(by.get(k) ?? []), e]); });
-    const rs: Row[] = []; const helpSet = new Set<string>();
-    by.forEach((evs, key) => {
-      const b = state.blocks.find((x) => x.id === key); const tp = state.topics.find((x) => x.id === (b?.topicId ?? key));
-      const last = new Map<string, FeedbackEvent["kind"]>();
-      [...evs].sort((a, c) => a.ts - c.ts).forEach((e) => { if (e.kind !== "ask") last.set(e.sid, e.kind); });
-      const unresolved = [...last.entries()].filter(([, k]) => k === "confused");
-      unresolved.forEach(([s]) => helpSet.add(s));
-      rs.push({ key, label: b?.content ?? tp?.title ?? "Unknown", topic: tp?.title ?? "", asks: evs.filter((e) => e.kind === "ask").length, students: new Set(evs.map((e) => e.sid)).size, unresolved: unresolved.length });
-    });
-    rs.sort((a, b) => b.unresolved - a.unresolved || b.asks - a.asks);
-    const vis = rs.filter((r) => showSmall || r.students >= MIN_GROUP);
-    return { rows: vis, hidden: rs.length - vis.length, needHelp: helpSet.size, totalAsks: events.filter((e) => e.kind === "ask").length };
-  }, [events, state, showSmall]);
+  const { all, needHelp, totalAsks } = useMemo(() => { const r = computeRows(state, events); return { all: r.rows, needHelp: r.needHelp, totalAsks: r.totalAsks }; }, [events, state]);
+  const rows = all.filter((r) => demo || r.students >= MIN_GROUP);
+  const hidden = all.length - rows.length;
 
   const bars = useMemo(() => {
     const end = Date.now(); const out = Array(10).fill(0) as number[];
@@ -66,8 +49,7 @@ export function Insights({ state, events, connected }: { state: RoomState; event
             {open === r.key && <p className="mt-2 rounded-xl bg-sky-soft p-2 text-xs">{tip[r.key] ?? "Thinking…"}<br /><span className="text-smoke">A suggestion only. You decide.</span></p>}
           </li>))}
       </ul>
-      {hidden > 0 && <p className="mt-2 text-xs text-smoke">{hidden} item(s) hidden: fewer than {MIN_GROUP} students, to protect privacy.</p>}
-      <label className="mt-4 flex items-center gap-2 text-xs text-smoke"><input type="checkbox" className="accent-black" checked={showSmall} onChange={(e) => setShowSmall(e.target.checked)} /> Demo: show small groups</label>
+      {hidden > 0 && <p className="mt-2 text-xs text-smoke">{hidden} item(s) hidden: fewer than {MIN_GROUP} students, to protect privacy. (Turn on "Small class" in the header for a small demo.)</p>}
     </aside>
   );
 }

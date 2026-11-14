@@ -28,9 +28,11 @@ With Supabase keys set, sync uses Supabase Realtime **Broadcast**. No tables are
 5. Student: change **Mode** to Guided, tap **Still confused**.
 6. Teacher: **Insights** shows the aggregated signal (enable "Demo: show small groups" with only one student; real threshold is 3).
 
+See **DEMO_SCRIPT.md** for the full on-stage script with teacher/student roles.
+
 ## What's implemented
 
-Zoom-style home, room codes + QR, live-synced whiteboard (typed notes, KaTeX equations, pen), AI topic cards + topic pages, click-to-ask and snip tool, AI pop-ups (one at a time, cooldown, dismissible), Focus/Guided/Example/Standard modes, Catch Me Up, local preference scoring, teacher insights with small-group suppression.
+Zoom-style home, room codes + QR, live-synced whiteboard (typed notes, KaTeX equations, pen), AI topic cards + topic pages, click-to-ask and snip tool, AI pop-ups (one at a time, cooldown, dismissible), Focus/Guided/Example/Standard modes, Catch Me Up, local preference scoring, teacher insights with small-group suppression, a live "students need help" alert with a **Revisit this** button that highlights the block on every student's screen.
 
 ## Known prototype limits
 

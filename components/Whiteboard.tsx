@@ -6,8 +6,8 @@ import { MathView } from "./MathView";
 export interface Rect { left: number; top: number; right: number; bottom: number }
 export interface Anchor { ids: string[]; rect: Rect; source: "block" | "snip" }
 
-export function Whiteboard({ boardRef, blocks, strokes, isTeacher, selectedIds, onSelect, snipActive, onSnip, penActive, onStroke, onDelete, children }: {
-  boardRef: React.RefObject<HTMLDivElement | null>; blocks: Block[]; strokes: Stroke[]; isTeacher: boolean; selectedIds: string[];
+export function Whiteboard({ boardRef, blocks, strokes, isTeacher, selectedIds, spotlightId, onSelect, snipActive, onSnip, penActive, onStroke, onDelete, children }: {
+  boardRef: React.RefObject<HTMLDivElement | null>; blocks: Block[]; strokes: Stroke[]; isTeacher: boolean; selectedIds: string[]; spotlightId?: string;
   onSelect: (a: Anchor) => void; snipActive: boolean; onSnip: (a: Anchor | null) => void; penActive: boolean;
   onStroke: (pts: [number, number][]) => void; onDelete: (id: string) => void; children?: React.ReactNode;
 }) {
@@ -47,7 +47,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, selectedIds, 
                   aria-label={`${b.kind === "equation" ? "Equation" : "Note"}: ${b.content}. Press Enter to ask about this.`}
                   onClick={(e) => onSelect({ ids: [b.id], rect: rel(e.currentTarget.getBoundingClientRect()), source: "block" })}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect({ ids: [b.id], rect: rel(e.currentTarget.getBoundingClientRect()), source: "block" }); } }}
-                  className={`block-card group relative cursor-pointer rounded-[20px] border bg-eggshell px-5 py-4 transition ${sel ? "border-sky shadow-[0_0_0_3px_var(--color-sky-soft)]" : "border-stone hover:border-ash"}`}>
+                  className={`block-card group relative cursor-pointer rounded-[20px] border bg-eggshell px-5 py-4 transition ${sel ? "border-sky shadow-[0_0_0_3px_var(--color-sky-soft)]" : "border-stone hover:border-ash"}${b.id === spotlightId ? " border-sky ring-4 ring-sky" : ""}`}>
                   {b.kind === "equation" ? <div className="text-2xl md:text-3xl"><MathView tex={b.content} /></div> : <p className="text-xl leading-snug">{b.content}</p>}
                   {isTeacher && <button aria-label="Delete note" className="btn btn-outline btn-sm absolute right-2 top-2 opacity-0 focus:opacity-100 group-hover:opacity-100" onClick={(e) => { e.stopPropagation(); onDelete(b.id); }}>Delete</button>}
                 </div>

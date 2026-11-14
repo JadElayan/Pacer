@@ -10,6 +10,7 @@ import { useRoom } from "@/lib/useRoom";
 import { usePrefs } from "@/lib/usePrefs";
 import { AskPanel, Msg } from "./AskPanel";
 import { ConceptColumn } from "./ConceptColumn";
+import { computeRows, MIN_GROUP } from "@/lib/insights";
 import { Insights } from "./Insights";
 import { Logo } from "./Logo";
 import { Popup, PopupData } from "./Popup";
@@ -39,6 +40,9 @@ export function Classroom({ code }: { code: string }) {
   const [catchupLoading, setCatchupLoading] = useState(false);
   const [lastViewed, setLastViewed] = useState<string | null>(null);
   const [popup, setPopup] = useState<PopupData | null>(null);
+  const [demoMode, setDemoMode] = useState(false);
+  const [dismissed, setDismissed] = useState<string[]>([]);
+  const [spotSeen, setSpotSeen] = useState(0);
   const lastPopup = useRef(0); const prevTopics = useRef<number | null>(null); const demoIdx = useRef(0);
   const sumTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -121,6 +125,7 @@ export function Classroom({ code }: { code: string }) {
     if (Date.now() - lastPopup.current < gap) return;
     lastPopup.current = Date.now(); setPopup(p);
   }, [prefs.popups, prefs.mode, popup, anchor, snip]);
+  useEffect(() => { if (anchor || snip) setPopup(null); }, [anchor, snip]);
   useEffect(() => { if (!popup) return; const t = setTimeout(() => setPopup(null), 15000); return () => clearTimeout(t); }, [popup]);
   useEffect(() => {
     if (isTeacher || !anchor || anchor.source !== "block" || msgs.length) return;
@@ -138,6 +143,16 @@ export function Classroom({ code }: { code: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state?.topics.length]);
 
+  useEffect(() => { try { setDemoMode(localStorage.getItem("pacer:demo") === "1"); } catch { /* ignore */ } }, []);
+  const toggleDemo = () => setDemoMode((v) => { const n = !v; try { localStorage.setItem("pacer:demo", n ? "1" : "0"); } catch { /* ignore */ } return n; });
+  const revisit = (blockId: string) => mutate((s) => ({ ...s, spotlight: { blockId, ts: Date.now() } }));
+  const spotTs = state?.spotlight?.ts;
+  useEffect(() => {
+    const sp = state?.spotlight; if (!sp || isTeacher) return;
+    boardRef.current?.querySelector(`[data-block-id="${sp.blockId}"]`)?.scrollIntoView({ block: "center", behavior: prefs.reduceMotion ? "auto" : "smooth" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spotTs, isTeacher]);
+
   // ---- render ----
   if (!state) {
     return (
@@ -152,6 +167,10 @@ export function Classroom({ code }: { code: string }) {
   }
 
   const sel = selectedBlocks(anchor);
+  const threshold = demoMode ? 1 : MIN_GROUP;
+  const alerts = isTeacher ? computeRows(state, events).rows.filter((r) => r.unresolved >= threshold && !dismissed.includes(`${r.key}:${r.unresolved}`)) : [];
+  const spot = state.spotlight && Date.now() - state.spotlight.ts < 180000 ? state.spotlight : null;
+  const spotBlock = spot ? state.blocks.find((b) => b.id === spot.blockId) : undefined;
   const board = boardRef.current?.getBoundingClientRect();
   const joinUrl = typeof window !== "undefined" ? `${window.location.origin}/room/${code}` : "";
   const pill = status === "live" ? "Connected" : status === "waiting" ? "Waiting for teacher…" : "Connecting…";
@@ -165,7 +184,8 @@ export function Classroom({ code }: { code: string }) {
         {isTeacher ? (
           <>
             <button className="btn btn-outline btn-sm" onClick={() => setShowInvite((v) => !v)}>Invite · {code}</button>
-            <button className="btn btn-outline btn-sm" onClick={() => setShowInsights((v) => !v)} aria-pressed={showInsights}>Insights</button>
+            <button className="btn btn-outline btn-sm" onClick={toggleDemo} aria-pressed={demoMode} title="Alert and show insights even for 1-2 students (for small demos)">Small class: {demoMode ? "on" : "off"}</button>
+            <button className="btn btn-outline btn-sm" onClick={() => setShowInsights((v) => !v)} aria-pressed={showInsights}>Insights{alerts.length ? ` (${alerts.length})` : ""}</button>
             <button className="btn btn-dark btn-sm" onClick={() => mutate((s) => ({ ...s, ended: true }))}>End lecture</button>
           </>
         ) : (
@@ -194,7 +214,13 @@ export function Classroom({ code }: { code: string }) {
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col gap-3">
-          <Whiteboard boardRef={boardRef} blocks={blocks} strokes={state.strokes} isTeacher={isTeacher} selectedIds={anchor?.ids ?? []}
+          {!isTeacher && spotBlock && spot && spot.ts !== spotSeen && (
+            <div role="status" className="pop-in flex flex-wrap items-center gap-3 rounded-[20px] border border-sky bg-sky-soft p-3 text-sm">
+              <span className="min-w-0 flex-1">Your teacher is going back over: <b>{spotBlock.content}</b></span>
+              <button className="btn btn-outline btn-sm" onClick={() => setSpotSeen(spot.ts)}>Got it</button>
+            </div>
+          )}
+          <Whiteboard boardRef={boardRef} spotlightId={spotBlock?.id} blocks={blocks} strokes={state.strokes} isTeacher={isTeacher} selectedIds={anchor?.ids ?? []}
             onSelect={(a) => { if (!isTeacher) openAnchor(a); }} snipActive={snip && !isTeacher} penActive={pen}
             onSnip={(a) => { if (!a) { setSnip(false); return; } openAnchor(a, "snip"); }}
             onStroke={(pts) => mutate((s) => ({ ...s, strokes: [...s.strokes, { id: uid(), pts }] }))}
@@ -223,9 +249,20 @@ export function Classroom({ code }: { code: string }) {
           )}
         </main>
 
-        {isTeacher && showInsights && <Insights state={state} events={events} connected={connected} />}
+        {isTeacher && showInsights && <Insights state={state} events={events} connected={connected} demo={demoMode} />}
       </div>
 
+      {isTeacher && alerts.length > 0 && (
+        <div role="alert" className="pop-in fixed right-4 top-20 z-40 w-[min(340px,calc(100vw-2rem))] rounded-[20px] border-2 border-sky bg-eggshell p-4 shadow-[0_8px_30px_rgba(0,0,0,.18)]">
+          <p className="text-xs font-medium text-sky-deep">Students need help</p>
+          <p className="mt-1 text-sm"><b>{alerts[0].unresolved}</b> student{alerts[0].unresolved === 1 ? " is" : "s are"} still confused about <b>{alerts[0].label}</b>.</p>
+          <p className="mt-1 text-xs text-smoke">Anonymous. Consider re-explaining before moving on.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {state.blocks.some((b) => b.id === alerts[0].key) && <button className="btn btn-primary btn-sm" onClick={() => { revisit(alerts[0].key); setDismissed((d) => [...d, `${alerts[0].key}:${alerts[0].unresolved}`]); }}>Revisit this</button>}
+            <button className="btn btn-outline btn-sm" onClick={() => setDismissed((d) => [...d, `${alerts[0].key}:${alerts[0].unresolved}`])}>Dismiss</button>
+          </div>
+        </div>
+      )}
       {popup && !isTeacher && <Popup p={popup} onDismiss={() => setPopup(null)} onNever={() => { update({ popups: false }); setPopup(null); }} />}
       {showSettings && <SettingsSheet prefs={prefs} update={update} reset={reset} onClose={() => setShowSettings(false)} />}
       {catchup && (
