@@ -1,0 +1,24 @@
+import { createClient } from "@supabase/supabase-js";
+
+export interface Msg { type: "hello" | "state" | "hb" | "event"; from: string; payload?: unknown }
+export interface Transport { kind: "supabase" | "local"; send(m: Msg): void; on(cb: (m: Msg) => void): void; close(): void }
+
+export function createTransport(code: string): Transport {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (url && key) {
+    const sb = createClient(url, key, { realtime: { params: { eventsPerSecond: 20 } } });
+    const ch = sb.channel(`pacer:${code}`, { config: { broadcast: { self: false } } });
+    let ready = false; const queue: Msg[] = []; let cb: (m: Msg) => void = () => {};
+    ch.on("broadcast", { event: "m" }, ({ payload }) => cb(payload as Msg));
+    ch.subscribe((s) => { if (s === "SUBSCRIBED") { ready = true; queue.splice(0).forEach((m) => ch.send({ type: "broadcast", event: "m", payload: m })); } });
+    return {
+      kind: "supabase",
+      send: (m) => (ready ? ch.send({ type: "broadcast", event: "m", payload: m }) : queue.push(m)),
+      on: (f) => { cb = f; },
+      close: () => { sb.removeChannel(ch); },
+    };
+  }
+  const bc = new BroadcastChannel(`pacer:${code}`);
+  return { kind: "local", send: (m) => bc.postMessage(m), on: (f) => { bc.onmessage = (e) => f(e.data as Msg); }, close: () => bc.close() };
+}
