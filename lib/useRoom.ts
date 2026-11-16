@@ -3,6 +3,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createTransport, type Transport } from "./transport";
 import { isCorrect } from "./grade";
 import { FeedbackEvent, RoomState, uid } from "./types";
+import { shareableDeck } from "./slides";
+import type { LectureMaterials } from "./savedLectures";
+import { getSupabase } from "./supabase";
+
+export function sharedState(state: RoomState): RoomState {
+  const { privateSlidePages, ...shared } = state;
+  return shared.slides ? { ...shared, slides: shareableDeck(shared.slides) } : shared;
+}
 
 const ls = {
   get<T>(k: string): T | null { try { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as T) : null; } catch { return null; } },
@@ -12,16 +20,20 @@ const ls = {
 export function newRoom(code: string, title: string, subject?: string): RoomState {
   return { code, title, subject: subject?.trim() || undefined, blocks: [], topics: [], strokes: [], currentTopicId: null, ended: false, rev: 0 };
 }
-export function createMeeting(title: string, subject?: string): string {
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  ls.set(`pacer:room:${code}`, newRoom(code, title || "Untitled lecture", subject));
-  ls.set(`pacer:token:${code}`, uid() + uid());
+export function createMeeting(title: string, subject?: string, materials?: LectureMaterials): string {
+  let code: string;
+  do { code = String(Math.floor(100000 + Math.random() * 900000)); }
+  while (ls.get(`pacer:room:${code}`));
+  localStorage.setItem(`pacer:room:${code}`, JSON.stringify({
+    ...newRoom(code, title || "Untitled lecture", subject), ...materials,
+  }));
+  localStorage.setItem(`pacer:token:${code}`, JSON.stringify(uid() + uid()));
   return code;
 }
 
 export type Status = "connecting" | "live" | "notfound" | "waiting";
 
-export function useRoom(code: string, wantTeacher: boolean) {
+export function useRoom(code: string, wantTeacher: boolean, userId?: string) {
   const [state, setState] = useState<RoomState | null>(null);
   const [events, setEvents] = useState<FeedbackEvent[]>([]);
   const [peers, setPeers] = useState<Record<string, number>>({});
@@ -49,7 +61,7 @@ export function useRoom(code: string, wantTeacher: boolean) {
     t.on((m) => {
       if (m.from === sid.current) return;
       if (teacher) {
-        if (m.type === "hello" && stateRef.current) t.send({ type: "state", from: sid.current, payload: stateRef.current });
+        if (m.type === "hello" && stateRef.current) t.send({ type: "state", from: sid.current, payload: sharedState(stateRef.current) });
         if (m.type === "hb" || m.type === "hello") setPeers((p) => ({ ...p, [m.from]: Date.now() }));
         if (m.type === "answer") {
           const a = m.payload as { questionId: string; value: string };
@@ -79,18 +91,32 @@ export function useRoom(code: string, wantTeacher: boolean) {
       hello();
       timers.push(setInterval(() => { if (!live) hello(); }, 2000));
       timers.push(setInterval(() => t.send({ type: "hb", from: sid.current }), 5000));
-      const to = setTimeout(() => { if (!live) setStatus(initial ? "waiting" : "notfound"); }, 8000);
+      const to = setTimeout(() => { if (!live) setStatus(stateRef.current ? "waiting" : "notfound"); }, 8000);
       timers.push(to as unknown as ReturnType<typeof setInterval>);
     }
     timers.push(setInterval(() => setNow(Date.now()), 3000));
     return () => { timers.forEach(clearInterval); t.close(); };
   }, [code, wantTeacher]);
+  useEffect(() => {
+    if (!userId || wantTeacher) return;
+    let cancelled = false;
+    void (async () => {
+      const result = await getSupabase()?.rpc("pacer_load_member_board", { room_code: code });
+      const snapshot = result?.data as RoomState | undefined;
+      if (cancelled || result?.error || !snapshot || snapshot.code !== code || stateRef.current) return;
+      stateRef.current = snapshot;
+      setState(snapshot);
+      setStatus("waiting");
+      ls.set(`pacer:cache:${code}`, snapshot);
+    })();
+    return () => { cancelled = true; };
+  }, [code, wantTeacher, userId]);
 
   const mutate = useCallback((fn: (s: RoomState) => RoomState) => {
     const cur = stateRef.current; if (!cur) return;
     const next = { ...fn(cur), rev: cur.rev + 1 };
     stateRef.current = next; setState(next); ls.set(`pacer:room:${code}`, next);
-    tr.current?.send({ type: "state", from: sid.current, payload: next });
+    tr.current?.send({ type: "state", from: sid.current, payload: sharedState(next) });
   }, [code]);
 
   const sendEvent = useCallback((kind: FeedbackEvent["kind"], blockId: string | null, topicId: string | null) => {

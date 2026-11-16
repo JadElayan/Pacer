@@ -14,8 +14,8 @@ Supabase project: **Pacer** (ref `wgumjmgebrcdwrccgrjz`). Tables `profiles`, `le
 2. **Authentication → URL Configuration**: Site URL `https://pacer-demo.vercel.app`; Redirect URLs add `https://pacer-demo.vercel.app/**` and `http://localhost:3000/**`.
 
 ## 3. Turn it on
-Set `NEXT_PUBLIC_AUTH_ENABLED=1` in Vercel (and `.env.local` for local dev) and redeploy. A "Sign in with Google" button then appears on the home page.
+Run [student_lessons.sql](supabase/student_lessons.sql) in the Supabase SQL Editor to enable private lesson sync. Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `NEXT_PUBLIC_AUTH_ENABLED=1` in `.env.local` and restart the dev server. A "Sign in with Google" button then appears on the home page.
 
 ## Privacy notes
 - Students' questions and answers sent to teachers stay anonymous; the signed-in account is never attached to classroom events.
-- The learning profile syncs only to the signed-in student's own row. Reset clears the device copy; delete the account row in Supabase to remove the saved copy.
+- Profile stats, question history, and AI study suggestions sync to the signed-in student's own learning profile row. Saved lessons have their own per-student rows. Guest data stays in the browser.

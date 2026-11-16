@@ -1,21 +1,26 @@
 /** Student-private learning profile. Stored only on this device (localStorage). Teachers never see it. */
 export interface Stats { asks: number; confused: number; helped: number; checkRight: number; checkWrong: number; quizRight: number; quizWrong: number }
 export type Profile = Record<string, Stats>;
+export interface StudyEntry { id: string; lecture: string; topic: string; question?: string; suggestion?: string; ts: number }
+export function mergeStudy(...lists: StudyEntry[][]): StudyEntry[] {
+  const entries = new Map<string, StudyEntry>();
+  for (const entry of lists.flat()) entries.set(entry.id, { ...entries.get(entry.id), ...entry });
+  return [...entries.values()].sort((a, b) => b.ts - a.ts).slice(0, 150);
+}
+export function loadStudy(userId?: string): StudyEntry[] {
+  try { return JSON.parse(localStorage.getItem(`pacer:study:${userId ?? "guest"}`) ?? "[]"); } catch { return []; }
+}
+export function saveStudy(entries: StudyEntry[], userId?: string) {
+  try { localStorage.setItem(`pacer:study:${userId ?? "guest"}`, JSON.stringify(entries)); } catch { /* storage unavailable */ }
+}
 const KEY = "pacer:profile";
 const empty = (): Stats => ({ asks: 0, confused: 0, helped: 0, checkRight: 0, checkWrong: 0, quizRight: 0, quizWrong: 0 });
 
-export function loadProfile(): Profile { try { const v = localStorage.getItem(KEY); return v ? (JSON.parse(v) as Profile) : {}; } catch { return {}; } }
-export function saveProfile(p: Profile) { try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { /* ignore */ } }
-export function resetProfile() { try { localStorage.removeItem(KEY); } catch { /* ignore */ } }
-export function bump(subject: string, field: keyof Stats): Profile {
-  const p = loadProfile(); const s = { ...empty(), ...p[subject] }; s[field] += 1; p[subject] = s; saveProfile(p); return { ...p };
-}
-export function sampleProfile(): Profile {
-  const p: Profile = {
-    Trigonometry: { ...empty(), asks: 14, confused: 5, helped: 6, checkRight: 2, checkWrong: 4, quizRight: 1, quizWrong: 3 },
-    Algebra: { ...empty(), asks: 3, confused: 0, helped: 2, checkRight: 6, checkWrong: 1, quizRight: 3, quizWrong: 0 },
-  };
-  saveProfile(p); return p;
+const profileKey = (userId?: string) => userId ? `${KEY}:${userId}` : KEY;
+export function loadProfile(userId?: string): Profile { try { const v = localStorage.getItem(profileKey(userId)); return v ? (JSON.parse(v) as Profile) : {}; } catch { return {}; } }
+export function saveProfile(p: Profile, userId?: string) { try { localStorage.setItem(profileKey(userId), JSON.stringify(p)); } catch { /* ignore */ } }
+export function bump(subject: string, field: keyof Stats, userId?: string): Profile {
+  const p = loadProfile(userId); const s = { ...empty(), ...p[subject] }; s[field] += 1; p[subject] = s; saveProfile(p, userId); return { ...p };
 }
 
 export function subjectOf(title: string, subject?: string): string {

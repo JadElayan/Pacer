@@ -29,7 +29,10 @@ export function buildUser(r: AIRequest): string {
   if (r.topics?.length) parts.push("Topics:\n" + r.topics.map((t) => `- ${t.title}: ${t.summary}`).join("\n"));
   if (r.context.length) parts.push("Lecture content (in order):\n" + r.context.map((c, i) => `${i + 1}. ${c}`).join("\n"));
   if (r.selected.length) parts.push("Selected by student:\n" + r.selected.map((c) => `> ${c}`).join("\n"));
-  if (r.image) parts.push("The attached image is the teacher's handwriting inside the student's box. First say what it reads (e.g. \"Your teacher wrote 2x = 10\"), then explain or solve it in 2-4 simple sentences. If you cannot read it, say so.");
+  if (r.image && r.slide) parts.push("The image is the selected slide or a cropped region of it, including the teacher's annotations. Use what is visible and the supplied slide text. Distinguish the teacher's material from any extra explanation.");
+  else if (r.image) parts.push(r.kind === "deeper"
+    ? "Use the attached handwriting and topic summary to ground the explanation. Describe only what you can read and distinguish any supplementary example."
+    : "The attached image is the teacher's handwriting inside the student's box. First say what it reads (e.g. \"Your teacher wrote 2x = 10\"), then explain or solve it in 2-4 simple sentences. If you cannot read it, say so.");
   if (r.stats) parts.push("Aggregated class stats: " + r.stats);
   if (r.question) parts.push(`Student question: ${r.question}`);
   return parts.join("\n\n");
@@ -46,9 +49,21 @@ export function buildJson(r: AIRequest): string {
   if (r.topicTitle) parts.push(`Current topic: ${r.topicTitle}`);
   if (r.context.length) parts.push("Lecture content (in order):\n" + r.context.map((c, i) => `${i + 1}. ${c}`).join("\n"));
   if (r.selected.length) parts.push("Selected by student:\n" + r.selected.map((c) => `> ${c}`).join("\n"));
+  if (r.image) parts.push(r.slide ? "Use the attached lecture slide and visible annotations." : "Use the attached image of the teacher's handwriting as part of the selected content.");
   return parts.join("\n\n");
 }
 
 export function buildSummarize(r: AIRequest): string {
-  return `Summarize this lecture topic from the teacher's notes. Reply with ONLY JSON: {"title": "<max 5 words>", "summary": "<max 20 words>"}.\n\nNotes:\n${r.selected.map((c) => `- ${c}`).join("\n")}`;
+  if (r.image) return `Read the teacher's recent handwriting in the attached image. Summarize its concept and decide whether it clearly starts a different topic from the current one. A continuation, annotation, or related example is not a new topic.
+If the writing is incomplete or unreadable, return an empty title and summary and set newTopic to false.
+Reply with only JSON: {"title":"<max 5 words>","summary":"<max 20 words>","newTopic":false}.
+Current title: ${r.topicTitle ?? ""}
+Prior context: ${JSON.stringify(r.context)}`;
+  return `Decide whether the last board entry clearly starts a different concept from the prior entries.
+A next step or related example stays in the same topic. If there are no prior entries or the shift is unclear, set newTopic to false.
+Summarize only the last entry if newTopic is true. Otherwise summarize the current topic.
+Reply with only JSON: {"title":"<max 5 words>","summary":"<max 20 words>","newTopic":false}.
+Current title: ${r.topicTitle ?? ""}
+Prior entries: ${JSON.stringify(r.context)}
+Board entries (oldest first): ${JSON.stringify(r.selected)}`;
 }

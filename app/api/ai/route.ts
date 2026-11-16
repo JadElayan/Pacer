@@ -12,10 +12,10 @@ export async function POST(req: Request) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return NextResponse.json(demoAnswer(b));
   try {
-    const img = typeof b.image === "string" && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(b.image) && b.image.length < 400_000 ? b.image.split(",")[1] : null;
+    const img = b.image && b.image.length < 800_000 ? /^data:(image\/(?:png|jpeg));base64,([A-Za-z0-9+/=]+)$/.exec(b.image) : null;
     const prompt = b.kind === "summarize" ? buildSummarize(b) : JSON_KINDS.includes(b.kind) ? buildJson(b) : buildUser(b);
     while (b.history?.length && b.history[0].role !== "user") b.history = b.history.slice(1);
-    const messages = [...(b.history ?? []).map((h) => ({ role: h.role, content: h.text })), { role: "user" as const, content: img ? [{ type: "image", source: { type: "base64", media_type: "image/png", data: img } }, { type: "text", text: prompt }] : prompt }];
+    const messages = [...(b.history ?? []).map((h) => ({ role: h.role, content: h.text })), { role: "user" as const, content: img ? [{ type: "image", source: { type: "base64", media_type: img[1], data: img[2] } }, { type: "text", text: prompt }] : prompt }];
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     const text = (j.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("").trim();
     if (!text) throw new Error("The AI didn't return an answer. Please try again");
     if (b.kind === "summarize") {
-      try { const o = JSON.parse(text.replace(/^```json|```$/g, "").trim()); return NextResponse.json({ text: "", title: o.title, summary: o.summary, source: "ai" } satisfies AIResponse); }
+      try { const o = JSON.parse(text.replace(/^```json|```$/g, "").trim()); if (typeof o.title !== "string" || !o.title.trim() || typeof o.summary !== "string") throw new Error("Invalid topic summary"); return NextResponse.json({ text: "", title: o.title, summary: o.summary, newTopic: o.newTopic === true, source: "ai" } satisfies AIResponse); }
       catch { return NextResponse.json(demoAnswer(b)); }
     }
     if (JSON_KINDS.includes(b.kind)) {

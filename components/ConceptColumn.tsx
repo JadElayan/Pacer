@@ -10,17 +10,20 @@ export function ConceptColumn({ topics, currentId, hrefFor, canEdit, onEdit }: {
   const end = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [t, setT] = useState(""); const [s, setS] = useState("");
-  useEffect(() => { end.current?.scrollIntoView({ block: "nearest" }); }, [topics.length]);
+  useEffect(() => {
+    const strip = end.current?.parentElement;
+    if (strip) strip.scrollLeft = strip.scrollWidth;
+  }, [topics.length]);
 
   return (
-    <nav aria-label="Lecture topics" className="flex gap-3 md:flex-col md:overflow-y-auto max-md:overflow-x-auto max-md:pb-1">
+    <nav aria-label="Lecture topics" className="flex gap-3 overflow-x-auto pb-2">
       {topics.length === 0 && (
         <div className="card rounded-[20px] bg-taupe p-4 text-sm text-smoke max-md:min-w-[220px]">Topics appear here as your teacher covers new ideas.</div>
       )}
       {topics.map((tp) => {
         const live = tp.id === currentId;
         return (
-          <div key={tp.id} className={`card pop-in relative shrink-0 rounded-[20px] bg-taupe p-4 max-md:w-[240px] ${live ? "border border-sky shadow-[0_0_0_3px_var(--color-sky-soft)]" : "border border-transparent"}`}>
+          <div key={tp.id} className={`card pop-in relative w-[min(240px,75vw)] shrink-0 rounded-xl bg-taupe px-3 py-2 ${live ? "border border-sky shadow-[0_0_0_3px_var(--color-sky-soft)]" : "border border-transparent"}`}>
             {editing === tp.id ? (
               <div className="space-y-2">
                 <input className="input !min-h-10" aria-label="Topic title" value={t} onChange={(e) => setT(e.target.value)} />

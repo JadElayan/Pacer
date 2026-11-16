@@ -1,46 +1,46 @@
 # Pacer
 
-Live lectures move at a shared pace, while students differ in how they process explanations and recover when they lose their place. Pacer is a context-aware classroom companion that offers **student-controlled support** using the teacher's whiteboard content, and gives the teacher **anonymous, aggregated** signals about where the class is stuck.
+Pacer is a live classroom whiteboard with student-controlled explanations and anonymous class insights. The Teaching dashboard hosts and resumes lectures. The Learning dashboard joins meetings and reviews saved lessons.
 
-Built for in-person classrooms. (Online/camera mode is a possible later addition and is intentionally not included.)
+## Start here
 
-## Run it
+Use Node.js 22 and npm. Run `npm ci` and `npm run dev`, then open http://localhost:3000. On Windows PowerShell, use `npm.cmd` if script execution is blocked. Copy `.env.example` to `.env.local` for optional integrations. `npm run lint` checks TypeScript and `npm run build` checks the production build.
 
-```bash
-npm install
-cp .env.example .env.local   # optional, see below
-npm run dev                  # http://localhost:3000
-```
+| Configuration | Behavior |
+| --- | --- |
+| No Supabase configuration | Guest rooms sync between tabs in the same browser. |
+| `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Enables Supabase Realtime for live rooms across devices. Use the public anon key. |
+| `NEXT_PUBLIC_AUTH_ENABLED=1` | Enables Google sign-in after OAuth is configured. See [account setup](AUTH_SETUP.md). |
+| `ANTHROPIC_API_KEY` and optional `ANTHROPIC_MODEL` | Enables server-side AI. Without a key, replies use labeled demo content. |
+| `NEXT_PUBLIC_TEACHER_STORAGE_ENABLED=1` | Enables optional teacher room and slide backups. Requires the storage migration. |
 
-| Variable | Without it |
-|---|---|
-| `ANTHROPIC_API_KEY` (+ optional `ANTHROPIC_MODEL`) | AI runs in **Demo mode**: prewritten answers, labeled "Demo response" in the UI |
-| `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Sync uses `BroadcastChannel`: **only tabs in the same browser** sync. A banner says so. |
+## Current features
 
-With Supabase keys set, sync uses Supabase Realtime **Broadcast**. No tables are needed for the current prototype.
+- Teachers can rename live lectures, edit and format text in place, add equations, ink, shapes, sticky notes and templates, and pan or zoom the board. Connectors snap to objects and can be reattached. Archived boards and saved lectures preserve teaching materials. Continuing a saved lecture starts a new meeting.
+- Students can follow the teacher or browse independently, ask questions about notes or a snip, catch up, and answer check-ins. Signed-in students can save lessons and learning progress.
+- Shared notepads are opt-in per board. Signed-in students can edit their own contributions when allowed. Private annotation data uses separate per-account storage and is excluded from shared room updates.
+- Slide and document imports are development-only. The current upload path uses local disk, and Office conversion requires LibreOffice. Production imports are not enabled on Vercel.
 
-## 2-minute demo
+## Repository map
 
-1. Home → type a title → **Start Meeting** → **Enter classroom** (teacher).
-2. Open the join link / enter the 6-digit code in a second tab → **Join Meeting** (student).
-3. Teacher: click **Add demo step** (or type notes/equations). Student sees it live, and concept cards pop into the left column.
-4. Student: click `2x = 8` → **Why this step?**, or press **Snip** and drag a box around it.
-5. Student: change **Mode** to Guided, tap **Still confused**.
-6. Teacher: **Insights** shows the aggregated signal (enable "Demo: show small groups" with only one student; real threshold is 3).
+| Area | Entry points |
+| --- | --- |
+| Home, roles, and classroom | [Home](app/page.tsx), [room route](app/room), [Classroom](components/Classroom.tsx) |
+| Board editing | [Whiteboard](components/Whiteboard.tsx), [textbox editor](components/BoardTextEditor.tsx), [connectors](components/BoardConnectors.tsx) |
+| Live sync and collaboration | [Room state](lib/useRoom.ts), [transport](lib/transport.ts), [account collaboration](lib/useBoardCollaboration.ts) |
+| Saved work | [Student lessons](lib/lessons.ts), [teacher lectures](lib/savedLectures.ts), [SQL migrations](supabase/) |
+| AI | [Server route](app/api/ai/route.ts), [prompt](lib/prompt.ts) |
 
-See **DEMO_SCRIPT.md** for the full on-stage script with teacher/student roles.
+Before editing Next.js code, follow [AGENTS.md](AGENTS.md) and read the relevant installed guides in `node_modules/next/dist/docs/`.
 
-## What's implemented
+## Deployment and database
 
-Zoom-style home, room codes + QR, live-synced whiteboard (typed notes, KaTeX equations, pen), AI topic cards + topic pages, click-to-ask and snip tool, AI pop-ups (one at a time, cooldown, dismissible), Focus/Guided/Example/Standard modes, Catch Me Up, local preference scoring, teacher insights with small-group suppression, a live "students need help" alert with a **Revisit this** button that highlights the block on every student's screen.
+Deploy this Next.js repository to Vercel and configure the environment variables above for the target environment. The public Supabase settings are read at build time. Add the deployment URL to Google sign-in redirects as described in [account setup](AUTH_SETUP.md). Keep the Anthropic key in server-side environment settings.
 
-## New in this version
-- **Check-in questions:** the teacher asks a question with a hidden answer key; students answer in a card above the board; grading happens on the teacher's side (the key is never sent to students); results appear anonymously in Insights. Not for a grade.
-- **Snip tools:** a **Tools** menu beside the snip panel: Explain in depth, Graph it (SVG plot), Visualize it (balance-scale steps), Quiz me (private practice). With no AI key these show clearly labeled demo content.
-- **Learning profile:** a private, on-device profile per subject (questions asked, confusion, check-in and quiz accuracy) with plain-language suggestions. Teachers never see it.
+Supabase SQL is applied separately from Git and Vercel. For a new environment, configure the existing account tables described in the account setup, then apply [student lessons](supabase/student_lessons.sql), [saved teacher lectures](supabase/saved_teacher_lectures.sql), [teacher storage](supabase/pacer_cloud_storage.sql), [transparent slide support](supabase/transparent_slide_images.sql), and [board collaboration](supabase/board_collaboration.sql). Confirm which scripts are already applied before setting up an existing project.
 
-## Known prototype limits
+## Verification and open work
 
-- No real teacher auth: room ownership is a token in the teacher's browser. Anyone who can reach the channel could spoof messages. Needs Supabase RLS + signed tokens for production.
-- Lecture state/feedback are not yet persisted to Postgres (teacher's browser stores it locally).
-- Pen strokes are normalized to the board and sync on stroke end.
+The textbox workflow was verified locally for range formatting, resize, undo/redo, reload, and reopening a saved lecture. Connector snapping, reconnection at 125% zoom, deletion, undo/redo, and reload were also verified locally.
+
+After applying the collaboration migration, verify with a signed-in teacher and two distinct student accounts. Check that disabling contributions blocks further writes while preserving drafts, and that private annotations reopen for their owner and are inaccessible to other accounts. Hosted multi-account verification is pending. The prototype still uses a browser-held teacher token and a public Realtime channel for general live classroom traffic. Database authorization for collaboration does not secure the legacy broadcast channel.

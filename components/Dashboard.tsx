@@ -1,10 +1,12 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { accuracy, loadProfile, sampleProfile, saveProfile, summarize, type Profile } from "@/lib/profile";
+import { accuracy, loadProfile, loadStudy, mergeStudy, summarize, type Profile, type StudyEntry } from "@/lib/profile";
 import { loadLessons, mergeLessons, pullLessons, storeLessons, type Lesson } from "@/lib/lessons";
 import { BoardPreview } from "./ArchiveSheet";
-import { mergeProfiles, pullProfile } from "@/lib/cloudProfile";
+import { mergeProfiles, pullLearning } from "@/lib/cloudProfile";
+import { StudyHistory } from "./ProfileSheet";
+import { SavedSlides } from "./SavedSlides";
 import { useAuth } from "@/lib/useAuth";
 
 const KHAN: Record<string, string> = { algebra: "math/algebra", trigonometry: "math/trigonometry", geometry: "math/geometry", calculus: "math/calculus-1" };
@@ -15,9 +17,19 @@ const when = (t: number) => new Date(t).toLocaleDateString(undefined, { month: "
 /** Left and right boxes around the join/host area: what you learned, and how you're doing. */
 export function LearnedBox() {
   const [lessons, setLessons] = useState<Lesson[]>([]); const [open, setOpen] = useState<string | null>(null);
-  const { user } = useAuth();
-  useEffect(() => { setLessons(loadLessons()); }, []);
-  useEffect(() => { if (user) void pullLessons(user.id).then((r) => { const m = mergeLessons(loadLessons(), r); storeLessons(m); setLessons(m); }).catch(() => {}); }, [user]);
+  const { user, ready } = useAuth();
+  const userId = user?.id;
+  useEffect(() => {
+    if (!ready) return;
+    let active = true;
+    setLessons(loadLessons(userId));
+    if (userId) void pullLessons(userId).then((remote) => {
+      if (!active) return;
+      const merged = mergeLessons(loadLessons(userId), remote);
+      storeLessons(merged, userId); setLessons(merged);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [ready, userId]);
   return (
     <section aria-label="What you've learned" className="flex min-h-[420px] flex-col rounded-[28px] border border-stone bg-eggshell/95 p-6 shadow-[var(--shadow-whisper)] lg:min-h-[560px]">
       <p className="text-xs font-medium uppercase tracking-wide text-sky-deep">What you've learned</p>
@@ -33,6 +45,7 @@ export function LearnedBox() {
             </button>
             {open === l.code && <ul className="mt-3 space-y-2">{l.topics.map((t, i) => (
               <li key={i} className="rounded-2xl bg-taupe p-3"><p className="text-sm font-medium">{t.title}</p><p className="text-xs text-smoke">{t.summary}</p><p className="mt-1 text-xs">{t.notes.join("  ·  ")}</p></li>))}{(l.boards ?? []).map((b, i) => <li key={b.id}><p className="mb-1 text-xs text-smoke">Saved board {i + 1}</p><BoardPreview b={b} /></li>)}</ul>}
+            {open === l.code && l.slides && <div className="mt-3"><SavedSlides key={l.slides.id} deck={l.slides} userId={userId} /></div>}
           </div>))}
       </div>
     </section>
@@ -40,10 +53,21 @@ export function LearnedBox() {
 }
 
 export function ProgressBox() {
-  const { user } = useAuth();
+  const { user, ready } = useAuth();
+  const userId = user?.id;
   const [p, setP] = useState<Profile>({});
-  useEffect(() => { setP(loadProfile()); }, []);
-  useEffect(() => { if (user) void pullProfile(user.id).then((r) => { if (r) setP(mergeProfiles(loadProfile(), r)); }).catch(() => {}); }, [user]);
+  const [studyEntries, setStudyEntries] = useState<StudyEntry[]>([]);
+  useEffect(() => {
+    if (!ready) return;
+    let active = true;
+    setP(loadProfile(userId)); setStudyEntries(loadStudy(userId));
+    if (userId) void pullLearning(userId).then((remote) => {
+      if (!active) return;
+      setP(mergeProfiles(loadProfile(userId), remote.profile));
+      setStudyEntries(mergeStudy(remote.study, loadStudy(userId)));
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [ready, userId]);
   const rows = Object.entries(p).filter(([, s]) => s.asks + s.checkRight + s.checkWrong + s.quizRight + s.quizWrong > 0);
   const weak = rows.filter(([, s]) => { const a = accuracy(s); return a !== null && a < 70; });
   const strong = rows.filter(([, s]) => { const a = accuracy(s); return a !== null && a >= 80; });
@@ -69,7 +93,7 @@ export function ProgressBox() {
           </div>)}
         {rows.length > 0 && summarize(p).length > 0 && weak.length === 0 && strong.length === 0 && <ul className="space-y-2">{summarize(p).map((l, i) => <li key={i} className="rounded-2xl bg-sky-soft p-3 text-sm">{l}</li>)}</ul>}
       </div>
-      <button className="mt-3 self-start text-xs text-smoke underline" onClick={() => { saveProfile(sampleProfile()); setP(loadProfile()); }}>Load sample data (demo)</button>
+      <StudyHistory entries={studyEntries} />
     </section>
   );
 }

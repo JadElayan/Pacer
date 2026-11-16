@@ -1,13 +1,14 @@
 "use client";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { askAI } from "@/lib/ai";
 import { useRoom } from "@/lib/useRoom";
 import { usePrefs } from "@/lib/usePrefs";
 import { Logo } from "./Logo";
 import { MathView } from "./MathView";
 import { RichText } from "./RichText";
+import { handwritingImage } from "./Whiteboard";
 
 export function TopicPage({ code, id }: { code: string; id: string }) {
   const teacher = useSearchParams().get("role") === "teacher";
@@ -17,11 +18,24 @@ export function TopicPage({ code, id }: { code: string; id: string }) {
   const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
   const back = `/room/${code}${teacher ? "?role=teacher" : ""}`;
   const topic = state?.topics.find((t) => t.id === id);
+  const [image, setImage] = useState<string>();
+  const ink = useMemo(() => {
+    const ids = new Set(topic?.strokeIds ?? []);
+    const strokes = [...(state?.archive ?? []).flatMap((entry) => entry.strokes), ...(state?.strokes ?? [])];
+    return [...new Map(strokes.filter((stroke) => ids.has(stroke.id)).map((stroke) => [stroke.id, stroke])).values()];
+  }, [state?.archive, state?.strokes, topic?.strokeIds]);
+  useEffect(() => {
+    setImage(handwritingImage(ink, 960, 960 / (topic?.inkAspect ?? 1.5)));
+  }, [ink, topic?.inkAspect]);
   const blocks = [...(state?.archive ?? []).flatMap((a) => a.blocks), ...(state?.blocks ?? [])].filter((b) => b.topicId === id).filter((b, i, arr) => arr.findIndex((x) => x.id === b.id) === i);
 
   const go = async () => {
     setBusy(true); setErr("");
-    try { const r = await askAI({ kind: "deeper", selected: blocks.map((b) => b.content), context: state?.blocks.map((b) => b.content) ?? [], topicTitle: topic?.title, mode: prefs.mode }); setDeep({ text: r.text, source: r.source }); }
+    try {
+      const r = await askAI({ kind: "deeper", selected: blocks.map((b) => b.content), context: [], image,
+        topicTitle: topic?.title, topics: topic?.summary ? [{ title: topic.title, summary: topic.summary }] : undefined, mode: prefs.mode });
+      setDeep({ text: r.text, source: r.source });
+    }
     catch (e) { setErr(e instanceof Error ? e.message : "Something went wrong"); } finally { setBusy(false); }
   };
 
@@ -35,6 +49,7 @@ export function TopicPage({ code, id }: { code: string; id: string }) {
           <h2 className="mt-8 text-sm font-medium">From the whiteboard</h2>
           <ul className="mt-2 space-y-3">{blocks.map((b) => (
             <li key={b.id} className="rounded-[20px] border border-stone bg-taupe px-5 py-4">{b.kind === "equation" ? <div className="text-2xl"><MathView tex={b.content} /></div> : <p className="text-xl">{b.content}</p>}</li>))}</ul>
+          {image && <img className="mt-3 max-w-full rounded-2xl border border-stone" src={image} alt="Handwritten notes for this topic" />}
           <div className="mt-8 rounded-[24px] border border-stone p-6">
             <h2 className="text-lg font-medium">Go deeper</h2>
             {deep ? (<><p className="mt-1 text-xs text-smoke">{deep.source === "demo" ? "Demo response (no AI key set)" : "Extra explanation from AI, not from your teacher"}</p><p className="mt-2 whitespace-pre-wrap"><RichText text={deep.text} /></p></>)

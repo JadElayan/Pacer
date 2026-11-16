@@ -1,18 +1,30 @@
 "use client";
 import type { Archived } from "@/lib/types";
 import { MathView } from "./MathView";
+import { InkPath } from "./InkPath";
+import { BoardObject } from "./BoardObjects";
 
 /** Read-only look at every board the teacher cleared (notes + pen), newest first. */
-export function BoardPreview({ b }: { b: Pick<Archived, "blocks" | "strokes"> }) {
+export function BoardPreview({ b }: { b: Pick<Archived, "blocks" | "strokes" | "inkAspect"> }) {
+  let left = 0, top = 0, right = 1, bottom = 1;
+  for (const stroke of b.strokes) {
+    for (const [x, y] of stroke.pts) {
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
+    }
+  }
+  const width = right - left;
+  const height = bottom - top;
   return (
     <div className="relative overflow-hidden rounded-[20px] border border-stone bg-taupe p-4">
       <div className="space-y-2">{b.blocks.map((x) => (
-        <div key={x.id} className="rounded-2xl border border-stone bg-eggshell px-3 py-2">{x.kind === "equation" ? <div className="text-xl"><MathView tex={x.content} /></div> : <p className="text-base">{x.content}</p>}</div>))}
-        {b.blocks.length === 0 && b.strokes.length > 0 && <div className="h-40" />}
+        <div key={x.id} className="rounded-2xl border border-stone bg-eggshell px-3 py-2">{x.kind === "equation" ? <div className="text-xl"><MathView tex={x.content} /></div> : x.kind === "text" ? <p className="text-base">{x.content}</p> : <BoardObject kind={x.kind} content={x.content} stickyStyle={x.stickyStyle} />}</div>))}
       </div>
       {b.strokes.length > 0 && (
-        <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 1 1" preserveAspectRatio="none" aria-label="Pen drawing">
-          {b.strokes.map((s) => <path key={s.id} d={s.pts.map((q, i) => `${i ? "L" : "M"}${q[0]} ${q[1]}`).join(" ")} fill="none" stroke="#000" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />)}
+        <svg className="block w-full rounded-2xl border border-stone bg-eggshell" style={{ aspectRatio: (b.inkAspect ?? 1.5) * width / height, marginTop: b.blocks.length ? 8 : 0 }} viewBox={`${left} ${top} ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label="Archived pen drawing">
+          {b.strokes.map((s) => <InkPath key={s.id} stroke={s} />)}
         </svg>)}
     </div>
   );

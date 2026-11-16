@@ -1,32 +1,299 @@
 "use client";
-import { useRef, useState } from "react";
-import type { Block, Stroke } from "@/lib/types";
+import { useLayoutEffect, useRef, useState } from "react";
+import type { Block, BlockKind, BoardConnector, BoardTextRun, Stroke } from "@/lib/types";
+import { BoardConnectors, boardAnchors, resolveEnd } from "./BoardConnectors";
+import { BoardText, BoardTextEditor } from "./BoardTextEditor";
 import { MathView } from "./MathView";
+import { InkPath } from "./InkPath";
+import { BoardObject, StickyTools } from "./BoardObjects";
+import { BoardToolIcon, boardToolCursor } from "./BoardToolIcon";
+import type { ComponentProps } from "react";
+
+export type BoardTool = "select" | "pen" | "highlight" | "erase";
+type Point = [number, number];
+const resizeCorners = [
+  ["Top left", -1, -1, "-left-1.5 -top-1.5 cursor-nwse-resize"],
+  ["Top right", 1, -1, "-right-1.5 -top-1.5 cursor-nesw-resize"],
+  ["Bottom left", -1, 1, "-left-1.5 -bottom-1.5 cursor-nesw-resize"],
+  ["Bottom right", 1, 1, "-right-1.5 -bottom-1.5 cursor-nwse-resize"],
+] as const;
+
+function hitsStroke(stroke: Stroke, [x, y]: Point, w: number, h: number) {
+  return stroke.pts.some(([ax, ay], i) => {
+    const [bx, by] = stroke.pts[i + 1] ?? [ax, ay];
+    const dx = (bx - ax) * w, dy = (by - ay) * h;
+    const px = (x - ax) * w, py = (y - ay) * h;
+    const t = Math.max(0, Math.min(1, (px * dx + py * dy) / (dx * dx + dy * dy || 1)));
+    return Math.hypot(px - t * dx, py - t * dy) <= 12 + (stroke.width ?? 3) / 2;
+  });
+}
 
 export interface Rect { left: number; top: number; right: number; bottom: number }
-export interface Anchor { ids: string[]; rect: Rect; source: "block" | "snip"; image?: string }
+export interface Anchor { ids: string[]; rect: Rect; source: "block" | "snip"; image?: string; slideText?: string; slideTitle?: string; boardPosition?: Point }
 
-/** Draws the pen strokes that fall inside the snip box onto a small white PNG (max 480px wide) so the AI can read handwriting. */
+/** Renders ink within the selected area as a white-background PNG for the AI. */
 function strokesImage(strokes: Stroke[], box: Rect, w: number, h: number): string | undefined {
   const hit = strokes.filter((s) => s.pts.some(([x, y]) => x * w >= box.left && x * w <= box.right && y * h >= box.top && y * h <= box.bottom));
   if (!hit.length) return undefined;
   const bw = box.right - box.left, bh = box.bottom - box.top;
-  const k = Math.min(1, 480 / bw);
+  const k = Math.min(1, 960 / Math.max(bw, bh));
   const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(bw * k)); c.height = Math.max(1, Math.round(bh * k));
   const g = c.getContext("2d"); if (!g) return undefined;
   g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
-  g.strokeStyle = "#000"; g.lineWidth = 3; g.lineCap = "round"; g.lineJoin = "round";
-  hit.forEach((s) => { g.beginPath(); s.pts.forEach(([x, y], i) => { const px = (x * w - box.left) * k, py = (y * h - box.top) * k; i ? g.lineTo(px, py) : g.moveTo(px, py); }); g.stroke(); });
+  g.lineCap = "round"; g.lineJoin = "round";
+  hit.forEach((s) => {
+    g.strokeStyle = s.color ?? "#000"; g.globalAlpha = s.opacity ?? 1; g.lineWidth = (s.width ?? 3) * k;
+    g.beginPath();
+    s.pts.forEach(([x, y], i) => {
+      const px = (x * w - box.left) * k, py = (y * h - box.top) * k;
+      if (i) g.lineTo(px, py);
+      else { g.moveTo(px, py); if (s.pts.length === 1) g.lineTo(px + 0.01, py); }
+    });
+    g.stroke();
+  });
   return c.toDataURL("image/png");
 }
 
-export function Whiteboard({ boardRef, blocks, strokes, isTeacher, selectedIds, spotlightId, onSelect, snipActive, onSnip, penActive, onStroke, onDelete, children }: {
+export function handwritingImage(strokes: Stroke[], w: number, h: number) {
+  if (!w || !h || !strokes.length) return;
+  let left = w, right = 0, top = h, bottom = 0;
+  for (const stroke of strokes) {
+    for (const [x, y] of stroke.pts) {
+      left = Math.min(left, x * w);
+      right = Math.max(right, x * w);
+      top = Math.min(top, y * h);
+      bottom = Math.max(bottom, y * h);
+    }
+  }
+  return strokesImage(strokes, { left: left - 12, right: right + 12, top: top - 12, bottom: bottom + 12 }, w, h);
+}
+
+export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, canEraseStroke, connectorMode, onConnector, canEditBlock, selectedIds, spotlightId, onSelect, snipActive, onSnip, tool, ink, zoom = 1, position, onZoom, onStroke, onErase, onDelete, onEditSticky, onDuplicateSticky, onResizeBlock, onEditText, placement, modeIcon, onPlace, onCancelPlacement, onMoveBlock, children, slide }: {
   boardRef: React.RefObject<HTMLDivElement | null>; blocks: Block[]; strokes: Stroke[]; isTeacher: boolean; selectedIds: string[]; spotlightId?: string;
-  onSelect: (a: Anchor) => void; snipActive: boolean; onSnip: (a: Anchor | null) => void; penActive: boolean;
-  onStroke: (pts: [number, number][]) => void; onDelete: (id: string) => void; children?: React.ReactNode;
+  onSelect: (a: Anchor) => void; snipActive: boolean; onSnip: (a: Anchor | null) => void; tool: BoardTool;
+  ink: Pick<Stroke, "color" | "width" | "opacity">;
+  zoom?: number;
+  position?: Point;
+  onZoom?: (zoom: number, position: Point) => void;
+  onStroke: (stroke: Omit<Stroke, "id">) => void; onErase: (ids: Set<string>) => void;
+  onDelete: (id: string, detached?: Record<string, BoardConnector>, origin?: Point) => void; children?: React.ReactNode;
+  privateInk?: boolean;
+  canEraseStroke?: (id: string) => boolean;
+  connectorMode?: boolean;
+  onConnector?: (connector: BoardConnector, id?: string) => void;
+  canEditBlock?: (id: string) => boolean;
+  onEditSticky?: (id: string, changes: Partial<Pick<Block, "content" | "stickyStyle">>) => void;
+  onDuplicateSticky?: (block: Block) => void;
+  onResizeBlock?: (id: string, changes: Pick<Block, "fontSize" | "scale" | "position" | "textWidth">) => void;
+  onEditText?: (id: string, content: string, runs?: BoardTextRun[]) => void;
+  placement?: Exclude<BlockKind, "connector">;
+  modeIcon?: ComponentProps<typeof BoardToolIcon>["tool"];
+  onPlace?: (kind: BlockKind, content: string, position: Point, runs?: BoardTextRun[]) => string | void;
+  onCancelPlacement?: () => void;
+  onMoveBlock?: (id: string, position: Point) => void;
+  slide?: { url: string; aspect: number };
 }) {
   const [drag, setDrag] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [live, setLive] = useState<[number, number][] | null>(null);
+  const [erased, setErased] = useState<Set<string>>(new Set());
+  const gesture = useRef<{ id: number; tool: BoardTool; ink: typeof ink; points: Point[]; erased: Set<string> } | null>(null);
+  const viewport = useRef<HTMLDivElement>(null);
+  const appliedScroll = useRef<Point>([0, 0]);
+  const inkLayer = useRef<SVGSVGElement>(null);
+  const [draft, setDraft] = useState<{ position: Point; content: string }>();
+  const [selectedSticky, setSelectedSticky] = useState<string>();
+  const [editingText, setEditingText] = useState<string>();
+  const [moving, setMoving] = useState<{ id: string; position: Point }>();
+  const [resizing, setResizing] = useState<{ id: string; size: number; position: Point }>();
+  const resizeDrag = useRef<{ pointer: number; origin: Point; start: Point; span: Point; pixels: Point; size: number; next?: { size: number; position: Point } } | undefined>(undefined);
+  const blockDrag = useRef<{ id: string; pointer: number; start: Point; origin: Point; position?: Point } | null>(null);
+  const ignoreBlockClick = useRef(false);
+  useLayoutEffect(() => { setDraft(undefined); }, [placement]);
+  const [previewZoom, setPreviewZoom] = useState<number>();
+  const [previewPosition, setPreviewPosition] = useState<Point>();
+  const [viewportSize, setViewportSize] = useState<Point>([0, 0]);
+  const displayZoom = previewZoom ?? zoom;
+  const [viewX, viewY] = previewPosition ?? position ?? [0, 0];
+  const [width, height] = viewportSize;
+  const targetX = viewX * width;
+  const targetY = viewY * height;
+  const left = Math.max(0, -targetX);
+  const top = Math.max(0, -targetY);
+  const fingers = useRef(new Map<number, Point>());
+  const pinch = useRef<{ distance: number; zoom: number; next: number; anchor: Point; position: Point } | null>(null);
+  const trackpadScale = useRef(1);
+  const pan = useRef<{ id: number; start: Point; origin: Point; position: Point } | null>(null);
+  const [panning, setPanning] = useState(false);
+  const lastShare = useRef(0);
+  const shareView = (scale: number, offset: Point, final = false) => {
+    const now = performance.now();
+    if (final || now - lastShare.current >= 80) {
+      lastShare.current = now;
+      onZoom?.(scale, offset);
+    }
+  };
+  useLayoutEffect(() => {
+    const element = viewport.current;
+    if (!element) return;
+    const resize = () => setViewportSize([element.clientWidth, element.clientHeight]);
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  useLayoutEffect(() => {
+    const element = viewport.current;
+    if (!element) return;
+    element.scrollTo(Math.max(0, targetX), Math.max(0, targetY));
+    appliedScroll.current = [element.scrollLeft, element.scrollTop];
+  }, [targetX, targetY, displayZoom, width, height]);
+  const positionFromPixels = (x: number, y: number, scale: number): Point => {
+    // Keep part of the board within reach even when panning past an edge.
+    const limit = (value: number, size: number) => Math.max(-size * 0.8, Math.min(size * scale - size * 0.2, value));
+    return [limit(x, width) / Math.max(1, width), limit(y, height) / Math.max(1, height)];
+  };
+  useLayoutEffect(() => {
+    const element = viewport.current;
+    if (!element || !onZoom || !width || !height) return;
+
+    let frame = 0;
+    let scale = displayZoom;
+    let offset: Point = [targetX, targetY];
+    const moveTo = (x: number, y: number, next: number) => {
+      const position = positionFromPixels(x, y, next);
+      offset = [position[0] * width, position[1] * height];
+      scale = next;
+      if (!frame) {
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          onZoom(Math.round(scale * 100) / 100, [offset[0] / width, offset[1] / height]);
+        });
+      }
+    };
+    const zoomAt = (factor: number, clientX: number, clientY: number) => {
+      const next = Math.max(0.5, Math.min(2.5, scale * factor));
+      if (next === scale) return;
+      const rect = element.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      moveTo((offset[0] + x) * next / scale - x, (offset[1] + y) * next / scale - y, next);
+    };
+    const wheel = (event: WheelEvent) => {
+      // Chromium and Firefox also report trackpad pinch as Ctrl + wheel.
+      event.preventDefault();
+      if (gesture.current || pan.current || pinch.current) return;
+      const dx = event.deltaX * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? width : 1);
+      const dy = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? height : 1);
+      if (event.ctrlKey) zoomAt(Math.exp(-dy * 0.002), event.clientX, event.clientY);
+      else moveTo(offset[0] + dx, offset[1] + dy, scale);
+    };
+    const gestureStart = (event: Event) => {
+      event.preventDefault();
+      trackpadScale.current = 1;
+    };
+    const gestureChange = (event: Event) => {
+      event.preventDefault();
+      if (gesture.current || pan.current || pinch.current) return;
+      const { scale, clientX, clientY } = event as MouseEvent & { scale: number };
+      if (!Number.isFinite(scale) || scale <= 0) return;
+      zoomAt(scale / trackpadScale.current, clientX, clientY);
+      trackpadScale.current = scale;
+    };
+    element.addEventListener("wheel", wheel, { passive: false });
+    element.addEventListener("gesturestart", gestureStart, { passive: false });
+    element.addEventListener("gesturechange", gestureChange, { passive: false });
+    return () => {
+      element.removeEventListener("wheel", wheel);
+      element.removeEventListener("gesturestart", gestureStart);
+      element.removeEventListener("gesturechange", gestureChange);
+      cancelAnimationFrame(frame);
+    };
+  });
+  const measureTouch = (element: HTMLDivElement) => {
+    const [a, b] = fingers.current.values();
+    if (!a || !b) return;
+    const rect = element.getBoundingClientRect();
+    return { distance: Math.max(1, Math.hypot(a[0] - b[0], a[1] - b[1])),
+      x: (a[0] + b[0]) / 2 - rect.left, y: (a[1] + b[1]) / 2 - rect.top };
+  };
+  const touchDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!onZoom) return;
+    if (e.pointerType === "mouse" && e.button === 2) {
+      e.preventDefault();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      const origin: Point = [e.currentTarget.scrollLeft - left, e.currentTarget.scrollTop - top];
+      pan.current = { id: e.pointerId, start: [e.clientX, e.clientY], origin, position: [viewX, viewY] };
+      setPanning(true);
+      return;
+    }
+    if (e.pointerType !== "touch") return;
+    fingers.current.set(e.pointerId, [e.clientX, e.clientY]);
+    const touch = measureTouch(e.currentTarget);
+    if (!touch || pinch.current) return;
+    blockDrag.current = null;
+    setMoving(undefined);
+    resizeDrag.current = undefined;
+    setResizing(undefined);
+    gesture.current = null;
+    setLive(null);
+    setErased(new Set());
+    const { scrollLeft, scrollTop } = e.currentTarget;
+    pinch.current = { distance: touch.distance, zoom, next: zoom,
+      anchor: [(scrollLeft + touch.x - left) / zoom, (scrollTop + touch.y - top) / zoom], position: [viewX, viewY] };
+  };
+  const touchMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = pan.current;
+    if (drag?.id === e.pointerId) {
+      drag.position = positionFromPixels(drag.origin[0] + drag.start[0] - e.clientX, drag.origin[1] + drag.start[1] - e.clientY, zoom);
+      setPreviewPosition(drag.position);
+      shareView(zoom, drag.position);
+      return;
+    }
+    if (!fingers.current.has(e.pointerId)) return;
+    fingers.current.set(e.pointerId, [e.clientX, e.clientY]);
+    const start = pinch.current;
+    const touch = measureTouch(e.currentTarget);
+    if (!start || !touch) return;
+    start.next = Math.round(Math.max(0.5, Math.min(2.5, start.zoom * touch.distance / start.distance)) * 100) / 100;
+    start.position = positionFromPixels(start.anchor[0] * start.next - touch.x, start.anchor[1] * start.next - touch.y, start.next);
+    setPreviewPosition(start.position);
+    setPreviewZoom(start.next);
+    shareView(start.next, start.position);
+  };
+  const touchEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (pan.current?.id === e.pointerId) {
+      shareView(zoom, pan.current.position, true);
+      pan.current = null;
+      setPanning(false);
+      setPreviewPosition(undefined);
+      return;
+    }
+    if (!fingers.current.delete(e.pointerId) || !pinch.current || fingers.current.size >= 2) return;
+    const { next, position } = pinch.current;
+    pinch.current = null;
+    shareView(next, position, true);
+    setPreviewZoom(undefined);
+    setPreviewPosition(undefined);
+  };
+  const active = (isTeacher || privateInk) && tool !== "select";
+  const deleteObject = (id: string) => {
+    const detached: Record<string, BoardConnector> = {};
+    let origin: Point | undefined;
+    if (boardRef.current && inkLayer.current) {
+      const anchors = boardAnchors(boardRef.current, inkLayer.current);
+      const rect = anchors.get(id);
+      if (rect) origin = [rect.left, rect.top];
+      for (const block of blocks) {
+        const connector = block.connector;
+        if (!connector || (connector.from.objectId !== id && connector.to.objectId !== id)) continue;
+        detached[block.id] = { ...connector,
+          from: connector.from.objectId === id ? { point: resolveEnd(connector.from, anchors) } : connector.from,
+          to: connector.to.objectId === id ? { point: resolveEnd(connector.to, anchors) } : connector.to,
+        };
+      }
+    }
+    onDelete(id, detached, origin);
+  };
   const rel = (r: DOMRect | Rect): Rect => {
     const b = boardRef.current!.getBoundingClientRect();
     return { left: r.left - b.left, top: r.top - b.top, right: r.right - b.left, bottom: r.bottom - b.top };
@@ -43,38 +310,311 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, selectedIds, 
       const r = el.getBoundingClientRect();
       if (r.left < box.right + b.left && r.right > box.left + b.left && r.top < box.bottom + b.top && r.bottom > box.top + b.top) ids.push(el.dataset.blockId!);
     });
-    onSnip({ ids, rect: box, source: "snip", image: strokesImage(strokes, box, b.width, b.height) });
+    const inkBounds = inkLayer.current?.getBoundingClientRect();
+    const image = inkBounds && strokesImage(strokes, {
+      left: box.left + b.left - inkBounds.left, right: box.right + b.left - inkBounds.left,
+      top: box.top + b.top - inkBounds.top, bottom: box.bottom + b.top - inkBounds.top,
+    }, inkBounds.width, inkBounds.height);
+    onSnip({ ids, rect: box, source: "snip", image });
   };
-  const pt = (e: React.PointerEvent) => { const b = boardRef.current!.getBoundingClientRect(); return [(e.clientX - b.left) / b.width, (e.clientY - b.top) / b.height] as [number, number]; };
-  const path = (p: [number, number][]) => p.map((q, i) => `${i ? "L" : "M"}${q[0]} ${q[1]}`).join(" ");
+  const moveInk = (e: React.PointerEvent<HTMLDivElement>) => {
+    const g = gesture.current;
+    const bounds = inkLayer.current?.getBoundingClientRect();
+    if (!g || g.id !== e.pointerId || !bounds?.width || !bounds.height) return;
+    const { width, height } = bounds;
+    const visible = e.currentTarget.getBoundingClientRect();
+    const x = (Math.max(visible.left, Math.min(visible.right, e.clientX)) - bounds.left) / width;
+    const y = (Math.max(visible.top, Math.min(visible.bottom, e.clientY)) - bounds.top) / height;
+    const point: Point = slide ? [Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y))] : [x, y];
+    const last = g.points.at(-1);
+    if (g.tool !== "erase" && last && Math.hypot((point[0] - last[0]) * width, (point[1] - last[1]) * height) < 1) return;
+    g.points.push(point);
+    if (g.tool !== "erase") { setLive([...g.points]); return; }
+    const [lastX, lastY] = last ?? point;
+    const steps = Math.max(1, Math.ceil(Math.hypot((point[0] - lastX) * width, (point[1] - lastY) * height) / 8));
+    for (let i = 1; i <= steps; i++) {
+      const sample: Point = [lastX + (point[0] - lastX) * i / steps, lastY + (point[1] - lastY) * i / steps];
+      for (const stroke of strokes) {
+        if ((!canEraseStroke || canEraseStroke(stroke.id)) && !g.erased.has(stroke.id) && hitsStroke(stroke, sample, width, height)) g.erased.add(stroke.id);
+      }
+    }
+    setErased(new Set(g.erased));
+  };
+  const finishInk = (e: React.PointerEvent<HTMLDivElement>, commit: boolean) => {
+    const g = gesture.current;
+    if (!g || g.id !== e.pointerId) return;
+    if (commit) moveInk(e);
+    gesture.current = null;
+    setLive(null);
+    setErased(new Set());
+    if (!commit) return;
+    if (g.tool === "erase") onErase(g.erased);
+    else if (g.points.length) onStroke({ ...g.ink, pts: g.points });
+  };
+
+  const canvasPoint = (x: number, y: number): Point | undefined => {
+    const bounds = inkLayer.current?.getBoundingClientRect();
+    if (!bounds?.width || !bounds.height) return;
+    return [(x - bounds.left) / bounds.width, (y - bounds.top) / bounds.height];
+  };
+  const saveDraft = () => {
+    const content = draft?.content.trim();
+    if (placement && draft && content) onPlace?.(placement, content, draft.position);
+    else onCancelPlacement?.();
+  };
+  const place = (x: number, y: number) => {
+    const position = canvasPoint(x, y);
+    if (!position || !placement) return;
+    if (placement === "text" || placement === "equation" || placement === "sticky") {
+      setDraft({ position, content: "" });
+    } else {
+      onPlace?.(placement, placement, position);
+    }
+  };
+  const finishBlockDrag = (event: React.PointerEvent<HTMLDivElement>, commit: boolean) => {
+    const drag = blockDrag.current;
+    if (!drag || drag.pointer !== event.pointerId) return;
+    blockDrag.current = null;
+    setMoving(undefined);
+    if (commit && drag.position) onMoveBlock?.(drag.id, drag.position);
+  };
+
+  const renderBlock = (b: Block) => {
+    const resize = resizing?.id === b.id ? resizing : undefined;
+    const location = resize?.position ?? (moving?.id === b.id ? moving.position : b.position);
+    const origin = resize ? resizeDrag.current?.origin : blockDrag.current?.origin;
+    const editable = canEditBlock?.(b.id) ?? true;
+    const editing = editable && editingText === b.id && !!onEditText && !active && !placement;
+    const movable = editable && !!onMoveBlock && !placement && !active && !editing && !connectorMode;
+    const type = b.kind === "text" || b.kind === "equation";
+    const fontSize = b.fontSize ?? (b.kind === "equation" ? 26 : 20);
+    const reflow = b.kind === "text";
+    const size = reflow ? b.textWidth ?? 0 : type ? fontSize : (b.scale ?? 1) * 100;
+    const minSize = reflow ? 48 : type ? 12 : 50;
+    const maxSize = reflow ? Math.max(48, width * .85) : type ? 80 : 300;
+    const clampSize = (next: number) => Math.round(Math.max(minSize, Math.min(maxSize, next)));
+    const commitSize = (next: number, position?: Point) => onResizeBlock?.(b.id, {
+      ...(reflow ? { textWidth: next } : type ? { fontSize: next } : { scale: next / 100 }), ...(position ? { position } : {}),
+    });
+    const selected = selectedIds.includes(b.id) || (!placement && !active && selectedSticky === b.id);
+    return <div key={b.id} data-block-id={b.id} role="button" tabIndex={0} aria-pressed={selected}
+      aria-label={`${b.kind === "equation" ? "Equation" : "Note"}: ${b.content}`}
+      style={{ width: reflow ? resize?.size ?? b.textWidth : undefined, ...(location && (b.position ? { left: `${location[0] * 100}%`, top: `${location[1] * 100}%` } : {
+        transform: `translate(${(location[0] - (origin?.[0] ?? location[0])) * width}px, ${(location[1] - (origin?.[1] ?? location[1])) * height}px)`,
+      })) }}
+      onPointerDown={(event) => {
+        ignoreBlockClick.current = false;
+        if (!movable || !event.isPrimary || event.button !== 0 || (event.target as Element).closest("button")) return;
+        const rect = event.currentTarget.getBoundingClientRect();
+        const origin = b.position ?? canvasPoint(rect.left, rect.top);
+        if (!origin) return;
+        blockDrag.current = { id: b.id, pointer: event.pointerId, start: [event.clientX, event.clientY], origin };
+      }}
+      onPointerMove={(event) => {
+        const drag = blockDrag.current;
+        if (!drag || drag.id !== b.id || drag.pointer !== event.pointerId || !event.buttons || !width || !height) return;
+        const dx = event.clientX - drag.start[0], dy = event.clientY - drag.start[1];
+        if (!drag.position && Math.hypot(dx, dy) < 4) return;
+        if (!event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.setPointerCapture(event.pointerId);
+        const bounds = viewport.current?.getBoundingClientRect();
+        if (!bounds) return;
+        const start = canvasPoint(bounds.left, bounds.top);
+        const end = canvasPoint(bounds.right - 24, bounds.bottom - 24);
+        if (!start || !end) return;
+        drag.position = [
+          Math.max(start[0], Math.min(end[0], drag.origin[0] + dx / (width * displayZoom))),
+          Math.max(start[1], Math.min(end[1], drag.origin[1] + dy / (height * displayZoom))),
+        ];
+        ignoreBlockClick.current = true;
+        setMoving({ id: b.id, position: drag.position });
+      }}
+      onPointerUp={(event) => finishBlockDrag(event, true)}
+      onPointerCancel={(event) => finishBlockDrag(event, false)}
+      onLostPointerCapture={(event) => finishBlockDrag(event, false)}
+      onClick={(event) => {
+        if (placement || ignoreBlockClick.current || editing) return;
+        if (onMoveBlock && editable) setSelectedSticky(b.id);
+        const rect = event.currentTarget.getBoundingClientRect();
+        onSelect({ ids: [b.id], rect: rel(rect), source: "block", boardPosition: canvasPoint(rect.left, rect.top) });
+      }}
+      onDoubleClick={() => { if (movable && reflow && onEditText) { setSelectedSticky(b.id); setEditingText(b.id); } }}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget || placement || !["Enter", " "].includes(event.key)) return;
+        event.preventDefault();
+        if (onMoveBlock && editable) {
+          if (event.key === "Enter" && reflow && selected && onEditText) setEditingText(b.id);
+          setSelectedSticky(b.id);
+        }
+        const rect = event.currentTarget.getBoundingClientRect();
+        onSelect({ ids: [b.id], rect: rel(rect), source: "block", boardPosition: canvasPoint(rect.left, rect.top) });
+      }}
+      className={`block-card group w-fit max-w-full break-words rounded-sm ${b.position ? "absolute max-w-[85%]" : "relative"} ${movable ? "cursor-grab select-none active:cursor-grabbing" : "cursor-pointer"} ${selected ? "z-10 outline-2 outline-sky outline-offset-2" : ""} ${b.id === spotlightId ? "ring-4 ring-sky" : ""}`}>
+      {type ? <div className={editing ? "" : "overflow-x-auto"} style={{ fontSize: reflow ? fontSize : resize?.size ?? fontSize }}>
+        {b.kind === "equation" ? <MathView tex={b.content} display={false} /> : editing ?
+          <BoardTextEditor content={b.content} runs={b.textRuns} baseSize={fontSize}
+            toolbarAbove={((location?.[1] ?? 0) * displayZoom - viewY) * height > 60}
+            onCommit={(content, runs) => { onEditText?.(b.id, content, runs); setEditingText(undefined); }} /> :
+          <div className="whitespace-pre-wrap break-words leading-snug"><BoardText content={b.content} runs={b.textRuns} /></div>}
+      </div> : <div style={{ zoom: (resize?.size ?? size) / 100 }}><BoardObject kind={b.kind} content={b.content} stickyStyle={b.stickyStyle} /></div>}
+      {editable && selected && !editing && onResizeBlock && resizeCorners.map(([label, sx, sy, classes]) => <button key={label} type="button"
+        aria-label={`${label} resize handle`} className={`absolute z-20 size-3 touch-none rounded-full border-2 border-sky bg-white after:absolute after:-inset-2 after:content-[''] ${classes}`}
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          if (!event.isPrimary || event.button !== 0 || !width || !height) return;
+          const rect = event.currentTarget.parentElement!.getBoundingClientRect();
+          const origin = canvasPoint(rect.left, rect.top);
+          if (!origin) return;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          resizeDrag.current = { pointer: event.pointerId, origin, start: [event.clientX, event.clientY],
+            span: [rect.width / (width * displayZoom), rect.height / (height * displayZoom)],
+            pixels: [rect.width, rect.height], size: reflow ? rect.width / displayZoom : size };
+        }}
+        onPointerMove={(event) => {
+          const drag = resizeDrag.current;
+          if (!drag || drag.pointer !== event.pointerId) return;
+          const [w, h] = drag.pixels;
+          const dx = (event.clientX - drag.start[0]) * sx;
+          const dy = (event.clientY - drag.start[1]) * sy;
+          const next = clampSize(reflow ? drag.size + dx / displayZoom : drag.size * (1 + (dx * w + dy * h) / Math.max(1, w * w + h * h)));
+          const growth = next / drag.size - 1;
+          const position: Point = [drag.origin[0] - (sx < 0 ? drag.span[0] * growth : 0),
+            drag.origin[1] - (!reflow && sy < 0 ? drag.span[1] * growth : 0)];
+          drag.next = { size: next, position };
+          setResizing({ id: b.id, ...drag.next });
+        }}
+        onPointerUp={(event) => {
+          const drag = resizeDrag.current;
+          if (drag?.pointer !== event.pointerId) return;
+          resizeDrag.current = undefined;
+          setResizing(undefined);
+          if (drag.next && drag.next.size !== drag.size) commitSize(drag.next.size, drag.next.position);
+        }}
+        onLostPointerCapture={() => { resizeDrag.current = undefined; setResizing(undefined); }}
+        onKeyDown={(event) => {
+          if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+          event.preventDefault();
+          const current = reflow ? event.currentTarget.parentElement!.getBoundingClientRect().width / displayZoom : size;
+          commitSize(clampSize(current + (event.key === "ArrowUp" || event.key === "ArrowRight" ? 1 : -1) * (type && !reflow ? 2 : 10)));
+        }} />)}
+      {b.kind === "sticky" && selected && onEditSticky && <div className="absolute left-0 top-full z-10 min-w-64">
+        <StickyTools style={b.stickyStyle}
+        onChange={(stickyStyle) => onEditSticky(b.id, { stickyStyle })}
+        onEdit={() => {
+          const content = window.prompt("Edit sticky note", b.content)?.trim();
+          if (content && content !== b.content) onEditSticky(b.id, { content: content.slice(0, 500) });
+        }}
+        onDuplicate={() => onDuplicateSticky?.(b)} /></div>}
+      {editable && onMoveBlock && !editing && <button type="button" aria-label="Delete note" className="absolute bottom-full left-1/2 mb-1 grid size-6 -translate-x-1/2 place-items-center rounded-full border border-stone bg-eggshell opacity-0 focus:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
+        onClick={(event) => { event.stopPropagation(); deleteObject(b.id); }}>×</button>}
+    </div>;
+  };
 
   return (
-    <div ref={boardRef} className="relative min-h-[440px] flex-1">
-      <div className="absolute inset-0 overflow-hidden rounded-[24px] border border-stone bg-taupe">
-        <div className="absolute inset-0 overflow-auto p-5 md:p-8" role="region" aria-label="Whiteboard" tabIndex={0}>
-          {blocks.length === 0 && strokes.length === 0 && <p className="grid h-full place-items-center text-center text-smoke">{isTeacher ? "Add your first note below. It appears on every student's screen." : "Waiting for your teacher to write something…"}</p>}
+    <div ref={boardRef} className={slide ? "relative w-full self-start" : "relative min-h-[440px] flex-1"} style={slide ? { aspectRatio: slide.aspect } : undefined}>
+      <div className={`notebook-board notebook-board-blank absolute inset-0 overflow-hidden rounded-[18px] border border-stone`}
+        style={slide ? undefined : {
+          backgroundPosition: `${-targetX}px ${-targetY}px`,
+          backgroundSize: `${18 * displayZoom}px ${18 * displayZoom}px`,
+        }}>
+        <div ref={viewport} data-board-viewport className="absolute inset-0 overflow-hidden [overflow-anchor:none]" aria-label={placement ? `Click to place ${placement}` : "Board viewport"}
+          tabIndex={placement || displayZoom > 1 ? 0 : undefined} style={{ touchAction: onZoom ? "none" : undefined,
+            cursor: panning ? "grabbing" : !draft && (modeIcon || placement) ? boardToolCursor((modeIcon || placement)!) : active ? "crosshair" : undefined }}
+          onClick={(event) => {
+            const target = event.target as Element;
+            if (!placement) {
+              if (!target.closest("[data-block-id]")) setSelectedSticky(undefined);
+              return;
+            }
+            if (target.closest("[data-board-editor]")) return;
+            if (draft) saveDraft();
+            else place(event.clientX, event.clientY);
+          }}
+          onKeyDown={(event) => {
+            if (!placement || event.target !== event.currentTarget) return;
+            if (event.key === "Escape") onCancelPlacement?.();
+            if (event.key === "Enter" && !draft) {
+              const bounds = event.currentTarget.getBoundingClientRect();
+              place(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+            }
+          }}
+          onContextMenu={onZoom ? (e) => e.preventDefault() : undefined}
+          onScroll={(e) => {
+            if (!onZoom || pan.current || pinch.current || !width || !height) return;
+            const { scrollLeft, scrollTop } = e.currentTarget;
+            const [appliedX, appliedY] = appliedScroll.current;
+            if (Math.abs(scrollLeft - appliedX) < 1 && Math.abs(scrollTop - appliedY) < 1) return;
+            onZoom(zoom, positionFromPixels(scrollLeft - left, scrollTop - top, zoom));
+          }}
+          onPointerDownCapture={touchDown} onPointerMoveCapture={touchMove}
+          onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd} onLostPointerCapture={(e) => { touchEnd(e); finishInk(e, false); }}
+          onPointerDown={(e) => {
+            if (!active || !e.isPrimary || e.button !== 0 || (e.pointerType === "touch" && pinch.current)) return;
+            if (slide) {
+              const bounds = inkLayer.current?.getBoundingClientRect();
+              if (!bounds || e.clientX < bounds.left || e.clientX > bounds.right || e.clientY < bounds.top || e.clientY > bounds.bottom) return;
+            }
+            // A new primary press can recover a gesture whose release was interrupted.
+            e.currentTarget.setPointerCapture(e.pointerId);
+            gesture.current = { id: e.pointerId, tool, ink, points: [], erased: new Set() };
+            setLive(null);
+            setErased(new Set());
+            moveInk(e);
+          }}
+          onPointerMove={moveInk}
+          onPointerUp={(e) => finishInk(e, true)}
+          onPointerCancel={(e) => finishInk(e, false)}>
+        <div className="relative min-h-full min-w-full overflow-hidden" style={{
+          width: width ? Math.max(left + width * displayZoom, width + targetX) : "100%",
+          height: height ? Math.max(top + height * displayZoom, height + targetY) : "100%",
+        }}>
+        <div className="absolute origin-top-left" style={{ width: width || "100%", height: height || "100%", left, top, transform: `scale(${displayZoom})` }}>
+        <div className={`absolute inset-0 overflow-auto p-5 md:p-8 ${active || placement ? "pointer-events-none" : ""}`} role="region" aria-label="Whiteboard" tabIndex={0}>
+          {slide && <img src={slide.url} alt="Lecture slide" className="absolute inset-0 h-full w-full" draggable={false} />}
+          {!slide && !placement && blocks.length === 0 && strokes.length === 0 && <p className="grid h-full place-items-center text-center text-smoke">{isTeacher ? "Choose Text or Equation to add a note to the board." : "Waiting for your teacher to write something…"}</p>}
           <div className="space-y-4">
-            {blocks.map((b) => {
-              const sel = selectedIds.includes(b.id);
-              return (
-                <div key={b.id} data-block-id={b.id} role="button" tabIndex={0} aria-pressed={sel}
-                  aria-label={`${b.kind === "equation" ? "Equation" : "Note"}: ${b.content}. Press Enter to ask about this.`}
-                  onClick={(e) => onSelect({ ids: [b.id], rect: rel(e.currentTarget.getBoundingClientRect()), source: "block" })}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect({ ids: [b.id], rect: rel(e.currentTarget.getBoundingClientRect()), source: "block" }); } }}
-                  className={`block-card group relative cursor-pointer rounded-[20px] border bg-eggshell px-5 py-4 transition ${sel ? "border-sky shadow-[0_0_0_3px_var(--color-sky-soft)]" : "border-stone hover:border-ash"}${b.id === spotlightId ? " border-sky ring-4 ring-sky" : ""}`}>
-                  {b.kind === "equation" ? <div className="text-2xl md:text-3xl"><MathView tex={b.content} /></div> : <p className="text-xl leading-snug">{b.content}</p>}
-                  {isTeacher && <button aria-label="Delete note" className="btn btn-outline btn-sm absolute right-2 top-2 opacity-0 focus:opacity-100 group-hover:opacity-100" onClick={(e) => { e.stopPropagation(); onDelete(b.id); }}>Delete</button>}
-                </div>
-              );
-            })}
+            {blocks.filter((block) => !block.position && !block.connector).map(renderBlock)}
           </div>
         </div>
-        <svg className="absolute inset-0 h-full w-full" viewBox="0 0 1 1" preserveAspectRatio="none" style={{ pointerEvents: penActive && isTeacher ? "auto" : "none", cursor: penActive ? "crosshair" : undefined, touchAction: penActive ? "none" : undefined }}
-          onPointerDown={(e) => { if (!penActive) return; (e.target as Element).setPointerCapture?.(e.pointerId); setLive([pt(e)]); }}
-          onPointerMove={(e) => { if (live) setLive([...live, pt(e)]); }}
-          onPointerUp={() => { if (live && live.length > 1) onStroke(live); setLive(null); }}>
-          {[...strokes.map((s) => s.pts), ...(live ? [live] : [])].map((p, i) => <path key={i} d={path(p)} fill="none" stroke="#000" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />)}
+        <div className={`pointer-events-none absolute inset-0 ${active || placement ? "" : "[&>*]:pointer-events-auto"}`}>
+          {blocks.filter((block) => block.position && !block.connector).map(renderBlock)}
+        </div>
+        {placement === "text" && draft && onEditText && (
+          <div className="absolute z-20 min-w-12 max-w-[70%] outline-2 outline-sky outline-offset-2"
+            style={{ left: `${draft.position[0] * 100}%`, top: `${draft.position[1] * 100}%`, fontSize: 20 }}>
+            <BoardTextEditor content="" baseSize={20} toolbarAbove={(draft.position[1] * displayZoom - viewY) * height > 60}
+              onCommit={(content, runs) => {
+                if (!content.trim()) { onCancelPlacement?.(); return; }
+                const id = onPlace?.("text", content, draft.position, runs);
+                if (id) setSelectedSticky(id);
+              }} />
+          </div>
+        )}
+        {placement && draft && !(placement === "text" && onEditText) && (
+          <form data-board-editor className="absolute z-10 flex max-w-[85%] items-center gap-1 rounded-xl border border-sky bg-eggshell p-1.5 shadow-lg"
+            style={{ left: `${draft.position[0] * 100}%`, top: `${draft.position[1] * 100}%`,
+              transform: `translate(${draft.position[0] * displayZoom - viewX > .65 ? "-100%" : "0"}, ${draft.position[1] * displayZoom - viewY > .8 ? "-100%" : "0"})` }}
+            onSubmit={(event) => { event.preventDefault(); saveDraft(); }}
+            onKeyDown={(event) => { if (event.key === "Escape" && !event.nativeEvent.isComposing) { event.stopPropagation(); onCancelPlacement?.(); } }}>
+            <input autoFocus maxLength={placement === "sticky" ? 500 : undefined} aria-label={placement === "equation" ? "Equation" : placement === "sticky" ? "Sticky note" : "Note text"}
+              className="input !min-h-8 min-w-0 max-w-full [field-sizing:content]" size={Math.max(12, Math.min(40, draft.content.length))}
+              placeholder={placement === "equation" ? "Type an equation…" : "Type a note…"} value={draft.content}
+              onChange={(event) => setDraft({ ...draft, content: event.target.value })} />
+            <button type="submit" className="btn btn-primary btn-sm" disabled={!draft.content.trim()}>Add</button>
+          </form>
+        )}
+
+        <svg ref={inkLayer} className={`pointer-events-none absolute inset-0 h-full w-full ${slide ? "" : "overflow-visible"}`} viewBox="0 0 1 1" preserveAspectRatio="none">
+          {strokes.filter((s) => !erased.has(s.id)).map((s) => <InkPath key={s.id} stroke={s} />)}
+          {live && <InkPath stroke={{ ...gesture.current?.ink, pts: live }} />}
         </svg>
+        <BoardConnectors root={boardRef} plane={inkLayer} blocks={blocks} width={width} height={height} viewOrigin={[targetX / displayZoom, targetY / displayZoom]}
+          selectedObject={editingText ? undefined : selectedSticky} enabled={!!onConnector && !active && !placement}
+          drawing={!!connectorMode} onCancel={onCancelPlacement ?? (() => {})}
+          onSave={(connector, id) => onConnector?.(connector, id)} onDelete={deleteObject} />
+        </div>
+        </div>
+        </div>
         {snipActive && (
           <div className="absolute inset-0 z-20 cursor-crosshair bg-black/5" style={{ touchAction: "none" }} aria-label="Drag to draw a box around what you want explained"
             onPointerDown={(e) => { const b = boardRef.current!.getBoundingClientRect(); const x = e.clientX - b.left, y = e.clientY - b.top; (e.target as Element).setPointerCapture?.(e.pointerId); setDrag({ x0: x, y0: y, x1: x, y1: y }); }}
