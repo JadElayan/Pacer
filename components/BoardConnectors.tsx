@@ -28,11 +28,12 @@ export function resolveEnd(end: ConnectorEnd, anchors: Anchors): BoardPoint {
     : [(rect.left + rect.right) / 2, rect[end.side]];
 }
 
-export function BoardConnectors({ root, plane, blocks, selectedObject, width, height, viewOrigin, enabled, drawing, onCancel, onSave, onDelete }: {
+export function BoardConnectors({ root, plane, blocks, selectedObject, width, height, viewOrigin, enabled, drawing, canEdit, onCancel, onSave, onDelete }: {
   root: RefObject<HTMLDivElement | null>; plane: RefObject<SVGSVGElement | null>;
   blocks: Block[]; selectedObject?: string; width: number; height: number;
   viewOrigin: BoardPoint;
   enabled: boolean; drawing: boolean; onCancel: () => void;
+  canEdit?: (id: string) => boolean;
   onSave: (connector: BoardConnector, id?: string) => void; onDelete: (id: string) => void;
 }) {
   const marker = useId();
@@ -117,6 +118,7 @@ export function BoardConnectors({ root, plane, blocks, selectedObject, width, he
     setPreview(connector);
   };
   const line = (connector: BoardConnector, id?: string) => {
+    const editable = id && enabled && !drawing && (canEdit?.(id) ?? true);
     const [x1, y1] = resolveEnd(connector.from, anchors.current);
     const [x2, y2] = resolveEnd(connector.to, anchors.current);
     const coords = { x1: x1 * width, y1: y1 * height, x2: x2 * width, y2: y2 * height };
@@ -124,23 +126,23 @@ export function BoardConnectors({ root, plane, blocks, selectedObject, width, he
     return <g key={id ?? "preview"} color={color}>
       <line {...coords} stroke={color} strokeWidth={2} strokeDasharray={connector.dashed ? "6 5" : undefined}
         vectorEffect="non-scaling-stroke" markerEnd={connector.head === false ? undefined : `url(#${marker})`} />
-      {id && enabled && !drawing && <line {...coords} data-connector-control stroke="transparent" strokeWidth={18} vectorEffect="non-scaling-stroke"
+      {editable && <line {...coords} data-connector-control stroke="transparent" strokeWidth={18} vectorEffect="non-scaling-stroke"
         className="cursor-pointer" pointerEvents="stroke" role="button" tabIndex={0} aria-label="Select connector"
         onClick={(event) => { event.stopPropagation(); setSelected(id); }}
         onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(id); } }} />}
-      {id && enabled && !drawing && selected === id && (["from", "to"] as const).map((edge) => <circle key={edge} data-connector-control
+      {editable && selected === id && (["from", "to"] as const).map((edge) => <circle key={edge} data-connector-control
         cx={edge === "from" ? coords.x1 : coords.x2} cy={edge === "from" ? coords.y1 : coords.y2} r={6}
         fill="white" stroke={color} strokeWidth={2} pointerEvents="all" className="cursor-grab"
         aria-label={`Drag ${edge === "from" ? "start" : "end"} of connector`}
         onPointerDown={(event) => start(event, connector, edge, id)} />)}
     </g>;
   };
-  const chosen = enabled && blocks.find((block) => block.id === selected)?.connector;
+  const chosen = enabled && selected && (canEdit?.(selected) ?? true) && blocks.find((block) => block.id === selected)?.connector;
   const target = gesture.current && preview?.[gesture.current.edge];
   const targetPoint = target?.objectId && resolveEnd(target, anchors.current);
   const targetBounds = target?.objectId ? anchors.current.get(target.objectId) : undefined;
   return <>
-    <svg ref={svg} className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" viewBox={`0 0 ${Math.max(1, width)} ${Math.max(1, height)}`}
+    <svg ref={svg} className={`pointer-events-none absolute inset-0 h-full w-full overflow-visible ${drawing ? "z-20" : ""}`} viewBox={`0 0 ${Math.max(1, width)} ${Math.max(1, height)}`}
       onPointerMove={(event) => {
         const drag = gesture.current;
         if (drag) setPreview({ ...drag.value, [drag.edge]: snap(event, drag.value[drag.edge === "to" ? "from" : "to"].objectId) });

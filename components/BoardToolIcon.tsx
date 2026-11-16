@@ -18,7 +18,9 @@ const paths = {
   upload: "M12 16V3m-5 5 5-5 5 5 M4 15v5h16v-5",
   undo: "M9 5 4 10l5 5 M4 10h10a5 5 0 0 1 5 5v3",
   redo: "m15 5 5 5-5 5 M20 10H10a5 5 0 0 0-5 5v3",
-} satisfies Record<BoardTool | BoardShape | "sticky" | "shapes" | "templates" | "text" | "equation" | "upload" | "undo" | "redo", string>;
+  visibility: "M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z",
+  hidden: "M3 3l18 18 M2 12s4-6 10-6c6 0 10 6 10 6s-1 2-4 4 M5 9l-3 3s4 6 10 6c1 0 3 0 4-1",
+} satisfies Record<BoardTool | BoardShape | "sticky" | "shapes" | "templates" | "text" | "equation" | "upload" | "undo" | "redo" | "visibility" | "hidden", string>;
 
 export function boardToolCursor(tool: keyof typeof paths) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="${paths[tool]}" stroke="white" stroke-width="4"/><path d="${paths[tool]}" stroke="#243b81" stroke-width="2"/></g></svg>`;

@@ -1,6 +1,6 @@
 "use client";
 import { useLayoutEffect, useRef, useState } from "react";
-import type { Block, BlockKind, BoardConnector, BoardTextRun, Stroke } from "@/lib/types";
+import type { Block, BlockKind, BoardConnector, BoardShapeSize, BoardTextRun, Stroke } from "@/lib/types";
 import { BoardConnectors, boardAnchors, resolveEnd } from "./BoardConnectors";
 import { BoardText, BoardTextEditor } from "./BoardTextEditor";
 import { MathView } from "./MathView";
@@ -11,6 +11,8 @@ import type { ComponentProps } from "react";
 
 export type BoardTool = "select" | "pen" | "highlight" | "erase";
 type Point = [number, number];
+type ShapeTool = "rectangle" | "circle" | "diamond";
+type ShapePreview = { kind: ShapeTool; position: Point; size: BoardShapeSize };
 const resizeCorners = [
   ["Top left", -1, -1, "-left-1.5 -top-1.5 cursor-nwse-resize"],
   ["Top right", 1, -1, "-right-1.5 -top-1.5 cursor-nesw-resize"],
@@ -88,12 +90,17 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
   onEditText?: (id: string, content: string, runs?: BoardTextRun[]) => void;
   placement?: Exclude<BlockKind, "connector">;
   modeIcon?: ComponentProps<typeof BoardToolIcon>["tool"];
-  onPlace?: (kind: BlockKind, content: string, position: Point, runs?: BoardTextRun[]) => string | void;
+  onPlace?: (kind: BlockKind, content: string, position: Point, runs?: BoardTextRun[], shapeSize?: BoardShapeSize) => string | void;
   onCancelPlacement?: () => void;
   onMoveBlock?: (id: string, position: Point) => void;
   slide?: { url: string; aspect: number };
 }) {
-  const [drag, setDrag] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const [drag, setDrag] = useState<{ pointer: number; x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const snipLayer = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (snipActive) snipLayer.current?.focus({ preventScroll: true });
+    else setDrag(null);
+  }, [snipActive]);
   const [live, setLive] = useState<[number, number][] | null>(null);
   const [erased, setErased] = useState<Set<string>>(new Set());
   const gesture = useRef<{ id: number; tool: BoardTool; ink: typeof ink; points: Point[]; erased: Set<string> } | null>(null);
@@ -101,6 +108,9 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
   const appliedScroll = useRef<Point>([0, 0]);
   const inkLayer = useRef<SVGSVGElement>(null);
   const [draft, setDraft] = useState<{ position: Point; content: string }>();
+  const shapeTool = placement === "rectangle" || placement === "circle" || placement === "diamond" ? placement : undefined;
+  const shapeDrag = useRef<{ pointer: number; start: Point } | null>(null);
+  const [shapePreview, setShapePreview] = useState<ShapePreview>();
   const [selectedSticky, setSelectedSticky] = useState<string>();
   const [editingText, setEditingText] = useState<string>();
   const [moving, setMoving] = useState<{ id: string; position: Point }>();
@@ -108,7 +118,11 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
   const resizeDrag = useRef<{ pointer: number; origin: Point; start: Point; span: Point; pixels: Point; size: number; next?: { size: number; position: Point } } | undefined>(undefined);
   const blockDrag = useRef<{ id: string; pointer: number; start: Point; origin: Point; position?: Point } | null>(null);
   const ignoreBlockClick = useRef(false);
-  useLayoutEffect(() => { setDraft(undefined); }, [placement]);
+  useLayoutEffect(() => {
+    setDraft(undefined);
+    shapeDrag.current = null;
+    setShapePreview(undefined);
+  }, [placement]);
   const [previewZoom, setPreviewZoom] = useState<number>();
   const [previewPosition, setPreviewPosition] = useState<Point>();
   const [viewportSize, setViewportSize] = useState<Point>([0, 0]);
@@ -234,6 +248,8 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
     setMoving(undefined);
     resizeDrag.current = undefined;
     setResizing(undefined);
+    shapeDrag.current = null;
+    setShapePreview(undefined);
     gesture.current = null;
     setLive(null);
     setErased(new Set());
@@ -275,7 +291,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
     setPreviewZoom(undefined);
     setPreviewPosition(undefined);
   };
-  const active = (isTeacher || privateInk) && tool !== "select";
+  const active = !snipActive && (isTeacher || privateInk) && tool !== "select";
   const deleteObject = (id: string) => {
     const detached: Record<string, BoardConnector> = {};
     let origin: Point | undefined;
@@ -299,10 +315,12 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
     return { left: r.left - b.left, top: r.top - b.top, right: r.right - b.left, bottom: r.bottom - b.top };
   };
 
-  const finishSnip = () => {
-    if (!drag || !boardRef.current) return;
+  const finishSnip = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!drag || drag.pointer !== event.pointerId || !boardRef.current) return;
     const b = boardRef.current.getBoundingClientRect();
-    const box = { left: Math.min(drag.x0, drag.x1), right: Math.max(drag.x0, drag.x1), top: Math.min(drag.y0, drag.y1), bottom: Math.max(drag.y0, drag.y1) };
+    const x = Math.max(0, Math.min(b.width, event.clientX - b.left));
+    const y = Math.max(0, Math.min(b.height, event.clientY - b.top));
+    const box = { left: Math.min(drag.x0, x), right: Math.max(drag.x0, x), top: Math.min(drag.y0, y), bottom: Math.max(drag.y0, y) };
     setDrag(null);
     if (box.right - box.left < 10 || box.bottom - box.top < 10) { onSnip(null); return; }
     const ids: string[] = [];
@@ -362,6 +380,38 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
     if (placement && draft && content) onPlace?.(placement, content, draft.position);
     else onCancelPlacement?.();
   };
+  const currentShape = (event: React.PointerEvent<HTMLDivElement>): ShapePreview | undefined => {
+    const drag = shapeDrag.current;
+    if (!shapeTool || !drag || drag.pointer !== event.pointerId || !width || !height) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const end = canvasPoint(
+      Math.max(bounds.left, Math.min(bounds.right, event.clientX)),
+      Math.max(bounds.top, Math.min(bounds.bottom, event.clientY)),
+    );
+    if (!end) return;
+    const dx = (end[0] - drag.start[0]) * width;
+    const dy = (end[1] - drag.start[1]) * height;
+    if (Math.hypot(dx, dy) * displayZoom < 5) return;
+    const w = Math.max(12, Math.abs(dx));
+    const h = Math.max(12, Math.abs(dy));
+    const diameter = Math.min(w, h);
+    const size = shapeTool === "circle" ? { width: diameter, height: diameter } : { width: w, height: h };
+    return {
+      kind: shapeTool,
+      position: [drag.start[0] - (dx < 0 ? size.width / width : 0), drag.start[1] - (dy < 0 ? size.height / height : 0)],
+      size,
+    };
+  };
+  const finishShape = (event: React.PointerEvent<HTMLDivElement>, commit: boolean) => {
+    const drag = shapeDrag.current;
+    if (!drag || drag.pointer !== event.pointerId) return;
+    const shape = commit ? currentShape(event) : undefined;
+    shapeDrag.current = null;
+    setShapePreview(undefined);
+    if (!commit || !shapeTool) return;
+    const id = onPlace?.(shapeTool, shapeTool, shape?.position ?? drag.start, undefined, shape?.size);
+    if (id) setSelectedSticky(id);
+  };
   const place = (x: number, y: number) => {
     const position = canvasPoint(x, y);
     if (!position || !placement) return;
@@ -408,6 +458,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
         const rect = event.currentTarget.getBoundingClientRect();
         const origin = b.position ?? canvasPoint(rect.left, rect.top);
         if (!origin) return;
+        event.currentTarget.setPointerCapture(event.pointerId);
         blockDrag.current = { id: b.id, pointer: event.pointerId, start: [event.clientX, event.clientY], origin };
       }}
       onPointerMove={(event) => {
@@ -415,7 +466,6 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
         if (!drag || drag.id !== b.id || drag.pointer !== event.pointerId || !event.buttons || !width || !height) return;
         const dx = event.clientX - drag.start[0], dy = event.clientY - drag.start[1];
         if (!drag.position && Math.hypot(dx, dy) < 4) return;
-        if (!event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.setPointerCapture(event.pointerId);
         const bounds = viewport.current?.getBoundingClientRect();
         if (!bounds) return;
         const start = canvasPoint(bounds.left, bounds.top);
@@ -455,8 +505,8 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
             toolbarAbove={((location?.[1] ?? 0) * displayZoom - viewY) * height > 60}
             onCommit={(content, runs) => { onEditText?.(b.id, content, runs); setEditingText(undefined); }} /> :
           <div className="whitespace-pre-wrap break-words leading-snug"><BoardText content={b.content} runs={b.textRuns} /></div>}
-      </div> : <div style={{ zoom: (resize?.size ?? size) / 100 }}><BoardObject kind={b.kind} content={b.content} stickyStyle={b.stickyStyle} /></div>}
-      {editable && selected && !editing && onResizeBlock && resizeCorners.map(([label, sx, sy, classes]) => <button key={label} type="button"
+      </div> : <div style={{ zoom: (resize?.size ?? size) / 100 }}><BoardObject kind={b.kind} content={b.content} stickyStyle={b.stickyStyle} shapeSize={b.shapeSize} /></div>}
+      {editable && selected && !editing && !connectorMode && onResizeBlock && resizeCorners.map(([label, sx, sy, classes]) => <button key={label} type="button"
         aria-label={`${label} resize handle`} className={`absolute z-20 size-3 touch-none rounded-full border-2 border-sky bg-white after:absolute after:-inset-2 after:content-[''] ${classes}`}
         onClick={(event) => event.stopPropagation()}
         onPointerDown={(event) => {
@@ -497,7 +547,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
           const current = reflow ? event.currentTarget.parentElement!.getBoundingClientRect().width / displayZoom : size;
           commitSize(clampSize(current + (event.key === "ArrowUp" || event.key === "ArrowRight" ? 1 : -1) * (type && !reflow ? 2 : 10)));
         }} />)}
-      {b.kind === "sticky" && selected && onEditSticky && <div className="absolute left-0 top-full z-10 min-w-64">
+      {b.kind === "sticky" && editable && selected && onEditSticky && <div className="absolute left-0 top-full z-10 min-w-64">
         <StickyTools style={b.stickyStyle}
         onChange={(stickyStyle) => onEditSticky(b.id, { stickyStyle })}
         onEdit={() => {
@@ -511,13 +561,14 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
   };
 
   return (
-    <div ref={boardRef} className={slide ? "relative w-full self-start" : "relative min-h-[440px] flex-1"} style={slide ? { aspectRatio: slide.aspect } : undefined}>
-      <div className={`notebook-board notebook-board-blank absolute inset-0 overflow-hidden rounded-[18px] border border-stone`}
+    <div ref={boardRef} className={slide ? "relative shrink-0 self-center bg-white" : "relative min-h-[360px] flex-1 lg:min-h-[420px]"}
+      style={slide ? { aspectRatio: slide.aspect, width: `min(100%, ${slide.aspect * 64}dvh)` } : undefined}>
+      <div className={slide ? "absolute inset-0 overflow-hidden" : "notebook-board notebook-board-blank absolute inset-0 overflow-hidden rounded-[18px] border border-stone"}
         style={slide ? undefined : {
           backgroundPosition: `${-targetX}px ${-targetY}px`,
           backgroundSize: `${18 * displayZoom}px ${18 * displayZoom}px`,
         }}>
-        <div ref={viewport} data-board-viewport className="absolute inset-0 overflow-hidden [overflow-anchor:none]" aria-label={placement ? `Click to place ${placement}` : "Board viewport"}
+        <div ref={viewport} data-board-viewport className="absolute inset-0 overflow-hidden [overflow-anchor:none]" aria-label={shapeTool ? `Drag to size ${shapeTool}` : placement ? `Click to place ${placement}` : "Board viewport"}
           tabIndex={placement || displayZoom > 1 ? 0 : undefined} style={{ touchAction: onZoom ? "none" : undefined,
             cursor: panning ? "grabbing" : !draft && (modeIcon || placement) ? boardToolCursor((modeIcon || placement)!) : active ? "crosshair" : undefined }}
           onClick={(event) => {
@@ -527,6 +578,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
               return;
             }
             if (target.closest("[data-board-editor]")) return;
+            if (shapeTool || placement === "sticky") return;
             if (draft) saveDraft();
             else place(event.clientX, event.clientY);
           }}
@@ -547,9 +599,22 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
             onZoom(zoom, positionFromPixels(scrollLeft - left, scrollTop - top, zoom));
           }}
           onPointerDownCapture={touchDown} onPointerMoveCapture={touchMove}
-          onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd} onLostPointerCapture={(e) => { touchEnd(e); finishInk(e, false); }}
+          onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd} onLostPointerCapture={(e) => { touchEnd(e); finishInk(e, false); finishShape(e, false); }}
           onPointerDown={(e) => {
-            if (!active || !e.isPrimary || e.button !== 0 || (e.pointerType === "touch" && pinch.current)) return;
+            if (!e.isPrimary || e.button !== 0 || (e.pointerType === "touch" && pinch.current)) return;
+            if (shapeTool) {
+              const start = canvasPoint(e.clientX, e.clientY);
+              if (!start) return;
+              e.currentTarget.setPointerCapture(e.pointerId);
+              shapeDrag.current = { pointer: e.pointerId, start };
+              return;
+            }
+            if (placement === "sticky" && !draft) {
+              e.preventDefault();
+              place(e.clientX, e.clientY);
+              return;
+            }
+            if (!active) return;
             if (slide) {
               const bounds = inkLayer.current?.getBoundingClientRect();
               if (!bounds || e.clientX < bounds.left || e.clientX > bounds.right || e.clientY < bounds.top || e.clientY > bounds.bottom) return;
@@ -561,17 +626,25 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
             setErased(new Set());
             moveInk(e);
           }}
-          onPointerMove={moveInk}
-          onPointerUp={(e) => finishInk(e, true)}
-          onPointerCancel={(e) => finishInk(e, false)}>
+          onPointerMove={(e) => {
+            moveInk(e);
+            if (shapeDrag.current?.pointer === e.pointerId) setShapePreview(currentShape(e));
+          }}
+          onPointerUp={(e) => { finishInk(e, true); finishShape(e, true); }}
+          onPointerCancel={(e) => { finishInk(e, false); finishShape(e, false); }}>
         <div className="relative min-h-full min-w-full overflow-hidden" style={{
           width: width ? Math.max(left + width * displayZoom, width + targetX) : "100%",
           height: height ? Math.max(top + height * displayZoom, height + targetY) : "100%",
         }}>
         <div className="absolute origin-top-left" style={{ width: width || "100%", height: height || "100%", left, top, transform: `scale(${displayZoom})` }}>
-        <div className={`absolute inset-0 overflow-auto p-5 md:p-8 ${active || placement ? "pointer-events-none" : ""}`} role="region" aria-label="Whiteboard" tabIndex={0}>
+        <div className={`absolute inset-0 ${slide ? "overflow-hidden" : "overflow-auto p-5 md:p-8"} ${active || placement ? "pointer-events-none" : ""}`}
+          role="region" aria-label={slide ? "Presentation slide" : "Whiteboard"} tabIndex={0}>
           {slide && <img src={slide.url} alt="Lecture slide" className="absolute inset-0 h-full w-full" draggable={false} />}
-          {!slide && !placement && blocks.length === 0 && strokes.length === 0 && <p className="grid h-full place-items-center text-center text-smoke">{isTeacher ? "Choose Text or Equation to add a note to the board." : "Waiting for your teacher to write something…"}</p>}
+          {!slide && !placement && blocks.length === 0 && strokes.length === 0 && !(isTeacher && (live?.length || connectorMode || modeIcon)) && (
+            <p className="grid h-full place-items-center text-center text-smoke">
+              {isTeacher ? "Choose Text or Equation to add a note to the board." : "Waiting for your teacher to write something…"}
+            </p>
+          )}
           <div className="space-y-4">
             {blocks.filter((block) => !block.position && !block.connector).map(renderBlock)}
           </div>
@@ -590,13 +663,34 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
               }} />
           </div>
         )}
-        {placement && draft && !(placement === "text" && onEditText) && (
+        {shapePreview && <div className="pointer-events-none absolute opacity-65"
+          style={{ left: `${shapePreview.position[0] * 100}%`, top: `${shapePreview.position[1] * 100}%` }}>
+          <BoardObject kind={shapePreview.kind} content={shapePreview.kind} shapeSize={shapePreview.size} />
+        </div>}
+        {placement === "sticky" && draft && (
+          <form data-board-editor className="absolute z-10 w-40 rounded bg-yellow-100 p-2 text-slate-900 shadow-md"
+            style={{ left: `${draft.position[0] * 100}%`, top: `${draft.position[1] * 100}%`,
+              transform: `translate(${draft.position[0] * displayZoom - viewX > .75 ? "-100%" : "0"}, ${draft.position[1] * displayZoom - viewY > .75 ? "-100%" : "0"})` }}
+            onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) saveDraft(); }}
+            onSubmit={(event) => { event.preventDefault(); saveDraft(); }}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return;
+              if (event.key === "Escape") { event.stopPropagation(); onCancelPlacement?.(); }
+              if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); saveDraft(); }
+            }}>
+            <textarea autoFocus aria-label="Sticky note" placeholder="Write a note…" rows={4} maxLength={500}
+              className="block w-full resize-none bg-[repeating-linear-gradient(transparent_0_23px,#d7b85c66_23px_24px)] px-1 leading-6 outline-none"
+              value={draft.content} onChange={(event) => setDraft({ ...draft, content: event.target.value })} />
+            <button type="submit" className="btn btn-sm btn-outline mt-1" disabled={!draft.content.trim()}>Add note</button>
+          </form>
+        )}
+        {placement && draft && placement !== "sticky" && !(placement === "text" && onEditText) && (
           <form data-board-editor className="absolute z-10 flex max-w-[85%] items-center gap-1 rounded-xl border border-sky bg-eggshell p-1.5 shadow-lg"
             style={{ left: `${draft.position[0] * 100}%`, top: `${draft.position[1] * 100}%`,
               transform: `translate(${draft.position[0] * displayZoom - viewX > .65 ? "-100%" : "0"}, ${draft.position[1] * displayZoom - viewY > .8 ? "-100%" : "0"})` }}
             onSubmit={(event) => { event.preventDefault(); saveDraft(); }}
             onKeyDown={(event) => { if (event.key === "Escape" && !event.nativeEvent.isComposing) { event.stopPropagation(); onCancelPlacement?.(); } }}>
-            <input autoFocus maxLength={placement === "sticky" ? 500 : undefined} aria-label={placement === "equation" ? "Equation" : placement === "sticky" ? "Sticky note" : "Note text"}
+            <input autoFocus aria-label={placement === "equation" ? "Equation" : "Note text"}
               className="input !min-h-8 min-w-0 max-w-full [field-sizing:content]" size={Math.max(12, Math.min(40, draft.content.length))}
               placeholder={placement === "equation" ? "Type an equation…" : "Type a note…"} value={draft.content}
               onChange={(event) => setDraft({ ...draft, content: event.target.value })} />
@@ -610,15 +704,27 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
         </svg>
         <BoardConnectors root={boardRef} plane={inkLayer} blocks={blocks} width={width} height={height} viewOrigin={[targetX / displayZoom, targetY / displayZoom]}
           selectedObject={editingText ? undefined : selectedSticky} enabled={!!onConnector && !active && !placement}
-          drawing={!!connectorMode} onCancel={onCancelPlacement ?? (() => {})}
+          drawing={!!connectorMode} canEdit={canEditBlock} onCancel={onCancelPlacement ?? (() => {})}
           onSave={(connector, id) => onConnector?.(connector, id)} onDelete={deleteObject} />
         </div>
         </div>
         </div>
         {snipActive && (
-          <div className="absolute inset-0 z-20 cursor-crosshair bg-black/5" style={{ touchAction: "none" }} aria-label="Drag to draw a box around what you want explained"
-            onPointerDown={(e) => { const b = boardRef.current!.getBoundingClientRect(); const x = e.clientX - b.left, y = e.clientY - b.top; (e.target as Element).setPointerCapture?.(e.pointerId); setDrag({ x0: x, y0: y, x1: x, y1: y }); }}
-            onPointerMove={(e) => { if (!drag) return; const b = boardRef.current!.getBoundingClientRect(); setDrag({ ...drag, x1: e.clientX - b.left, y1: e.clientY - b.top }); }}
+          <div ref={snipLayer} tabIndex={-1} className="absolute inset-0 z-20 cursor-crosshair bg-black/5" style={{ touchAction: "none" }} aria-label="Drag to draw a box around what you want explained"
+            onPointerDown={(e) => {
+              if (!e.isPrimary || e.button !== 0 || !boardRef.current) return;
+              const b = boardRef.current.getBoundingClientRect();
+              const x = e.clientX - b.left, y = e.clientY - b.top;
+              e.currentTarget.setPointerCapture(e.pointerId);
+              setDrag({ pointer: e.pointerId, x0: x, y0: y, x1: x, y1: y });
+            }}
+            onPointerMove={(e) => {
+              if (drag?.pointer !== e.pointerId || !boardRef.current) return;
+              const b = boardRef.current.getBoundingClientRect();
+              setDrag({ ...drag, x1: e.clientX - b.left, y1: e.clientY - b.top });
+            }}
+            onPointerCancel={(e) => { if (drag?.pointer === e.pointerId) setDrag(null); }}
+            onLostPointerCapture={(e) => { if (drag?.pointer === e.pointerId) setDrag(null); }}
             onPointerUp={finishSnip} onKeyDown={(e) => e.key === "Escape" && onSnip(null)}>
             {drag && <div className="absolute rounded-lg border-2 border-sky bg-sky/15" style={{ left: Math.min(drag.x0, drag.x1), top: Math.min(drag.y0, drag.y1), width: Math.abs(drag.x1 - drag.x0), height: Math.abs(drag.y1 - drag.y0) }} />}
             {!drag && <p className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded-full bg-ink px-4 py-2 text-sm text-white">Drag a box around what you want explained</p>}

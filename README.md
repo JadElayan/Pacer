@@ -19,7 +19,8 @@ Use Node.js 22 and npm. Run `npm ci` and `npm run dev`, then open http://localho
 - Teachers can rename live lectures, edit and format text in place, add equations, ink, shapes, sticky notes and templates, and pan or zoom the board. Connectors snap to objects and can be reattached. Archived boards and saved lectures preserve teaching materials. Continuing a saved lecture starts a new meeting.
 - Students can follow the teacher or browse independently, ask questions about notes or a snip, catch up, and answer check-ins. Signed-in students can save lessons and learning progress.
 - Shared notepads are opt-in per board. Signed-in students can edit their own contributions when allowed. Private annotation data uses separate per-account storage and is excluded from shared room updates.
-- Slide and document imports are development-only. The current upload path uses local disk, and Office conversion requires LibreOffice. Production imports are not enabled on Vercel.
+- Teachers can upload PDFs, images, and plain text notes. Export slides and documents to PDF to preserve their layout. Production uploads require teacher sign-in, teacher storage, and the slide image migrations; development can use local disk and supports Office imports when LibreOffice is installed.
+- Students can write private notes in each classroom and save them in the current browser, including when shared notepads are closed.
 
 ## Repository map
 

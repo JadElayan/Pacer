@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Logo } from "@/components/Logo";
 import { AuthBar } from "@/components/AuthBar";
+import { CopyLinkButton } from "@/components/CopyLinkButton";
 import { recordLecture } from "@/lib/cloudProfile";
 import { useAuth } from "@/lib/useAuth";
 import { createMeeting } from "@/lib/useRoom";
@@ -23,11 +24,23 @@ export default function Home() {
   const [subject, setSubject] = useState("");
   const [err, setErr] = useState("");
   const [lobby, setLobby] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [teaching, setTeaching] = useState(false);
   const [continuing, setContinuing] = useState(false);
   const [hostError, setHostError] = useState("");
-  useEffect(() => { setTeaching(new URLSearchParams(window.location.search).get("view") === "teaching"); }, []);
+  useEffect(() => {
+    const readView = () => setTeaching(new URLSearchParams(window.location.search).get("view") === "teaching");
+    readView();
+    window.addEventListener("popstate", readView);
+    return () => window.removeEventListener("popstate", readView);
+  }, []);
+  const switchView = (next: boolean) => {
+    if (teaching === next) return;
+    const url = new URL(window.location.href);
+    if (next) url.searchParams.set("view", "teaching");
+    else url.searchParams.delete("view");
+    window.history.pushState(null, "", url);
+    setTeaching(next);
+  };
 
   const join = (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,7 +58,6 @@ export default function Home() {
       const meetingTitle = (lecture?.title ?? title.trim()) || "Untitled lecture";
       const meetingSubject = lecture ? lecture.subject : subject.trim() || undefined;
       const meeting = createMeeting(meetingTitle, meetingSubject, materials);
-      setCopied(false);
       setLobby(meeting);
       if (user) void recordLecture(user.id, { code: meeting, title: meetingTitle, subject: meetingSubject });
     } catch {
@@ -59,27 +71,27 @@ export default function Home() {
     <main className="relative min-h-screen overflow-hidden">
       <div aria-hidden className="glow pointer-events-none absolute left-1/2 top-[42%] h-[720px] w-[720px] rounded-full bg-sky opacity-30 blur-3xl" style={{ transform: "translate(-50%,-50%)" }} />
       <header className="relative mx-auto flex h-16 max-w-[1280px] items-center justify-between px-6"><Logo /><AuthBar /></header>
-      {authEnabled() && !user && !guest ? (ready ? <div className="relative px-6"><SignIn onGuest={() => { try { localStorage.setItem("pacer:guest", "1"); } catch { /* ignore */ } setGuest(true); }} /></div> : null) : (
+      {!ready ? <p role="status" className="relative px-6 py-8 text-center text-smoke">Opening Pacer…</p> :
+        authEnabled() && !user && !guest ? <div className="relative px-6"><SignIn onGuest={() => { try { localStorage.setItem("pacer:guest", "1"); } catch { /* ignore */ } setGuest(true); }} /></div> : (
       <>
       <nav aria-label="Homepage view" className="relative mx-auto flex w-fit gap-1 rounded-xl border border-stone bg-eggshell p-1">
-        <button type="button" className={`btn btn-sm btn-outline ${!teaching ? "chip-on" : ""}`} aria-pressed={!teaching} onClick={() => setTeaching(false)}>Learning</button>
-        <button type="button" className={`btn btn-sm btn-outline ${teaching ? "chip-on" : ""}`} aria-pressed={teaching} onClick={() => setTeaching(true)}>Teaching</button>
+        <button type="button" className={`btn btn-sm btn-outline ${!teaching ? "chip-on" : ""}`} aria-pressed={!teaching} onClick={() => switchView(false)}>Learning</button>
+        <button type="button" className={`btn btn-sm btn-outline ${teaching ? "chip-on" : ""}`} aria-pressed={teaching} onClick={() => switchView(true)}>Teaching</button>
       </nav>
       <div className={`relative mx-auto grid max-w-[1280px] items-start gap-6 px-6 pb-8 pt-6 ${teaching ? "max-w-xl" : "lg:grid-cols-[minmax(0,1fr)_minmax(0,440px)_minmax(0,1fr)]"}`}>
-      {!teaching && <LearnedBox />}
-      <section className="relative flex flex-col items-center text-center">
+      <section className={`relative flex flex-col items-center text-center ${teaching ? "" : "lg:col-start-2 lg:row-start-1"}`}>
         <h1 className="display text-[34px] md:text-[44px]">{teaching ? "Teaching dashboard" : <>{user ? `Hi, ${user.name.split(" ")[0]}.` : "The classroom,"}<br />{user ? "Ready to learn?" : "in sync."}</>}</h1>
         {!teaching && <p className="mt-3 text-base text-smoke">One lesson, with every student moving through it their own way.</p>}
 
         {!teaching || !lobby ? (
-          <div className="mt-10 w-full space-y-4 text-left">
+          <div className="mt-5 w-full space-y-4 text-left md:mt-8">
             {!teaching ? <form onSubmit={join} className="card rounded-[24px] border border-stone bg-eggshell/90 p-6 shadow-[var(--shadow-whisper)]">
               <label htmlFor="code" className="block text-sm font-medium">Meeting code</label>
-              <input id="code" inputMode="numeric" autoComplete="off" maxLength={6} className="input mt-2 text-center text-2xl tracking-[0.4em]" placeholder="000000" value={code} onChange={(e) => { setCode(e.target.value.replace(/\D/g, "")); setErr(""); }} aria-describedby="code-err" />
+              <input id="code" inputMode="numeric" autoComplete="off" className="input mt-2 text-center text-2xl tracking-[0.4em]" placeholder="000000" value={code} onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setErr(""); }} aria-invalid={!!err} aria-describedby={err ? "code-err" : undefined} />
               <label htmlFor="nick" className="mt-4 block text-sm font-medium">Nickname <span className="text-smoke">(optional)</span></label>
               <input id="nick" className="input mt-2" value={nick} onChange={(e) => setNick(e.target.value)} />
-              <p id="code-err" role="alert" className="mt-2 min-h-5 text-sm text-sky-deep">{err}</p>
-              <button className="btn btn-primary mt-2 w-full text-base" type="submit">Join Meeting</button>
+              {err && <p id="code-err" role="alert" className="mt-2 text-sm text-sky-deep">{err}</p>}
+              <button className="btn btn-primary mt-4 w-full text-base" type="submit">Join Meeting</button>
             </form> : (
             <form onSubmit={(e) => { e.preventDefault(); void host(); }} className="card rounded-[24px] border border-stone bg-eggshell/90 p-6 shadow-[var(--shadow-whisper)]">
               <label htmlFor="title" className="block text-sm font-medium">Lecture title</label>
@@ -95,15 +107,16 @@ export default function Home() {
             <p className="text-sm text-smoke">Share this code with your class</p>
             <p className="my-2 text-5xl font-light tracking-[0.2em]" aria-label={`Meeting code ${lobby.split("").join(" ")}`}>{lobby}</p>
             <div className="mx-auto my-4 w-fit rounded-2xl border border-stone bg-white p-3"><QRCodeSVG value={link} size={160} /></div>
-            <p className="break-all text-sm text-smoke">{link}</p>
-            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-              <button className="btn btn-outline flex-1" onClick={() => { navigator.clipboard?.writeText(link); setCopied(true); }}>{copied ? "Copied" : "Copy link"}</button>
+            <input aria-label="Meeting link" className="input text-sm" readOnly value={link} onFocus={(event) => event.currentTarget.select()} />
+            <div className="mt-5 flex flex-col items-start gap-3 sm:flex-row [&>*]:w-full sm:[&>*]:w-auto">
+              <CopyLinkButton key={link} link={link} className="flex-1" />
               <button className="btn btn-primary flex-1" onClick={() => router.push(`/room/${lobby}?role=teacher`)}>Enter classroom</button>
             </div>
           </div>
         )}
       </section>
-      {!teaching && <ProgressBox />}
+      {!teaching && <><div className="min-w-0 lg:col-start-1 lg:row-start-1"><LearnedBox /></div>
+        <div className="min-w-0 lg:col-start-3 lg:row-start-1"><ProgressBox /></div></>}
       </div>
       {teaching && !lobby && <TeachingDashboard key={user?.id ?? "guest"} userId={user?.id} continuing={continuing} error={hostError} onContinue={(lecture) => void host(lecture)} />}
       </>

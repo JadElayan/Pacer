@@ -17,9 +17,13 @@ export function useAuth() {
   useEffect(() => {
     const sb = getSupabase();
     if (!sb || !authEnabled()) { setReady(true); return; }
-    sb.auth.getSession().then(({ data }) => { setUser(toUser(data.session?.user ?? null)); setReady(true); });
-    const { data } = sb.auth.onAuthStateChange((_e, s) => setUser(toUser(s?.user ?? null)));
-    return () => data.subscription.unsubscribe();
+    let active = true;
+    const { data } = sb.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      setUser(toUser(session?.user ?? null));
+      setReady(true);
+    });
+    return () => { active = false; data.subscription.unsubscribe(); };
   }, []);
   const signIn = useCallback(async () => {
     await getSupabase()?.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.href.split("#")[0] } });

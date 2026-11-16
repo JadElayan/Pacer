@@ -3,12 +3,13 @@ import type { SlideDeck } from "./slides";
 export type BoardShape = "rectangle" | "circle" | "diamond" | "arrow";
 export type BlockKind = "text" | "equation" | "sticky" | "connector" | BoardShape;
 export type BoardPoint = [number, number];
+export type BoardShapeSize = { width: number; height: number };
 export type ConnectorEnd = { point: BoardPoint; objectId?: string; side?: "left" | "right" | "top" | "bottom" };
 export type BoardConnector = { from: ConnectorEnd; to: ConnectorEnd; color?: string; dashed?: boolean; head?: boolean };
 export type StickyStyle = { color?: "yellow" | "pink" | "blue" | "green"; bold?: boolean; align?: "left" | "center"; size?: "small" | "medium" | "large" };
 export type BoardTextStyle = { bold?: boolean; fontFamily?: string; fontSize?: number; color?: string };
 export type BoardTextRun = BoardTextStyle & { text: string };
-export interface Block { id: string; topicId: string; kind: BlockKind; content: string; order: number; ts: number; position?: BoardPoint; stickyStyle?: StickyStyle; fontSize?: number; scale?: number; textWidth?: number; textRuns?: BoardTextRun[]; connector?: BoardConnector; attachedTo?: string; attachmentOrigin?: BoardPoint; surface?: string }
+export interface Block { id: string; topicId: string; kind: BlockKind; content: string; order: number; ts: number; position?: BoardPoint; stickyStyle?: StickyStyle; fontSize?: number; scale?: number; shapeSize?: BoardShapeSize; textWidth?: number; textRuns?: BoardTextRun[]; connector?: BoardConnector; attachedTo?: string; attachmentOrigin?: BoardPoint; surface?: string }
 export interface Topic { id: string; title: string; summary: string; ts: number; auto: boolean; strokeIds?: string[]; inkAspect?: number }
 export interface Stroke { id: string; pts: [number, number][]; color?: string; width?: number; opacity?: number; surface?: string }
 export interface Archived { id: string; ts: number; blocks: Omit<Block, "ts" | "order">[]; strokes: Stroke[]; inkAspect?: number }

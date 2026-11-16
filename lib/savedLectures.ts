@@ -1,7 +1,7 @@
 import { buildLesson, type Lesson } from "./lessons";
 import { checkinStats, computeRows, MIN_GROUP } from "./insights";
 import { getSupabase } from "./supabase";
-import { backUpSavedDeck, restoreSlide } from "./teacherStorage";
+import { backUpSavedDeck, restoreSlide, shareStoredSlide } from "./teacherStorage";
 import { publishSlide, slideUrl } from "./slides";
 import { uid, type Block, type FeedbackEvent, type RoomState } from "./types";
 
@@ -18,12 +18,19 @@ export async function continueLecture(lecture: SavedLecture, userId?: string): P
   const materials = lecture.materials ?? restoreLegacyMaterials(lecture);
   const deck = materials.slides;
   if (deck) {
-    for (const page of Object.values(deck.pages)) {
-      const local = await fetch(slideUrl(page));
-      if (local.ok) continue;
+    const pages = { ...deck.pages };
+    for (const [number, page] of Object.entries(deck.pages)) {
+      if (!userId || process.env.NODE_ENV === "development") {
+        const local = await fetch(slideUrl(page)).catch(() => undefined);
+        if (local?.ok) continue;
+      }
       if (!userId) throw new Error("A slide image is missing from this device.");
-      await publishSlide(await restoreSlide(userId, deck.id, page));
+      const slide = await restoreSlide(userId, deck.id, page);
+      pages[Number(number)] = process.env.NODE_ENV === "development"
+        ? await publishSlide(slide)
+        : await shareStoredSlide(userId, deck.id, slide);
     }
+    return { ...materials, slides: { ...deck, pages } };
   }
   return materials;
 }

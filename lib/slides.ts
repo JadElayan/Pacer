@@ -1,4 +1,4 @@
-export interface SlidePage { id: string; width: number; height: number; text: string }
+export interface SlidePage { id: string; width: number; height: number; text: string; sharedUrl?: string }
 export interface SlideDeck {
   id: string;
   name: string;
@@ -11,14 +11,14 @@ export interface SlideDeck {
 }
 export interface LocalSlide extends SlidePage { image: Blob }
 
-export const slideUrl = (page: SlidePage) => `/api/slides/${page.id}`;
+export const slideUrl = (page: SlidePage) => page.sharedUrl ?? `/api/slides/${page.id}`;
 export function shareableDeck(deck: SlideDeck): SlideDeck {
   if (deck.access === "all") return deck;
   return { ...deck, pages: Object.fromEntries(deck.presented.flatMap((n) => deck.pages[n] ? [[n, deck.pages[n]]] : [])),
     ink: Object.fromEntries(deck.presented.map((n) => [n, deck.ink[n] ?? []])) };
 }
 
-export async function publishSlide({ image, ...page }: LocalSlide): Promise<SlidePage> {
+export async function publishSlide({ image, sharedUrl: _previousUrl, ...page }: LocalSlide): Promise<SlidePage> {
   const response = await fetch(slideUrl(page), { method: "PUT", headers: { "Content-Type": image.type }, body: image });
   if (!response.ok) throw new Error("Could not share the slide with the room.");
   return page;

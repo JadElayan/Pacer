@@ -3,7 +3,8 @@ import type { LocalSlide } from "./slides";
 
 const office = ["ppt", "pptx", "odp", "doc", "docx", "odt", "rtf"];
 const images = ["png", "jpg", "jpeg", "webp"];
-export const lectureFormats = ["pdf", ...office, ...images, "txt", "md"].map((ext) => `.${ext}`).join(",");
+const canConvertOffice = process.env.NODE_ENV === "development";
+export const lectureFormats = ["pdf", ...images, "txt", "md", ...(canConvertOffice ? office : [])].map((ext) => `.${ext}`).join(",");
 
 async function deckStore<T>(mode: IDBTransactionMode, operation: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -38,6 +39,7 @@ export async function importLecture(file: File): Promise<LocalSlide[]> {
   const extension = file.name.split(".").at(-1)?.toLowerCase() ?? "";
   if (extension === "pdf") return renderPdf(file);
   if (office.includes(extension)) {
+    if (!canConvertOffice) throw new Error("Export your slides or document to PDF to preserve the original formatting.");
     const response = await fetch(`/api/convert-lecture?format=${extension}`, { method: "POST", body: file });
     if (!response.ok) throw new Error(response.status === 422 ? await response.text() : "Office import failed. Try exporting the file to PDF.");
     return renderPdf(new File([await response.blob()], "lecture.pdf"));

@@ -31,7 +31,7 @@ export function LearnedBox() {
     return () => { active = false; };
   }, [ready, userId]);
   return (
-    <section aria-label="What you've learned" className="flex min-h-[420px] flex-col rounded-[28px] border border-stone bg-eggshell/95 p-6 shadow-[var(--shadow-whisper)] lg:min-h-[560px]">
+    <section aria-label="What you've learned" className="flex flex-col rounded-[28px] border border-stone bg-eggshell/95 p-6 shadow-[var(--shadow-whisper)] lg:min-h-[560px]">
       <p className="text-xs font-medium uppercase tracking-wide text-sky-deep">What you've learned</p>
       <h2 className="display mt-1 text-3xl">Your lessons</h2>
       <p className="mt-1 text-sm text-smoke">Pacer takes notes while you're in class, so you can go back over them any time.</p>
@@ -72,7 +72,7 @@ export function ProgressBox() {
   const weak = rows.filter(([, s]) => { const a = accuracy(s); return a !== null && a < 70; });
   const strong = rows.filter(([, s]) => { const a = accuracy(s); return a !== null && a >= 80; });
   return (
-    <section aria-label="How you're doing" className="flex min-h-[420px] flex-col rounded-[28px] border border-stone bg-eggshell/95 p-6 shadow-[var(--shadow-whisper)] lg:min-h-[560px]">
+    <section aria-label="How you're doing" className="flex flex-col rounded-[28px] border border-stone bg-eggshell/95 p-6 shadow-[var(--shadow-whisper)] lg:min-h-[560px]">
       <p className="text-xs font-medium uppercase tracking-wide text-sky-deep">How you're doing</p>
       <h2 className="display mt-1 text-3xl">Your progress</h2>
       <div className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto">

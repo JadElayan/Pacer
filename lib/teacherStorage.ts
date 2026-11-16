@@ -23,6 +23,20 @@ export async function restoreSlide(userId: string, deckId: string, page: SlidePa
   return { ...page, image: result.data };
 }
 
+export async function shareStoredSlide(userId: string, deckId: string, { image, ...page }: LocalSlide): Promise<SlidePage> {
+  const bucket = getSupabase()?.storage.from("pacer-teacher-slides");
+  if (!bucket) throw new Error("Slide storage is unavailable.");
+  const path = `${userId}/${deckId}/${page.id}.jpg`;
+  const share = () => bucket.createSignedUrl(path, 7 * 24 * 60 * 60);
+  let result = await share();
+  if (!result.data) {
+    const upload = await bucket.upload(path, image, { contentType: image.type });
+    result = await share();
+    if (!result.data) throw new Error(upload.error?.message ?? "Could not share the slide with the room.");
+  }
+  return { ...page, sharedUrl: result.data.signedUrl };
+}
+
 export async function backUpSavedDeck(userId: string, deck: SlideDeck) {
   const bucket = getSupabase()?.storage.from("pacer-teacher-slides");
   if (!bucket) throw new Error("Slide storage is unavailable.");

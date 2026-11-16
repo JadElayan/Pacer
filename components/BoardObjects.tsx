@@ -62,13 +62,17 @@ export function StickyTools({ style = {}, onChange, onEdit, onDuplicate }: {
   </div>;
 }
 
-export function BoardObject({ kind, content, stickyStyle }: { kind: BlockKind; content: string; stickyStyle?: StickyStyle }) {
+export function BoardObject({ kind, content, stickyStyle, shapeSize }: { kind: BlockKind; content: string; stickyStyle?: StickyStyle; shapeSize?: Block["shapeSize"] }) {
   if (kind === "sticky") {
     const size = { small: "w-28 text-sm", medium: "w-40 text-base", large: "w-56 text-lg" }[stickyStyle?.size ?? "medium"];
     return <p className={`min-h-16 max-w-full whitespace-pre-wrap break-words rounded p-4 text-slate-900 shadow-sm ${size} ${colorClasses[stickyStyle?.color ?? "yellow"]} ${stickyStyle?.bold ? "font-bold" : ""} ${stickyStyle?.align === "center" ? "text-center" : ""}`}>{content}</p>;
   }
-  if (kind === "rectangle") return <span role="img" aria-label="Rectangle" className="block h-16 w-28 rounded border-2 border-blue-600 bg-blue-100" />;
-  if (kind === "circle") return <span role="img" aria-label="Circle" className="block size-16 rounded-full border-2 border-violet-600 bg-violet-100" />;
+  if (kind === "rectangle") return <span role="img" aria-label="Rectangle" style={shapeSize} className="block h-16 w-28 rounded border-2 border-blue-600 bg-blue-100" />;
+  if (kind === "circle") return <span role="img" aria-label="Circle" style={shapeSize} className="block size-16 rounded-full border-2 border-violet-600 bg-violet-100" />;
+  if (kind === "diamond" && shapeSize) return <span role="img" aria-label="Diamond" style={shapeSize}
+    className="relative block bg-emerald-600 [clip-path:polygon(50%_0,100%_50%,50%_100%,0_50%)]">
+    <span className="absolute inset-[3px] bg-emerald-100 [clip-path:polygon(50%_0,100%_50%,50%_100%,0_50%)]" />
+  </span>;
   if (kind === "diamond") return <span role="img" aria-label="Diamond" className="m-3 block size-12 rotate-45 border-2 border-emerald-600 bg-emerald-100" />;
   if (kind === "arrow") return <span role="img" aria-label="Arrow" className="block text-5xl text-blue-700">→</span>;
   return <p className="text-xl leading-snug">{content}</p>;

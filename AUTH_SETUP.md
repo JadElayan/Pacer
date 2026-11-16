@@ -16,6 +16,8 @@ Supabase project: **Pacer** (ref `wgumjmgebrcdwrccgrjz`). Tables `profiles`, `le
 ## 3. Turn it on
 Run [student_lessons.sql](supabase/student_lessons.sql) in the Supabase SQL Editor to enable private lesson sync. Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `NEXT_PUBLIC_AUTH_ENABLED=1` in `.env.local` and restart the dev server. A "Sign in with Google" button then appears on the home page.
 
+Run [board_collaboration.sql](supabase/board_collaboration.sql) in the same Supabase project to enable shared notepads and private board annotations.
+
 ## Privacy notes
 - Students' questions and answers sent to teachers stay anonymous; the signed-in account is never attached to classroom events.
 - Profile stats, question history, and AI study suggestions sync to the signed-in student's own learning profile row. Saved lessons have their own per-student rows. Guest data stays in the browser.

@@ -6,6 +6,7 @@ import { FeedbackEvent, RoomState, uid } from "./types";
 import { shareableDeck } from "./slides";
 import type { LectureMaterials } from "./savedLectures";
 import { getSupabase } from "./supabase";
+import { checkInReceipt } from "./checkInReceipt";
 
 export function sharedState(state: RoomState): RoomState {
   const { privateSlidePages, ...shared } = state;
@@ -65,12 +66,19 @@ export function useRoom(code: string, wantTeacher: boolean, userId?: string) {
         if (m.type === "hb" || m.type === "hello") setPeers((p) => ({ ...p, [m.from]: Date.now() }));
         if (m.type === "answer") {
           const a = m.payload as { questionId: string; value: string };
+          const recorded = checkInReceipt(eventsRef.current, a.questionId, m.from);
+          if (recorded !== undefined) {
+            t.send({ type: "grade", from: sid.current, to: m.from, payload: { questionId: a.questionId, correct: recorded } });
+            return;
+          }
+          const question = stateRef.current?.question;
+          if (!question?.open || question.id !== a.questionId || !a.value.trim()) return;
           const key = ls.get<{ id: string; answer: string }>(`pacer:key:${code}`);
           if (key && key.id === a.questionId) {
             const correct = isCorrect(a.value, key.answer);
-            t.send({ type: "grade", from: sid.current, to: m.from, payload: { questionId: a.questionId, correct } });
             const ev: FeedbackEvent = { id: uid(), sid: m.from, kind: "answer", blockId: null, topicId: null, ts: Date.now(), correct, questionId: a.questionId };
             eventsRef.current = [...eventsRef.current, ev]; setEvents(eventsRef.current); ls.set(`pacer:events:${code}`, eventsRef.current);
+            t.send({ type: "grade", from: sid.current, to: m.from, payload: { questionId: a.questionId, correct } });
           }
         }
         if (m.type === "event") {

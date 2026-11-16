@@ -16,7 +16,7 @@ export async function renderPdf(file: File): Promise<LocalSlide[]> {
       const canvas = document.createElement("canvas");
       canvas.width = Math.ceil(viewport.width);
       canvas.height = Math.ceil(viewport.height);
-      await page.render({ canvas, viewport, background: "rgba(0, 0, 0, 0)" }).promise;
+      await page.render({ canvas, viewport, background: "#fff" }).promise;
       const image = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
         (blob) => blob ? resolve(blob) : reject(new Error("Could not render a PDF page.")), "image/webp", 0.87,
       ));
