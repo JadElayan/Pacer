@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 
 const motionOff = (reduced?: boolean) => reduced || (typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
@@ -143,6 +143,12 @@ export function ToolGroup({ children }: { children: ReactNode }) {
     });
     return best as HTMLButtonElement | null;
   };
+  useEffect(() => {
+    const release = () => { window.setTimeout(() => { press.current = undefined; setHover(null); }, 0); };
+    window.addEventListener("pointerup", release);
+    window.addEventListener("blur", release);
+    return () => { window.removeEventListener("pointerup", release); window.removeEventListener("blur", release); };
+  }, []);
   const shown = hover ? { x: hover.offsetLeft, y: hover.offsetTop, w: hover.offsetWidth, h: hover.offsetHeight, on: true, jump: hoverFresh } : box;
   return <div ref={ref} className="notebook-tool-group tool-group-slide" data-dragging={!!hover}
     onPointerDown={(event) => {
@@ -152,6 +158,8 @@ export function ToolGroup({ children }: { children: ReactNode }) {
     onPointerMove={(event) => {
       const p = press.current;
       if (!p || p.id !== event.pointerId) return;
+      // The button was released somewhere we didn't hear about: this is a hover, not a drag.
+      if (!(event.buttons & 1)) { press.current = undefined; setHover(null); return; }
       if (!p.dragging) {
         if (Math.hypot(event.clientX - p.x, event.clientY - p.y) < 6) return;
         p.dragging = true;
@@ -171,6 +179,7 @@ export function ToolGroup({ children }: { children: ReactNode }) {
       if (target && target.getAttribute("aria-pressed") !== "true" && target.getAttribute("aria-expanded") !== "true") target.click();
     }}
     onPointerCancel={() => { press.current = undefined; setHover(null); }}
+    onLostPointerCapture={() => { if (!press.current) setHover(null); }}
     onClickCapture={(event) => {
       // The click that follows a drag would land on the tool where the drag started.
       if (suppressClick.current && event.isTrusted) { event.preventDefault(); event.stopPropagation(); }
@@ -179,4 +188,39 @@ export function ToolGroup({ children }: { children: ReactNode }) {
       style={{ width: shown.w, height: shown.h, transform: `translate(${shown.x}px, ${shown.y}px)` }} />}
     {children}
   </div>;
+}
+
+/**
+ * When the children of an element jump to a new spot (a row wraps, something above grows), glide them
+ * there instead (FLIP). Small, continuous moves, like a width that is already animating, are left alone.
+ * Returns a callback ref, so it attaches whenever the element appears.
+ */
+export function useFlip(selector = ":scope > *") {
+  return useCallback((root: HTMLElement | null) => {
+    if (!root) return;
+    const last = new Map<HTMLElement, { x: number; y: number }>();
+    const quiet = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      || !!document.querySelector('[data-reduce-motion="true"]') || document.documentElement.hasAttribute("data-view-transition");
+    const measure = () => {
+      const items = [...root.querySelectorAll<HTMLElement>(selector)];
+      const skip = quiet();
+      for (const el of items) {
+        const now = { x: el.offsetLeft, y: el.offsetTop };
+        const before = last.get(el);
+        last.set(el, now);
+        if (!before || skip || !el.offsetParent) continue;
+        const dx = before.x - now.x, dy = before.y - now.y;
+        if (Math.abs(dx) < 24 && Math.abs(dy) < 14) continue;
+        el.animate([{ translate: `${dx}px ${dy}px` }, { translate: "0 0" }], { duration: 420, easing: "cubic-bezier(.22, .9, .25, 1)" });
+      }
+      for (const el of [...last.keys()]) if (!items.includes(el)) last.delete(el);
+    };
+    const resize = new ResizeObserver(measure);
+    const watch = () => { resize.observe(root); root.querySelectorAll<HTMLElement>(selector).forEach((el) => resize.observe(el)); };
+    const children = new MutationObserver(() => { watch(); measure(); });
+    children.observe(root, { childList: true });
+    watch();
+    measure();
+    return () => { resize.disconnect(); children.disconnect(); };
+  }, [selector]);
 }

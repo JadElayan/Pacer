@@ -1,7 +1,7 @@
 "use client";
 import { ChoiceMenu } from "./ChoiceMenu";
 import { AnimatedPanel } from "./AnimatedPanel";
-import { Collapse, SegmentedControl, ToolGroup } from "./Motion";
+import { Collapse, SegmentedControl, ToolGroup, useFlip } from "./Motion";
 import { BoardShare } from "./BoardShare";
 import { CopyLinkButton } from "./CopyLinkButton";
 import { TeacherSlidePreviews } from "./TeacherSlidePreviews";
@@ -11,7 +11,8 @@ import { privateNoteKey } from "@/lib/privateNoteKey";
 import { boardRpc, useBoardCollaboration, usePrivateAnnotations } from "@/lib/useBoardCollaboration";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { flushSync } from "react-dom";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { askAI } from "@/lib/ai";
 import { AIKind, Mode, RoomState, Stroke, uid, type Block, type BlockKind, type BoardShapeSize, type BoardTextRun } from "@/lib/types";
@@ -73,12 +74,38 @@ export function Classroom({ code, review }: { code: string; review?: {
   const deck = state?.slides;
   const studentSlide = studentSelection?.deckId === deck?.id ? studentSelection?.page : undefined;
   const slideNumber = deck && (!isTeacher && studentSlide && deck.pages[studentSlide] ? studentSlide : deck.current);
-  const slidePage = state?.showSlides && slideNumber ? deck?.pages[slideNumber] : undefined;
+  // What's on screen (slides, board or split) follows the room state one step behind, so each change
+  // can be animated with a view transition: the old layout is captured, then morphs into the new one.
+  const [shownView, setShownView] = useState({ slides: !!state?.showSlides, split: !!state?.splitView });
+  const wantView = { slides: !!state?.showSlides, split: !!state?.splitView };
+  useLayoutEffect(() => {
+    if (wantView.slides === shownView.slides && wantView.split === shownView.split) return;
+    const next = { ...wantView };
+    const doc = document as Document & { startViewTransition?: (update: () => void | Promise<void>) => unknown };
+    if (!doc.startViewTransition || prefs.reduceMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setShownView(next);
+      return;
+    }
+    document.documentElement.setAttribute("data-view-transition", "");
+    const transition = doc.startViewTransition(async () => {
+      flushSync(() => setShownView(next));
+      // Wait (briefly) for the slide image in the new layout, so the animation doesn't show it blank.
+      const images = [...document.querySelectorAll<HTMLImageElement>('main img[alt="Lecture slide"]')];
+      await Promise.race([Promise.allSettled(images.map((image) => image.decode())), new Promise((done) => setTimeout(done, 250))]);
+    }) as { finished?: Promise<void> } | undefined;
+    const done = () => window.setTimeout(() => document.documentElement.removeAttribute("data-view-transition"), 50);
+    if (transition?.finished) transition.finished.then(done, done); else done();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantView.slides, wantView.split]);
+  const slidePage = shownView.slides && slideNumber ? deck?.pages[slideNumber] : undefined;
   // Split view puts the slide and the whiteboard side by side; tools act on whichever side was used last.
-  const split = !review && !!slidePage && !!state?.splitView;
+  const split = !review && !!slidePage && shownView.split;
   const [activeSide, setActiveSide] = useState<"slide" | "board">("slide");
   const onSlideSide = !!slidePage && (!split || activeSide === "slide");
   const slideRef = useRef<HTMLDivElement>(null);
+  // Opening or closing the Pages panel can wrap the top row; let its controls and the board glide.
+  const topbarRef = useFlip();
+  const stageRef = useFlip();
   const annotationSurface = split ? (activeSide === "slide" ? slidePage?.id : undefined) : slidePage?.id ?? review?.surface;
   const slideInk = slideNumber ? deck?.ink[slideNumber] ?? [] : [];
   const currentSlideHistory = slidePage && slideHistory.current[slidePage.id];
@@ -350,7 +377,9 @@ export function Classroom({ code, review }: { code: string; review?: {
   const roleQ = isTeacher ? "?role=teacher" : "";
   const inkTool = tool === "highlight" ? "highlight" : "pen";
   const boardHasContent = !!(state?.blocks.some((block) => !block.surface) || state?.strokes.length);
-  const layout: "slides" | "board" | "split" = !slidePage ? "board" : state?.splitView ? "split" : "slides";
+  const layout: "slides" | "board" | "split" = !slidePage ? "board" : split ? "split" : "slides";
+  // The switch moves at once; the board follows with its animation.
+  const wantLayout: typeof layout = !deck || !state?.showSlides ? "board" : state.splitView ? "split" : "slides";
   const setLayout = (next: typeof layout) => {
     setAnchor(null);
     if (next !== "split") setActiveSide(next === "slides" ? "slide" : "board");
@@ -1149,7 +1178,7 @@ export function Classroom({ code, review }: { code: string; review?: {
             </ToolGroup>
           </nav>
         )}
-        {slidePage && deck && isTeacher && <aside className={`notebook-pages shrink-0 p-3 lg:overflow-y-auto ${showPages ? "lg:w-44" : "lg:w-20"}`} data-open={showPages}>
+        {slidePage && deck && isTeacher && <aside className={`notebook-pages shrink-0 p-3 lg:overflow-y-auto ${showPages ? "lg:w-44" : "lg:w-20"}`} data-open={showPages} style={{ viewTransitionName: "pacer-pages" }}>
           {slidePage && deck && isTeacher && (
             <section className="mb-3">
               <button type="button" className="notebook-section" aria-expanded={showPages} onClick={() => setShowPages((open) => !open)}>
@@ -1165,15 +1194,15 @@ export function Classroom({ code, review }: { code: string; review?: {
           )}
         </aside>}
 
-        <main className={`${slidePage && !split ? "bg-slate-100" : "notebook-stage"} flex min-w-0 flex-1 flex-col gap-3 p-3 md:p-5 lg:overflow-y-auto lg:overscroll-contain ${!isTeacher && mobilePane === "notes" ? "max-lg:hidden" : ""}`}>
+        <main ref={stageRef} className={`${slidePage && !split ? "bg-slate-100" : "notebook-stage"} flex min-w-0 flex-1 flex-col gap-3 p-3 md:p-5 lg:overflow-y-auto lg:overscroll-contain ${!isTeacher && mobilePane === "notes" ? "max-lg:hidden" : ""}`}>
           {review?.controls}
           {!review && (isTeacher || (collaborationId && user && collaboration.ready)) && (
-            <div className="board-topbar">
+            <div ref={topbarRef} className="board-topbar">
               {isTeacher && <TopicStrip topics={topics} currentId={live} canEdit={!state.ended} hrefFor={(id) => `/room/${code}/topic/${id}${roleQ}`}
                 describe={describeTopic}
                 onEdit={(id, p) => mutate((s) => ({ ...s, topics: s.topics.map((t) => (t.id === id ? { ...t, ...p, auto: false } : t)) }))} />}
               {isTeacher && !state.ended && deck && (
-                <SegmentedControl label="Board layout" value={layout} disabled={slideBusy} onChange={setLayout}
+                <SegmentedControl label="Board layout" value={wantLayout} disabled={slideBusy} onChange={setLayout}
                   options={([["slides", "Slides"], ["board", "Board"], ["split", "Split"]] as const).map(([value, label]) => ({ value, label, icon: (
                     <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
                       {value === "split" ? <><rect x="1.5" y="3" width="5.5" height="10" rx="1" /><rect x="9" y="3" width="5.5" height="10" rx="1" /></>
@@ -1359,16 +1388,18 @@ export function Classroom({ code, review }: { code: string; review?: {
                   <button key={side} type="button" role="tab" aria-selected={activeSide === side} onClick={() => setActiveSide(side)}>{label}</button>
                 ))}
               </div>
-              <section aria-label="Slide" className="board-split-pane" data-active={activeSide === "slide"}
+              <section aria-label="Slide" className="board-split-pane" style={{ viewTransitionName: "pacer-slide" }} data-active={activeSide === "slide"}
                 onPointerDownCapture={() => setActiveSide("slide")} onFocusCapture={() => setActiveSide("slide")}>
                 {renderBoard(slidePage, slidePage.id, slideRef, activeSide === "slide")}
               </section>
-              <section aria-label="Whiteboard" className="board-split-pane" data-active={activeSide === "board"}
+              <section aria-label="Whiteboard" className="board-split-pane" style={{ viewTransitionName: "pacer-board" }} data-active={activeSide === "board"}
                 onPointerDownCapture={() => setActiveSide("board")} onFocusCapture={() => setActiveSide("board")}>
                 {renderBoard(undefined, undefined, boardRef, activeSide === "board")}
               </section>
             </div>
-          ) : renderBoard(slidePage, slidePage?.id ?? review?.surface, boardRef, true)}
+          ) : <div className={`board-view flex flex-col ${slidePage ? "" : "min-h-0 flex-1"}`} style={{ viewTransitionName: slidePage ? "pacer-slide" : "pacer-board" }}>
+            {renderBoard(slidePage, slidePage?.id ?? review?.surface, boardRef, true)}
+          </div>}
           {((isTeacher && !state.ended) || privateEditing) && (!slidePage || (split && activeSide === "board")) && (
               <div role="group" aria-label="Board zoom" className="flex items-center justify-end gap-1">
                 <button type="button" className="btn btn-sm btn-outline" aria-label="Zoom out" disabled={annotationZoom <= 0.5}
