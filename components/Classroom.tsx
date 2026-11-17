@@ -533,7 +533,8 @@ export function Classroom({ code, review }: { code: string; review?: {
   const lessonContent = useMemo(() => state && ({
     code: state.code, title: state.title, subject: state.subject, blocks: state.blocks,
     topics: state.topics, strokes: state.strokes, archive: state.archive, slides: state.slides, collaborationId: state.collaborationId, ended: state.ended,
-  }), [state?.code, state?.title, state?.subject, state?.blocks, state?.topics, state?.strokes, state?.archive, state?.slides, state?.collaborationId, state?.ended]);
+    showSlides: state.showSlides, currentTopicId: state.currentTopicId,
+  }), [state?.code, state?.title, state?.subject, state?.blocks, state?.topics, state?.strokes, state?.archive, state?.slides, state?.collaborationId, state?.ended, state?.showSlides, state?.currentTopicId]);
   const myNotes = topicNotes.ready ? topicNotes.notes : undefined;
   useEffect(() => {
     if (review || !authReady || isTeacher || wantTeacher || !lessonContent || !myNotes) return;

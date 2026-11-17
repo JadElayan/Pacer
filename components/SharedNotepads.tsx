@@ -28,7 +28,15 @@ export function SharedNotepads({ board, userId, teacher, allowed, notes, ended, 
       await boardRpc("pacer_write_notepad", { board, note: note.id, content: note.body, px: note.x, py: note.y, remove_note: remove });
       if (draft?.id === note.id) keep(undefined);
       setStatus(remove ? "Notepad removed." : "Notepad posted.");
-    } catch { setStatus("Not posted. Check whether contributions are enabled and try again."); }
+    } catch (error) {
+      // Say what actually went wrong instead of one catch-all message.
+      const message = (error as { message?: string }).message ?? "";
+      setStatus(remove ? "Couldn't remove the notepad. Try again."
+        : /closed|belongs/.test(message) ? "Not posted: student posting is closed, or this notepad belongs to someone else. Your draft is kept."
+        : /Invalid/.test(message) ? "Not posted: notepads need 1 to 1,500 characters."
+        : /no longer exists/.test(message) ? "Not posted: the board needs an update. Run supabase/notepad_owner_post.sql, then try again. Your draft is kept."
+        : "Not posted. Check your connection and try again. Your draft is kept.");
+    }
     finally { setBusy(false); }
   };
   const mayPost = !ended && (teacher || allowed);
@@ -54,7 +62,7 @@ export function SharedNotepads({ board, userId, teacher, allowed, notes, ended, 
           {teacher && <button type="button" className="btn btn-outline btn-sm notebook-danger" disabled={busy} onClick={() => void write(note, true)}>Remove</button>}
         </li>)}
       </ul>}
-      {!teacher && mayPost && !draft && <button type="button" className="btn btn-outline btn-sm justify-self-start"
+      {mayPost && !draft && <button type="button" className="btn btn-outline btn-sm justify-self-start"
         onClick={() => keep({ id: crypto.randomUUID(), body: "", x: .08 + (notes.length % 3) * .27, y: .13 + Math.floor(notes.length / 3) * .2 })}>
         + Add notepad
       </button>}
@@ -62,7 +70,7 @@ export function SharedNotepads({ board, userId, teacher, allowed, notes, ended, 
         event.preventDefault();
         if (mayPost && draft.body.trim()) void write(draft);
       }}>
-        <textarea autoFocus aria-label="Shared notepad draft" placeholder="Write something for the class board…" className="input min-h-20 w-full resize-y py-3 leading-relaxed" rows={3} maxLength={1500}
+        <textarea autoFocus aria-label="Shared notepad draft" placeholder={teacher ? "Write a note for the whole class…" : "Write something for the class board…"} className="input min-h-20 w-full resize-y py-3 leading-relaxed" rows={3} maxLength={1500}
           value={draft.body} onChange={(event) => keep({ ...draft, body: event.target.value })} />
         <div className="flex flex-wrap items-center justify-end gap-2">
           {!mayPost && <p role="status" className="mr-auto text-xs text-smoke">Contributions are closed. This draft is saved in this browser.</p>}

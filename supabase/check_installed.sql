@@ -14,6 +14,8 @@ select step, script, installed from (values
   ('07', 'annotation_owner_access.sql', exists (select 1 from pg_policies
         where tablename = 'pacer_annotations' and policyname = 'private_annotations' and qual like '%pacer_board_access%')),
   ('08', 'launch_readiness.sql', to_regclass('public.waitlist') is not null
-        and exists (select 1 from pg_proc where proname = 'rate_limit_hit'))
+        and exists (select 1 from pg_proc where proname = 'rate_limit_hit')),
+  ('09', 'notepad_owner_post.sql', exists (select 1 from pg_proc
+        where proname = 'pacer_write_notepad' and prosrc like '%owner := %'))
 ) as checks(step, script, installed)
 order by step;

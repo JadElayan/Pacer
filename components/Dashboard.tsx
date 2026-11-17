@@ -4,10 +4,10 @@ import { useEffect, useState } from "react";
 import { accuracy, loadProfile, loadStudy, mergeStudy, summarize, type Profile, type StudyEntry } from "@/lib/profile";
 import { loadLessons, markLessonEnded, mergeLessons, pullLessons, storeLessons, type Lesson } from "@/lib/lessons";
 import { LIVE_WINDOW_MS, probeLesson, type LessonStatus } from "@/lib/lessonStatus";
-import { BoardPreview } from "./ArchiveSheet";
+import { LessonPreview, type LessonView } from "./LessonPreview";
+import type { RoomState } from "@/lib/types";
 import { mergeProfiles, pullLearning } from "@/lib/cloudProfile";
 import { StudyHistory } from "./ProfileSheet";
-import { SavedSlides } from "./SavedSlides";
 import { useAuth } from "@/lib/useAuth";
 
 const KHAN: Record<string, string> = { algebra: "math/algebra", trigonometry: "math/trigonometry", geometry: "math/geometry", calculus: "math/calculus-1" };
@@ -33,14 +33,16 @@ export function LearnedBox() {
   }, [ready, userId]);
   // Which lessons are still running: ended ones are remembered; recent ones are checked now and every minute.
   const [status, setStatus] = useState<Record<string, LessonStatus>>({});
+  const [rooms, setRooms] = useState<Record<string, RoomState>>({});
   const pending = lessons.filter((lesson) => !lesson.ended && Date.now() - lesson.ts < LIVE_WINDOW_MS).map((lesson) => lesson.code).join(",");
   useEffect(() => {
     if (!pending) return;
     let active = true;
     const codes = pending.split(",");
-    const check = () => codes.forEach((code) => void probeLesson(code).then((result) => {
+    const check = () => codes.forEach((code) => void probeLesson(code).then(({ status: result, room }) => {
       if (!active) return;
       setStatus((old) => ({ ...old, [code]: result }));
+      if (room) setRooms((old) => ({ ...old, [code]: room }));
       if (result === "ended") setLessons(markLessonEnded(code, userId));
     }));
     check();
@@ -59,7 +61,7 @@ export function LearnedBox() {
         {ordered.map((l) => (
           <div key={l.code} className={`rounded-[20px] border p-4 ${statusOf(l) === "live" ? "border-emerald-300 bg-emerald-50/40" : "border-stone"}`}>
             <button className="flex w-full items-center justify-between gap-3 text-left" aria-expanded={open === l.code} onClick={() => setOpen(open === l.code ? null : l.code)}>
-              <span><span className="flex flex-wrap items-center gap-2 font-medium">{l.title}<LessonBadge status={statusOf(l)} /></span><span className="text-xs text-smoke">{l.subject ? `${l.subject} · ` : ""}{when(l.ts)} · {l.topics.length} topic{l.topics.length === 1 ? "" : "s"}{l.boards?.length ? ` · ${l.boards.length} saved board${l.boards.length === 1 ? "" : "s"}` : ""}</span></span>
+              <span><span className="flex flex-wrap items-center gap-2 font-medium">{l.title}<LessonBadge status={statusOf(l)} /></span><span className="text-xs text-smoke">{l.subject ? `${l.subject} · ` : ""}{when(l.ts)} · {l.topics.length} topic{l.topics.length === 1 ? "" : "s"}</span></span>
               <span aria-hidden className="text-smoke">{open === l.code ? "–" : "+"}</span>
             </button>
             <div className="mt-3 flex flex-wrap gap-2">
@@ -68,13 +70,34 @@ export function LearnedBox() {
                 {statusOf(l) === "live" ? "Review so far" : "Open lesson"}
               </Link>
             </div>
-            {open === l.code && <ul className="mt-3 space-y-2">{l.topics.map((t, i) => (
-              <li key={i} className="rounded-2xl bg-taupe p-3"><p className="text-sm font-medium">{t.title}</p><p className="text-xs text-smoke">{t.summary}</p><p className="mt-1 text-xs">{t.notes.join("  ·  ")}</p></li>))}{(l.boards ?? []).map((b, i) => <li key={b.id}><p className="mb-1 text-xs text-smoke">Saved board {i + 1}</p><BoardPreview b={b} /></li>)}</ul>}
-            {open === l.code && l.slides && <div className="mt-3"><SavedSlides key={l.slides.id} deck={l.slides} userId={userId} /></div>}
+            {open === l.code && (() => {
+              const live = statusOf(l) === "live";
+              const room = live ? rooms[l.code] : undefined;
+              const view = viewOf(l, room);
+              return <div className="mt-3">
+                {view ? <LessonPreview view={view} live={live} userId={userId} topic={room ? room.topics.find((t) => t.id === room.currentTopicId)?.title : l.currentTopic} />
+                  : <p className="rounded-xl bg-taupe p-3 text-sm text-smoke">{live ? "Connecting to the live class…" : "Nothing was on the board or slides."}</p>}
+              </div>;
+            })()}
           </div>))}
       </div>
     </section>
   );
+}
+
+/** The slide or board to preview: live from the teacher when the class is running, otherwise as it was last saved. */
+function viewOf(lesson: Lesson, room?: RoomState): LessonView | undefined {
+  const slides = room ? room.slides : lesson.slides;
+  const onSlides = room ? room.showSlides : lesson.showSlides;
+  if (onSlides && slides?.pages[slides.current]) return { kind: "slide", deck: slides, number: slides.current };
+  if (room) {
+    const aspect = room.topics.find((topic) => topic.id === room.currentTopicId)?.inkAspect ?? 1.6;
+    return { kind: "board", blocks: room.blocks.filter((block) => !block.surface), strokes: room.strokes, aspect };
+  }
+  const board = lesson.boards?.find((b) => b.id === `${lesson.code}-live`) ?? lesson.boards?.at(-1);
+  if (board) return { kind: "board", blocks: board.blocks.filter((block) => !block.surface), strokes: board.strokes, aspect: board.inkAspect ?? 1.6 };
+  if (slides?.pages[slides.current]) return { kind: "slide", deck: slides, number: slides.current };
+  return undefined;
 }
 
 function LessonBadge({ status }: { status: LessonStatus }) {
