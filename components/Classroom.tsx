@@ -1,8 +1,7 @@
 "use client";
 import { ChoiceMenu } from "./ChoiceMenu";
 import { AnimatedPanel } from "./AnimatedPanel";
-import { SharedNotepads } from "./SharedNotepads";
-import { Drawer } from "./Drawer";
+import { BoardShare } from "./BoardShare";
 import { CopyLinkButton } from "./CopyLinkButton";
 import { TeacherSlidePreviews } from "./TeacherSlidePreviews";
 import { Notebook, plainNote } from "./Notebook";
@@ -19,7 +18,7 @@ import { sharedState, useRoom } from "@/lib/useRoom";
 import { usePrefs } from "@/lib/usePrefs";
 import { AskPanel, Msg } from "./AskPanel";
 import { CheckIn } from "./CheckIn";
-import { ConceptColumn } from "./ConceptColumn";
+import { TopicStrip } from "./TopicStrip";
 import { checkinStats, computeRows, MIN_GROUP } from "@/lib/insights";
 import { Insights } from "./Insights";
 import { bump, loadProfile, loadStudy, mergeStudy, saveProfile, saveStudy, subjectOf, type Profile, type Stats, type StudyEntry } from "@/lib/profile";
@@ -342,6 +341,20 @@ export function Classroom({ code, review }: { code: string; review?: {
   const visibleInk = (state?.strokes ?? []).filter((stroke) => !browseTopic || browsedTopicId === live || topicInk.has(stroke.id));
   const topics = (state?.topics ?? []).filter((t) => !focus || t.id === live);
   const roleQ = isTeacher ? "?role=teacher" : "";
+  const inkTool = tool === "highlight" ? "highlight" : "pen";
+  const boardHasContent = !!(state?.blocks.some((block) => !block.surface) || state?.strokes.length);
+  const currentTopicHasContent = !!state?.blocks.some((block) => block.topicId === live);
+  // The teacher's board always opens with a first topic, so the topic row is there before anything is written.
+  const startedTopic = useRef(false);
+  useEffect(() => {
+    if (!isTeacher || review || !state || state.ended || state.topics.length || startedTopic.current) return;
+    startedTopic.current = true;
+    const id = uid();
+    mutate((s) => s.topics.length || s.ended ? s : {
+      ...s, currentTopicId: s.currentTopicId ?? id,
+      topics: [{ id: s.currentTopicId ?? id, title: "Topic 1", summary: "", ts: Date.now(), auto: true }],
+    });
+  }, [isTeacher, review, state, mutate]);
 
   // ---- teacher actions ----
   const startTopic = (clear: boolean) => {
@@ -965,10 +978,38 @@ export function Classroom({ code, review }: { code: string; review?: {
 
         <main className={`${slidePage ? "bg-slate-100" : "notebook-stage"} flex min-w-0 flex-1 flex-col gap-3 p-3 md:p-5 lg:overflow-y-auto lg:overscroll-contain ${!isTeacher && mobilePane === "notes" ? "max-lg:hidden" : ""}`}>
           {review?.controls}
-          {isTeacher && !review && topics.length > 0 && <Drawer title="Topics" badge={topics.length} hint={topics.find((topic) => topic.id === live)?.title} className="notebook-topics">
-          <ConceptColumn topics={topics} currentId={live} canEdit={isTeacher} hrefFor={(id) => `/room/${code}/topic/${id}${roleQ}`}
-            onEdit={(id, p) => mutate((s) => ({ ...s, topics: s.topics.map((t) => (t.id === id ? { ...t, ...p, auto: false } : t)) }))} />
-          </Drawer>}
+          {!review && (isTeacher || (collaborationId && user && collaboration.ready)) && (
+            <div className="board-topbar">
+              {isTeacher && <TopicStrip topics={topics} currentId={live} canEdit={!state.ended} hrefFor={(id) => `/room/${code}/topic/${id}${roleQ}`}
+                onEdit={(id, p) => mutate((s) => ({ ...s, topics: s.topics.map((t) => (t.id === id ? { ...t, ...p, auto: false } : t)) }))} />}
+              {isTeacher && !state.ended && (
+                <div className="board-actions-wrap">
+                  <div role="group" aria-label="Board actions" className="board-actions">
+                    <button type="button" className="btn btn-sm btn-outline" aria-expanded={chooseBoard}
+                      disabled={!boardHasContent && !currentTopicHasContent}
+                      title={!boardHasContent && !currentTopicHasContent ? "The current topic is still empty" : undefined}
+                      onClick={() => { if (boardHasContent) setChooseBoard((open) => !open); else startTopic(false); }}>Start new topic</button>
+                    <button type="button" className="btn btn-sm btn-outline" disabled={!state.strokes.length} onClick={() => clearBoard("pen")}>Clear pen</button>
+                    <button type="button" className="btn btn-sm btn-outline" disabled={!boardHasContent} onClick={() => clearBoard("all")}>Clear board</button>
+                  </div>
+                  <AnimatedPanel open={chooseBoard} reduced={prefs.reduceMotion}>
+                    <div role="group" aria-label="Board options for the new topic" className="board-actions-pop">
+                      <p className="text-sm">Keep the current board for the new topic?</p>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button type="button" className="btn btn-sm btn-outline" onClick={() => setChooseBoard(false)}>Cancel</button>
+                        <button type="button" className="btn btn-sm btn-outline" onClick={() => startTopic(false)}>Keep board</button>
+                        <button type="button" className="btn btn-sm btn-primary" onClick={() => startTopic(true)}>Archive and clear</button>
+                      </div>
+                    </div>
+                  </AnimatedPanel>
+                </div>
+              )}
+              {collaborationId && user && collaboration.ready && <BoardShare key={`${collaborationId}:${user.id}`}
+                board={collaborationId} userId={user.id} teacher={isTeacher} allowed={collaboration.allowed && state.studentStickyPermission !== "closed"}
+                notes={collaboration.notes} ended={state.ended} connected={connected} reduced={prefs.reduceMotion}
+                onAccessChange={(allowed) => { if (isTeacher) mutate((room) => ({ ...room, studentStickyPermission: allowed ? "open" : "closed" })); }} />}
+            </div>
+          )}
           {!isTeacher && authReady && state.question && <CheckIn key={checkInKey} storageKey={checkInKey} text={state.question.text} open={state.question.open} answer={state.question.answer} correct={state.question.correct} total={state.question.total} grade={grades[state.question.id]} onSubmit={(v) => submitAnswer(state.question!.id, v)} />}
           {offTeacherSlide && deck && state.showSlides && !review && (
             <div role="status" className="flex flex-wrap items-center gap-3 rounded-[16px] border border-sky bg-sky-soft px-3 py-2 text-sm">
@@ -984,12 +1025,13 @@ export function Classroom({ code, review }: { code: string; review?: {
               <button className="btn btn-outline btn-sm" onClick={() => setSpotSeen(spot.ts)}>Got it</button>
             </div>
           )}
-          {((isTeacher && !state.ended) || privateEditing) && (tool === "pen" || tool === "highlight") && (
-            <div role="group" aria-label="Ink settings" className="notebook-tray flex flex-wrap items-center gap-x-4 gap-y-2 self-center p-2 [@media(pointer:coarse)]:[&_button]:min-h-11 [@media(pointer:coarse)]:[&_button]:min-w-11 [@media(pointer:coarse)]:[&_select]:min-h-11">
-                <div role="group" aria-label="Ink color" className="flex gap-1">
-                  {(tool === "pen" ? INK_COLORS : HIGHLIGHT_COLORS).map(([name, color]) => (
-                    <button type="button" key={name} aria-label={name} title={name} aria-pressed={(tool === "pen" ? penColor : highlightColor) === color}
-                      onClick={() => tool === "pen" ? setPenColor(color) : setHighlightColor(color)}
+          <AnimatedPanel open={((isTeacher && !state.ended) || privateEditing) && (tool === "pen" || tool === "highlight")} reduced={prefs.reduceMotion}>
+            <div role="group" aria-label="Ink settings" className="ink-tray notebook-tray flex flex-wrap items-center gap-x-4 gap-y-2 self-center p-2 [@media(pointer:coarse)]:[&_button]:min-h-11 [@media(pointer:coarse)]:[&_button]:min-w-11 [@media(pointer:coarse)]:[&_select]:min-h-11">
+                <div key={inkTool} role="group" aria-label="Ink color" className="ink-swatches flex gap-1">
+                  {(inkTool === "pen" ? INK_COLORS : HIGHLIGHT_COLORS).map(([name, color], index) => (
+                    <button type="button" key={name} aria-label={name} title={name} aria-pressed={(inkTool === "pen" ? penColor : highlightColor) === color}
+                      style={{ "--swatch-i": index } as React.CSSProperties}
+                      onClick={() => inkTool === "pen" ? setPenColor(color) : setHighlightColor(color)}
                       className="notebook-swatch grid size-9 place-items-center rounded-full border border-transparent">
                       <span aria-hidden="true" className="size-5 rounded-full border border-black/15" style={{ backgroundColor: color }} />
                     </button>
@@ -997,15 +1039,15 @@ export function Classroom({ code, review }: { code: string; review?: {
                 </div>
                 <div className="flex items-center gap-2 text-sm">
                   Width
-                  <ChoiceMenu label="Ink width" value={tool === "pen" ? penWidth : highlightWidth}
-                    onChange={(value) => tool === "pen" ? setPenWidth(Number(value)) : setHighlightWidth(Number(value))}>
-                    {(tool === "pen" ? [2, 3, 6] : [8, 14, 22]).map((width, i) => (
+                  <ChoiceMenu label="Ink width" value={inkTool === "pen" ? penWidth : highlightWidth}
+                    onChange={(value) => inkTool === "pen" ? setPenWidth(Number(value)) : setHighlightWidth(Number(value))}>
+                    {(inkTool === "pen" ? [2, 3, 6] : [8, 14, 22]).map((width, i) => (
                       <option key={width} value={width}>{["Fine", "Medium", "Wide"][i]}</option>
                     ))}
                   </ChoiceMenu>
                 </div>
             </div>
-          )}
+          </AnimatedPanel>
           {browseTopic && (
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-2 text-sm">
@@ -1027,7 +1069,7 @@ export function Classroom({ code, review }: { code: string; review?: {
             <div className="flex flex-wrap items-center gap-2">
                 <input ref={uploadInput} hidden type="file" accept={lectureFormats} disabled={slideBusy || !uploadEnabled}
                   onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void changeSlide(1, "presented", file); }} />
-              <p id="lecture-upload-help" className={uploadEnabled ? "sr-only" : "text-sm"}>
+              <p id="lecture-upload-help" className="sr-only">
                 {uploadEnabled ? "PDF preserves layout. Images and plain text also work. Maximum 20 MB and 50 pages."
                   : teacherStorageEnabled && signInEnabled ? "Sign in as the teacher to upload slides or notes." : "Slide uploads need teacher storage and sign-in configured."}
               </p>
@@ -1110,10 +1152,6 @@ export function Classroom({ code, review }: { code: string; review?: {
               </>}
             </div>
           )}
-          {isTeacher && !review && collaborationId && user && collaboration.ready && <SharedNotepads key={`${collaborationId}:${user.id}`}
-            board={collaborationId} userId={user.id} teacher allowed={collaboration.allowed && state.studentStickyPermission !== "closed"}
-            notes={collaboration.notes} ended={state.ended}
-            onAccessChange={(allowed) => mutate((room) => ({ ...room, studentStickyPermission: allowed ? "open" : "closed" }))} />}
           {!review && collaborationId && user && collaboration.error && <p role="status" className="text-sm">{collaboration.error}</p>}
           <Whiteboard key={annotationSurface ?? (browseTopic ? browsedTopicId : "live")} boardRef={boardRef} spotlightId={browseTopic ? undefined : spotBlock?.id}
             blocks={[...blocks, ...(slidePage ? [] : sharedNotepads), ...(!isTeacher && annotationVisible ? privateNotes.data.blocks.filter((block) => block.surface === annotationSurface) : [])]}
@@ -1229,25 +1267,6 @@ export function Classroom({ code, review }: { code: string; review?: {
               </div>
           )}
 
-          {!isTeacher && !review && collaborationId && user && collaboration.ready && <SharedNotepads key={`${collaborationId}:${user.id}`}
-            board={collaborationId} userId={user.id} teacher={false} allowed={collaboration.allowed && state.studentStickyPermission !== "closed"}
-            notes={collaboration.notes} ended={state.ended} title="Post to class board" onAccessChange={() => {}} />}
-          {isTeacher && !state.ended && !slidePage && (
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-stone bg-eggshell px-2 py-1.5">
-              <button type="button" className="btn btn-sm btn-outline" aria-expanded={chooseBoard} onClick={() => {
-                if (state.blocks.length || state.strokes.length) setChooseBoard((open) => !open);
-                else startTopic(false);
-              }}>Start new topic</button>
-              {state.strokes.length > 0 && <button type="button" className="btn btn-sm btn-outline" onClick={() => clearBoard("pen")}>Clear pen</button>}
-              {(state.blocks.length > 0 || state.strokes.length > 0) && <button type="button" className="btn btn-sm btn-outline" onClick={() => clearBoard("all")}>Clear board</button>}
-              {chooseBoard && <div role="group" aria-label="Board options for the new topic" className="flex w-full flex-wrap items-center gap-2 border-t border-stone pt-3">
-                <p className="mr-auto text-sm">Keep the current board for the new topic?</p>
-                <button type="button" className="btn btn-sm btn-outline" onClick={() => startTopic(false)}>Keep board</button>
-                <button type="button" className="btn btn-sm btn-primary" onClick={() => startTopic(true)}>Archive and clear</button>
-                <button type="button" className="btn btn-sm btn-outline" onClick={() => setChooseBoard(false)}>Cancel</button>
-              </div>}
-            </div>
-          )}
           {isTeacher && !state.ended && (
             state.question?.open ? (
               <div className="flex flex-wrap items-center gap-3 rounded-[20px] border-2 border-sky bg-sky-soft p-3 text-sm">
