@@ -1,4 +1,5 @@
 "use client";
+import { useRef } from "react";
 import { ChoiceMenu } from "./ChoiceMenu";
 
 import type { Block, BlockKind, BoardShape, StickyStyle } from "@/lib/types";
@@ -62,11 +63,37 @@ export function StickyTools({ style = {}, onChange, onEdit, onDuplicate }: {
   </div>;
 }
 
+const stickyClasses = (style?: StickyStyle) => `min-h-16 max-w-full rounded p-4 text-slate-900 shadow-sm ${
+  { small: "w-28 text-sm", medium: "w-40 text-base", large: "w-56 text-lg" }[style?.size ?? "medium"]} ${colorClasses[style?.color ?? "yellow"]} ${
+  style?.bold ? "font-bold" : ""} ${style?.align === "center" ? "text-center" : ""}`;
+
+/** Edits a sticky note in place: Enter or clicking away saves, Shift+Enter adds a line, Escape cancels. */
+export function StickyEditor({ content, style, onCommit, onCancel }: {
+  content: string; style?: StickyStyle; onCommit: (content: string) => void; onCancel: () => void;
+}) {
+  const done = useRef(false);
+  const finish = (save: boolean, value: string) => {
+    if (done.current) return;
+    done.current = true;
+    const next = value.trim().slice(0, 500);
+    if (save && next && next !== content) onCommit(next); else onCancel();
+  };
+  return <textarea data-board-editor autoFocus aria-label="Edit sticky note" defaultValue={content} maxLength={500}
+    className={`${stickyClasses(style)} block resize-none whitespace-pre-wrap break-words outline-2 outline-offset-2 outline-sky [field-sizing:content]`}
+    onFocus={(event) => event.currentTarget.select()}
+    onPointerDown={(event) => event.stopPropagation()}
+    onClick={(event) => event.stopPropagation()}
+    onBlur={(event) => finish(true, event.currentTarget.value)}
+    onKeyDown={(event) => {
+      event.stopPropagation();
+      if (event.nativeEvent.isComposing) return;
+      if (event.key === "Escape") { event.preventDefault(); finish(false, ""); }
+      if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); finish(true, event.currentTarget.value); }
+    }} />;
+}
+
 export function BoardObject({ kind, content, stickyStyle, shapeSize }: { kind: BlockKind; content: string; stickyStyle?: StickyStyle; shapeSize?: Block["shapeSize"] }) {
-  if (kind === "sticky") {
-    const size = { small: "w-28 text-sm", medium: "w-40 text-base", large: "w-56 text-lg" }[stickyStyle?.size ?? "medium"];
-    return <p className={`min-h-16 max-w-full whitespace-pre-wrap break-words rounded p-4 text-slate-900 shadow-sm ${size} ${colorClasses[stickyStyle?.color ?? "yellow"]} ${stickyStyle?.bold ? "font-bold" : ""} ${stickyStyle?.align === "center" ? "text-center" : ""}`}>{content}</p>;
-  }
+  if (kind === "sticky") return <p className={`${stickyClasses(stickyStyle)} whitespace-pre-wrap break-words`}>{content}</p>;
   if (kind === "rectangle") return <span role="img" aria-label="Rectangle" style={shapeSize} className="block h-16 w-28 rounded border-2 border-blue-600 bg-blue-100" />;
   if (kind === "circle") return <span role="img" aria-label="Circle" style={shapeSize} className="block size-16 rounded-full border-2 border-violet-600 bg-violet-100" />;
   if (kind === "diamond" && shapeSize) return <span role="img" aria-label="Diamond" style={shapeSize}

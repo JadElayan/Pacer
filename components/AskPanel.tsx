@@ -19,12 +19,16 @@ const CHIPS: { label: string; kind: string; guided?: boolean }[] = [
   { label: "Give an example", kind: "example" }, { label: "Step by step", kind: "explain", guided: true },
 ];
 
-export function AskPanel({ rect, boardW, boardH, excerpt, basedOn, msgs, loading, error, empty, suggestion, onSend, onQuiz, onClose, onFeedback, fed }: {
+export function AskPanel({ rect, boardW, boardH, excerpt, basedOn, msgs, loading, error, empty, suggestion, onSend, onQuiz, onClose, onFeedback, fed, onSaveClip, onSaveAnswer }: {
   rect: Rect; boardW: number; boardH: number; excerpt: string; basedOn: string; msgs: Msg[]; loading: boolean; error: string; empty: boolean; suggestion: string;
   onSend: (kind: string, q?: string, guided?: boolean) => void; onQuiz: (correct: boolean) => void; onClose: () => void; onFeedback: (k: "helped" | "confused" | "another") => void; fed: string;
+  /** Saves the snipped board content to the student's notes. */ onSaveClip?: () => void;
+  /** Saves an AI answer to the student's notes. */ onSaveAnswer?: (text: string) => void;
 }) {
   const [q, setQ] = useState("");
   const [menu, setMenu] = useState(false);
+  const [clipSaved, setClipSaved] = useState(false);
+  const [savedAnswers, setSavedAnswers] = useState<Set<number>>(() => new Set());
   const lastRef = useRef<HTMLDivElement>(null);
   useEffect(() => { lastRef.current?.scrollIntoView({ block: "start", behavior: "auto" }); }, [msgs.length]);
   const W = 340;
@@ -43,7 +47,10 @@ export function AskPanel({ rect, boardW, boardH, excerpt, basedOn, msgs, loading
           <p className="truncate text-sm font-medium">{empty ? "(nothing inside the box)" : excerpt}</p>
           {!empty && <p className="text-xs text-smoke">Based on: {basedOn}</p>}
         </div>
-        <button className="btn btn-outline btn-sm shrink-0" onClick={onClose} aria-label="Close AI panel">Close</button>
+        <div className="flex shrink-0 gap-1.5">
+          {onSaveClip && !empty && <button type="button" className="btn btn-outline btn-sm" disabled={clipSaved} onClick={() => { onSaveClip(); setClipSaved(true); }}>{clipSaved ? "Saved" : "Save to notes"}</button>}
+          <button className="btn btn-outline btn-sm" onClick={onClose} aria-label="Close AI panel">Close</button>
+        </div>
       </div>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4" aria-live="polite">
         {empty && <p className="text-sm text-smoke">There are no notes inside that box. Try drawing it around some writing.</p>}
@@ -54,6 +61,8 @@ export function AskPanel({ rect, boardW, boardH, excerpt, basedOn, msgs, loading
           <div key={i} ref={i === msgs.length - 1 ? lastRef : undefined} className="rounded-2xl border border-stone p-3 text-sm">
             <p className="mb-1 text-xs text-smoke">{m.source === "demo" ? "Demo response (no AI key set)" : "Extra explanation from AI, not from your teacher"}</p>
             {m.view?.type === "graph" ? <GraphView data={m.view.data as GraphData} /> : m.view?.type === "visual" ? <VisualView data={m.view.data as VisualData} /> : m.view?.type === "quiz" ? <QuizView data={m.view.data as QuizData} onResult={onQuiz} /> : <p className="whitespace-pre-wrap"><RichText text={m.text} /></p>}
+            {onSaveAnswer && !m.view && m.text.trim() && <button type="button" className="nb-link mt-2 -ml-1" disabled={savedAnswers.has(i)}
+              onClick={() => { onSaveAnswer(m.text); setSavedAnswers((set) => new Set(set).add(i)); }}>{savedAnswers.has(i) ? "Saved to notes" : "Save to notes"}</button>}
           </div>
         ))}
         {loading && <p className="text-sm text-smoke" role="status">Thinking…</p>}

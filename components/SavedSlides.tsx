@@ -6,7 +6,7 @@ import { slideUrl, type SlideDeck, type SlidePage } from "@/lib/slides";
 import { restoreSlide } from "@/lib/teacherStorage";
 import { InkPath } from "./InkPath";
 
-function SavedSlideImage({ slide, number, deckId, userId }: {
+export function SavedSlideImage({ slide, number, deckId, userId }: {
   slide: SlidePage; number: number; deckId: string; userId?: string;
 }) {
   const [src, setSrc] = useState(userId ? "" : slideUrl(slide));

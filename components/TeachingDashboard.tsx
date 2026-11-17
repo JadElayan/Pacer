@@ -21,7 +21,7 @@ export function TeachingDashboard({ userId, continuing, error, onContinue }: {
     return () => { active = false; };
   }, [userId]);
   const lecture = lectures.find((item) => item.code === selected) ?? lectures[0];
-  return <section aria-label="Teaching dashboard" className="relative mx-auto grid w-full max-w-[1280px] gap-5 px-6 pb-16 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+  return <section aria-label="Teaching dashboard" className={`relative mx-auto grid w-full gap-5 px-6 pb-16 ${lecture ? "max-w-[1280px] md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]" : "max-w-xl"}`}>
     <div className="rounded-[24px] border border-stone bg-eggshell p-5 shadow-[var(--shadow-whisper)]">
       <h2 className="display text-3xl">Your lectures</h2>
       {unavailable && <p role="status" className="mt-2 text-sm text-smoke">Account storage is unavailable. Showing lectures saved in this browser.</p>}

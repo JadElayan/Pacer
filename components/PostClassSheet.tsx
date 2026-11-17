@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { askAI } from "@/lib/ai";
 import { track } from "@/lib/track";
 import type { RoomState } from "@/lib/types";
+import { lectureContent } from "@/lib/recapContent";
 
 interface Recap { recap: string; keyPoints: string[]; practice: { question: string; answer: string }[]; catchup: string; nextTime: string }
 
@@ -19,9 +20,10 @@ export function PostClassSheet({ state, onClose }: { state: RoomState; onClose: 
 
   const run = async () => {
     setBusy(true); setErr("");
-    const lines = [...(state.archive ?? []).flatMap((a) => a.blocks), ...state.blocks].filter((b) => b.kind === "text" || b.kind === "equation" || b.kind === "sticky").map((b) => b.content).filter(Boolean);
+    const lines = lectureContent(state);
     try {
-      const r = await askAI({ kind: "recap", mode: "standard", selected: lines.slice(0, 40), context: [], topicTitle: state.title, topics: state.topics.map((t) => ({ title: t.title, summary: t.summary })) });
+      if (!lines.length && !state.topics.length) throw new Error("There is nothing to recap yet. Present slides or write on the board first");
+      const r = await askAI({ kind: "recap", mode: "standard", selected: [], context: lines, topicTitle: state.title, topics: state.topics.map((t) => ({ title: t.title, summary: t.summary })) });
       const d = r.data as Partial<Recap> | undefined;
       if (!d || typeof d.recap !== "string") throw new Error("The AI didn't return a recap. Please try again");
       setData({ recap: d.recap, keyPoints: d.keyPoints ?? [], practice: (d.practice ?? []).slice(0, 3), catchup: d.catchup ?? "", nextTime: d.nextTime ?? "" });
@@ -36,12 +38,12 @@ export function PostClassSheet({ state, onClose }: { state: RoomState; onClose: 
     <div className="fixed inset-0 z-50 flex justify-end bg-black/20" onClick={onClose}>
       <aside role="dialog" aria-label="Post-class package" className="h-full w-[min(520px,100vw)] overflow-y-auto bg-eggshell p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between"><h2 className="display text-3xl">Post-class package</h2><button className="btn btn-outline btn-sm" onClick={onClose}>Done</button></div>
-        <p className="mt-2 text-sm text-smoke">A recap, practice questions and a catch-up note built from this lecture, ready to paste into an email or your LMS. Review it before you share it.</p>
+        <p className="mt-2 text-sm text-smoke">A recap, practice questions and a catch-up note built from the slides you presented and your board notes, ready to paste into an email or your LMS. Review it before you share it.</p>
         {busy && <p role="status" className="mt-6 text-smoke">Writing the recap…</p>}
         {err && <p role="alert" className="mt-6 text-sm text-sky-deep">{err} <button className="underline" onClick={() => void run()}>Try again</button></p>}
         {data && (
           <div className="mt-5 space-y-5">
-            <p className="text-xs text-smoke">{source === "demo" ? "Demo response (no AI key set)" : "Written by AI from your lecture notes. Check it for accuracy."}</p>
+            <p className="text-xs text-smoke">{source === "demo" ? "Demo response (no AI key set)" : "Written by AI from your slides and board notes. Check it for accuracy."}</p>
             <section><h3 className="text-sm font-medium">Recap</h3><p className="mt-1 whitespace-pre-wrap">{data.recap}</p></section>
             {data.keyPoints.length > 0 && <section><h3 className="text-sm font-medium">Key points</h3><ul className="mt-1 list-disc space-y-1 pl-5">{data.keyPoints.map((p, i) => <li key={i}>{p}</li>)}</ul></section>}
             {data.practice.length > 0 && <section><h3 className="text-sm font-medium">Practice</h3><ol className="mt-1 list-decimal space-y-2 pl-5">{data.practice.map((p, i) => <li key={i}>{p.question}<br /><span className="text-sm text-smoke">Answer: {p.answer}</span></li>)}</ol></section>}

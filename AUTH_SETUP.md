@@ -16,7 +16,7 @@ Supabase project: **Pacer** (ref `wgumjmgebrcdwrccgrjz`). Tables `profiles`, `le
 ## 3. Turn it on
 Run [student_lessons.sql](supabase/student_lessons.sql) in the Supabase SQL Editor to enable private lesson sync. Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `NEXT_PUBLIC_AUTH_ENABLED=1` in `.env.local` and restart the dev server. A "Sign in with Google" button then appears on the home page.
 
-Run [board_collaboration.sql](supabase/board_collaboration.sql) in the same Supabase project to enable shared notepads and private board annotations.
+Run [board_collaboration.sql](supabase/board_collaboration.sql) in the same Supabase project to enable shared notepads and private board annotations, then [annotation_owner_access.sql](supabase/annotation_owner_access.sql) so a teacher testing the student view with their own account can save annotations too. Run [room_keys.sql](supabase/room_keys.sql) to lock live rooms so students only accept board updates signed by the meeting's teacher. It works for guests too and does not require sign-in.
 
 ## Privacy notes
 - Students' questions and answers sent to teachers stay anonymous; the signed-in account is never attached to classroom events.
