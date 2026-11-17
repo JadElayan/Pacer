@@ -98,7 +98,8 @@ export function useRoom(code: string, wantTeacher: boolean, userId?: string, rev
       if (m.from === sid.current) return;
       if (teacher) {
         if (m.type === "hello" && stateRef.current) sendSigned.current("state", sharedState(stateRef.current));
-        if (m.type === "hb" || m.type === "hello") setPeers((p) => ({ ...p, [m.from]: Date.now() }));
+        const probe = m.type === "hello" && (m.payload as { probe?: boolean } | undefined)?.probe;
+        if (m.type === "hb" || (m.type === "hello" && !probe)) setPeers((p) => ({ ...p, [m.from]: Date.now() }));
         if (m.type === "answer") {
           const a = m.payload as { questionId: string; value: string };
           const recorded = checkInReceipt(eventsRef.current, a.questionId, m.from);

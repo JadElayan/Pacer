@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { hasNoteText, noteHtml, textToHtml } from "./noteHtml";
 
 /** A student's notes for one lesson, one entry per topic. GENERAL holds notes written before any topic existed. */
 export type TopicNotes = Record<string, string>;
@@ -46,7 +47,7 @@ export function useTopicNotes(key: string, fallback?: { notes?: TopicNotes; clip
     clearTimeout(timer.current);
     timer.current = undefined;
     try {
-      const kept = Object.fromEntries(Object.entries(latest.current).filter(([, text]) => text.trim()));
+      const kept = Object.fromEntries(Object.entries(latest.current).filter(([, text]) => hasNoteText(text)));
       if (Object.keys(kept).length) localStorage.setItem(key, JSON.stringify(kept)); else localStorage.removeItem(key);
       setStatus("saved");
     } catch { setStatus("error"); }
@@ -56,7 +57,7 @@ export function useTopicNotes(key: string, fallback?: { notes?: TopicNotes; clip
     let loaded: TopicNotes = {};
     let loadedClips: NoteClip[] = [];
     try { loaded = read(key); loadedClips = readClips(clipKey); } catch { setStatus("error"); }
-    if (!Object.values(loaded).some((text) => text.trim()) && !loadedClips.length && fallbackRef.current) {
+    if (!Object.values(loaded).some(hasNoteText) && !loadedClips.length && fallbackRef.current) {
       loaded = { ...fallbackRef.current.notes };
       loadedClips = [...(fallbackRef.current.clips ?? [])];
     }
@@ -75,9 +76,10 @@ export function useTopicNotes(key: string, fallback?: { notes?: TopicNotes; clip
   }, [flush]);
 
   const update = useCallback((topic: string, text: string) => write({ ...latest.current, [topic]: text }), [write]);
+  /** Adds plain text (a catch-up, an AI answer) after the topic's notes, keeping its line breaks and lists. */
   const append = useCallback((topic: string, text: string) => {
-    const current = latest.current[topic]?.replace(/\s+$/, "") ?? "";
-    write({ ...latest.current, [topic]: current ? `${current}\n\n${text}` : text });
+    const current = hasNoteText(latest.current[topic]) ? noteHtml(latest.current[topic]) : "";
+    write({ ...latest.current, [topic]: `${current}${current ? "<div><br></div>" : ""}${textToHtml(text)}` });
   }, [write]);
 
   const writeClips = useCallback((next: NoteClip[]) => {

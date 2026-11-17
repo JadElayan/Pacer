@@ -2,7 +2,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { accuracy, loadProfile, loadStudy, mergeStudy, summarize, type Profile, type StudyEntry } from "@/lib/profile";
-import { loadLessons, mergeLessons, pullLessons, storeLessons, type Lesson } from "@/lib/lessons";
+import { loadLessons, markLessonEnded, mergeLessons, pullLessons, storeLessons, type Lesson } from "@/lib/lessons";
+import { LIVE_WINDOW_MS, probeLesson, type LessonStatus } from "@/lib/lessonStatus";
 import { BoardPreview } from "./ArchiveSheet";
 import { mergeProfiles, pullLearning } from "@/lib/cloudProfile";
 import { StudyHistory } from "./ProfileSheet";
@@ -30,6 +31,24 @@ export function LearnedBox() {
     }).catch(() => {});
     return () => { active = false; };
   }, [ready, userId]);
+  // Which lessons are still running: ended ones are remembered; recent ones are checked now and every minute.
+  const [status, setStatus] = useState<Record<string, LessonStatus>>({});
+  const pending = lessons.filter((lesson) => !lesson.ended && Date.now() - lesson.ts < LIVE_WINDOW_MS).map((lesson) => lesson.code).join(",");
+  useEffect(() => {
+    if (!pending) return;
+    let active = true;
+    const codes = pending.split(",");
+    const check = () => codes.forEach((code) => void probeLesson(code).then((result) => {
+      if (!active) return;
+      setStatus((old) => ({ ...old, [code]: result }));
+      if (result === "ended") setLessons(markLessonEnded(code, userId));
+    }));
+    check();
+    const timer = setInterval(check, 60000);
+    return () => { active = false; clearInterval(timer); };
+  }, [pending, userId]);
+  const statusOf = (lesson: Lesson): LessonStatus => lesson.ended || Date.now() - lesson.ts >= LIVE_WINDOW_MS ? "ended" : status[lesson.code] ?? "checking";
+  const ordered = [...lessons].sort((a, b) => Number(statusOf(b) === "live") - Number(statusOf(a) === "live") || b.ts - a.ts);
   return (
     <section aria-label="What you've learned" className="flex flex-col rounded-[28px] border border-stone bg-eggshell/95 p-6 shadow-[var(--shadow-whisper)] lg:min-h-[560px]">
       <p className="text-xs font-medium uppercase tracking-wide text-sky-deep">What you've learned</p>
@@ -37,15 +56,18 @@ export function LearnedBox() {
       <p className="mt-1 text-sm text-smoke">Pacer takes notes while you're in class, so you can go back over them any time.</p>
       <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto">
         {lessons.length === 0 && <p className="rounded-2xl bg-taupe p-4 text-sm text-smoke">No lessons yet. Join a meeting and your notes will show up here.</p>}
-        {lessons.map((l) => (
-          <div key={l.code} className="rounded-[20px] border border-stone p-4">
+        {ordered.map((l) => (
+          <div key={l.code} className={`rounded-[20px] border p-4 ${statusOf(l) === "live" ? "border-emerald-300 bg-emerald-50/40" : "border-stone"}`}>
             <button className="flex w-full items-center justify-between gap-3 text-left" aria-expanded={open === l.code} onClick={() => setOpen(open === l.code ? null : l.code)}>
-              <span><span className="block font-medium">{l.title}</span><span className="text-xs text-smoke">{l.subject ? `${l.subject} · ` : ""}{when(l.ts)} · {l.topics.length} topic{l.topics.length === 1 ? "" : "s"}{l.boards?.length ? ` · ${l.boards.length} saved board${l.boards.length === 1 ? "" : "s"}` : ""}</span></span>
+              <span><span className="flex flex-wrap items-center gap-2 font-medium">{l.title}<LessonBadge status={statusOf(l)} /></span><span className="text-xs text-smoke">{l.subject ? `${l.subject} · ` : ""}{when(l.ts)} · {l.topics.length} topic{l.topics.length === 1 ? "" : "s"}{l.boards?.length ? ` · ${l.boards.length} saved board${l.boards.length === 1 ? "" : "s"}` : ""}</span></span>
               <span aria-hidden className="text-smoke">{open === l.code ? "–" : "+"}</span>
             </button>
-            <Link href={`/lesson/${encodeURIComponent(l.code)}`} className="btn btn-primary btn-sm mt-3">
-              Open lesson
-            </Link>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {statusOf(l) === "live" && <Link href={`/room/${encodeURIComponent(l.code)}`} className="btn btn-primary btn-sm">Rejoin live class</Link>}
+              <Link href={`/lesson/${encodeURIComponent(l.code)}`} className={`btn btn-sm ${statusOf(l) === "live" ? "btn-outline" : "btn-primary"}`}>
+                {statusOf(l) === "live" ? "Review so far" : "Open lesson"}
+              </Link>
+            </div>
             {open === l.code && <ul className="mt-3 space-y-2">{l.topics.map((t, i) => (
               <li key={i} className="rounded-2xl bg-taupe p-3"><p className="text-sm font-medium">{t.title}</p><p className="text-xs text-smoke">{t.summary}</p><p className="mt-1 text-xs">{t.notes.join("  ·  ")}</p></li>))}{(l.boards ?? []).map((b, i) => <li key={b.id}><p className="mb-1 text-xs text-smoke">Saved board {i + 1}</p><BoardPreview b={b} /></li>)}</ul>}
             {open === l.code && l.slides && <div className="mt-3"><SavedSlides key={l.slides.id} deck={l.slides} userId={userId} /></div>}
@@ -53,6 +75,12 @@ export function LearnedBox() {
       </div>
     </section>
   );
+}
+
+function LessonBadge({ status }: { status: LessonStatus }) {
+  if (status === "live") return <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800"><span aria-hidden className="size-1.5 animate-pulse rounded-full bg-current" />Live now</span>;
+  if (status === "ended") return <span className="rounded-full bg-taupe px-2 py-0.5 text-xs font-medium text-smoke">Ended</span>;
+  return <span className="rounded-full bg-taupe px-2 py-0.5 text-xs font-medium text-smoke">Checking…</span>;
 }
 
 export function ProgressBox() {
