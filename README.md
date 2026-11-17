@@ -17,10 +17,14 @@ Use Node.js 22 and npm. Run `npm ci` and `npm run dev`, then open http://localho
 ## Current features
 
 - Teachers can rename live lectures, edit and format text in place, add equations, ink, shapes, sticky notes and templates, and pan or zoom the board. Connectors snap to objects and can be reattached. Archived boards and saved lectures preserve teaching materials. Continuing a saved lecture starts a new meeting.
+- A row above the board holds the lecture's topics (title and short description, editable), a **Slides / Board / Split** switch, and Start new topic / Clear pen / Clear board. A first topic exists as soon as the room opens. Split shows the slide and the whiteboard side by side; on phones it becomes two tabs. Clearing acts on whatever is on screen (the slide, or the side used last in Split).
+- Topics remember the slides shown while they were live. A topic's page shows those slides with the teacher's ink, plus its whiteboard notes. Topics made only of slides are titled from the slide text.
+- The post-class package (recap, practice questions, catch-up note) is generated only when the teacher presses Generate, and is kept for the room so reopening it doesn't use the AI again.
 - Students can follow the teacher or browse independently, ask questions about notes or a snip, catch up, and answer check-ins. Signed-in students can save lessons and learning progress.
-- Shared notepads are opt-in per board. Signed-in students can edit their own contributions when allowed. Private annotation data uses separate per-account storage and is excluded from shared room updates.
+- The **Share** button works like Zoom Whiteboard sharing: the teacher sets students to View only or Can add notes, and signed-in students can then add sticky notes to the board and edit their own. Private annotation data uses separate per-account storage and is excluded from shared room updates.
 - Teachers can upload PDFs, images, and plain text notes. Export slides and documents to PDF to preserve their layout. Production uploads require teacher sign-in, teacher storage, and the slide image migrations; development can use local disk and supports Office imports when LibreOffice is installed.
-- Students can write private notes in each classroom and save them in the current browser, including when shared notepads are closed.
+- Students can write private notes in each classroom and save them in the current browser, including when the board is view only.
+- Layout switches, board items, tool rails, slide thumbnails and panels are animated; everything respects reduced-motion settings.
 
 ## Repository map
 
@@ -28,11 +32,13 @@ Use Node.js 22 and npm. Run `npm ci` and `npm run dev`, then open http://localho
 | --- | --- |
 | Home, roles, and classroom | [Home](app/page.tsx), [room route](app/room), [Classroom](components/Classroom.tsx) |
 | Board editing | [Whiteboard](components/Whiteboard.tsx), [textbox editor](components/BoardTextEditor.tsx), [connectors](components/BoardConnectors.tsx) |
-| Live sync and collaboration | [Room state](lib/useRoom.ts), [transport](lib/transport.ts), [account collaboration](lib/useBoardCollaboration.ts) |
+| Topics and slides | [Topic cards](components/TopicStrip.tsx), [topic page](components/TopicPage.tsx), [Pages list](components/TeacherSlidePreviews.tsx), [slides](lib/slides.ts) |
+| Panels and motion | [Motion helpers](components/Motion.tsx), [panel animation](components/AnimatedPanel.tsx), [side sheet](components/Sheet.tsx) |
+| Live sync and collaboration | [Room state](lib/useRoom.ts), [transport](lib/transport.ts), [account collaboration](lib/useBoardCollaboration.ts), [Share button](components/BoardShare.tsx) |
 | Saved work | [Student lessons](lib/lessons.ts), [teacher lectures](lib/savedLectures.ts), [SQL migrations](supabase/) |
 | AI | [Server route](app/api/ai/route.ts), [prompt](lib/prompt.ts) |
 
-Before editing Next.js code, follow [AGENTS.md](AGENTS.md) and read the relevant installed guides in `node_modules/next/dist/docs/`.
+**[How Pacer works](docs/ARCHITECTURE.md)** explains room state, the classroom screen, where AI is called, the motion system and known gotchas. Read it before changing the classroom. Before editing Next.js code, follow [AGENTS.md](AGENTS.md) and read the relevant installed guides in `node_modules/next/dist/docs/`.
 
 ## Deployment and database
 

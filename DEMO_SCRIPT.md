@@ -17,7 +17,7 @@
 
 ### 2. The teacher writes; students follow live (45 seconds)
 **Teacher:** switch to *Equation* and add `2x + 6 = 14`, then click **Start new topic** and add `2x = 8`.
-**Narrator:** "As the teacher writes, every student sees it instantly. On the left, the AI turns what's being taught into topic cards, like automatic lecture notes. No accounts, no setup. Students join with a QR code."
+**Narrator:** "As the teacher writes, every student sees it instantly. In the row above the board, the AI turns what's being taught into topic cards, like automatic lecture notes. No accounts, no setup. Students join with a QR code."
 
 ### 3. The student gets help without interrupting (90 seconds)
 **Student:** tap `2x = 8`, then **Why this step?**
