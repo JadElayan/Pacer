@@ -10,7 +10,7 @@ import { privateNoteKey } from "@/lib/privateNoteKey";
 import { boardRpc, useBoardCollaboration, usePrivateAnnotations } from "@/lib/useBoardCollaboration";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { askAI } from "@/lib/ai";
 import { AIKind, Mode, RoomState, Stroke, uid, type Block, type BlockKind, type BoardShapeSize, type BoardTextRun } from "@/lib/types";
@@ -73,7 +73,12 @@ export function Classroom({ code, review }: { code: string; review?: {
   const studentSlide = studentSelection?.deckId === deck?.id ? studentSelection?.page : undefined;
   const slideNumber = deck && (!isTeacher && studentSlide && deck.pages[studentSlide] ? studentSlide : deck.current);
   const slidePage = state?.showSlides && slideNumber ? deck?.pages[slideNumber] : undefined;
-  const annotationSurface = slidePage?.id ?? review?.surface;
+  // Split view puts the slide and the whiteboard side by side; tools act on whichever side was used last.
+  const split = !review && !!slidePage && !!state?.splitView;
+  const [activeSide, setActiveSide] = useState<"slide" | "board">("slide");
+  const onSlideSide = !!slidePage && (!split || activeSide === "slide");
+  const slideRef = useRef<HTMLDivElement>(null);
+  const annotationSurface = split ? (activeSide === "slide" ? slidePage?.id : undefined) : slidePage?.id ?? review?.surface;
   const slideInk = slideNumber ? deck?.ink[slideNumber] ?? [] : [];
   const currentSlideHistory = slidePage && slideHistory.current[slidePage.id];
   const availableSlides = deck ? Object.keys(deck.pages).map(Number).sort((a, b) => a - b) : [];
@@ -91,7 +96,7 @@ export function Classroom({ code, review }: { code: string; review?: {
   const topicNotes = useTopicNotes(studentNotesKey, syncedNotes);
   const [mobilePane, setMobilePane] = useState<"board" | "notes">("board");
   const checkInKey = `pacer:check-in:${code}:${user?.id ?? "guest"}:${state?.question?.id}`;
-  useEffect(() => { setAnchor(null); setSnip(false); setPlacement(undefined); setConnectorMode(false); }, [annotationSurface]);
+  useEffect(() => { setAnchor(null); setSnip(false); setPlacement(undefined); setConnectorMode(false); }, [slidePage?.id, review?.surface]);
 
   const changeSlide = async (pageNumber: number, access = deck?.access ?? "presented", file?: File) => {
     if (slideChangePending.current || !isTeacher || !getState() || getState()?.ended || (file && !uploadEnabled)) return;
@@ -261,11 +266,11 @@ export function Classroom({ code, review }: { code: string; review?: {
   const editPrivateBlock = (id: string, changes: Partial<Block>) => {
     privateNotes.update((data) => ({ ...data, blocks: data.blocks.map((block) => block.id === id ? { ...block, ...changes } : block) }));
   };
-  const addPrivateBlocks = (items: Partial<Block>[]) => {
+  const addPrivateBlocks = (items: Partial<Block>[], surface = annotationSurface) => {
     const ids = items.map(() => uid());
     privateNotes.update((data) => ({ ...data, blocks: [...data.blocks, ...items.map((item, index): Block => ({
       kind: "text", content: "", ...item, id: ids[index], topicId: state?.currentTopicId ?? "",
-      order: data.blocks.length + index, ts: Date.now(), surface: annotationSurface,
+      order: data.blocks.length + index, ts: Date.now(), surface,
     }))] }));
     return ids[0];
   };
@@ -310,8 +315,9 @@ export function Classroom({ code, review }: { code: string; review?: {
   const browseTopic = !isTeacher && browsedTopicId !== null;
   const browsedTopic = browseTopic ? state?.topics.find((t) => t.id === browsedTopicId) : undefined;
   // Teacher objects placed on a slide carry that slide's id and only show on it; the rest belong to the whiteboard.
-  const blocks = (state?.blocks ?? []).filter((b) => slidePage ? b.surface === slidePage.id
+  const blocksFor = (page?: typeof slidePage) => (state?.blocks ?? []).filter((b) => page ? b.surface === page.id
     : !b.surface && (browseTopic ? b.topicId === browsedTopicId : !focus || b.topicId === live));
+  const blocks = split ? [...blocksFor(slidePage), ...blocksFor()] : blocksFor(slidePage);
   const sharedNotepads: RoomState["blocks"] = collaboration.notes.map((note, index) => ({
     id: note.id, kind: "sticky", content: `${note.author}\n${note.body}`, order: index, ts: 0,
     topicId: live ?? "", position: [note.x, note.y], stickyStyle: { color: "blue" },
@@ -343,7 +349,61 @@ export function Classroom({ code, review }: { code: string; review?: {
   const roleQ = isTeacher ? "?role=teacher" : "";
   const inkTool = tool === "highlight" ? "highlight" : "pen";
   const boardHasContent = !!(state?.blocks.some((block) => !block.surface) || state?.strokes.length);
-  const currentTopicHasContent = !!state?.blocks.some((block) => block.topicId === live);
+  const layout: "slides" | "board" | "split" = !slidePage ? "board" : state?.splitView ? "split" : "slides";
+  const setLayout = (next: typeof layout) => {
+    setAnchor(null);
+    if (next !== "split") setActiveSide(next === "slides" ? "slide" : "board");
+    mutate((s) => ({ ...s, showSlides: next !== "board", splitView: next === "split" }));
+  };
+  // Clear pen / Clear board act on the slide in Slides view, and on the side last used in Split view.
+  const clearsSlide = onSlideSide;
+  const slideBlocks = slidePage ? (state?.blocks ?? []).filter((block) => block.surface === slidePage.id) : [];
+  const canClearPen = clearsSlide ? slideInk.length > 0 : !!state?.strokes.length;
+  const canClearAll = clearsSlide ? slideInk.length > 0 || slideBlocks.length > 0 : boardHasContent;
+  // Only ask about keeping the whiteboard when it is on screen and has something on it.
+  const asksToKeepBoard = layout !== "slides" && boardHasContent;
+  const describeTopic = (topic: RoomState["topics"][number]) => {
+    if (topic.summary) return topic.summary;
+    const parts: string[] = [];
+    const pages = topic.slides?.deck === deck?.id ? topic.slides?.pages ?? [] : [];
+    if (pages.length) {
+      const range = pages.length > 1 && pages.every((n, i) => !i || n === pages[i - 1] + 1);
+      parts.push(pages.length === 1 ? `Slide ${pages[0]}` : range ? `Slides ${pages[0]}–${pages.at(-1)}`
+        : `Slides ${pages.slice(0, 3).join(", ")}${pages.length > 3 ? ` +${pages.length - 3}` : ""}`);
+    }
+    const notes = (state?.blocks ?? []).filter((block) => block.topicId === topic.id).length;
+    if (notes) parts.push(`${notes} note${notes === 1 ? "" : "s"}`);
+    if (topic.strokeIds?.length) parts.push("Handwritten notes");
+    return parts.join(" · ") || (topic.id === live ? "Write or present a slide to fill this topic" : "No notes yet");
+  };
+  // Each topic remembers the slides shown while it was live, so its page can show them later.
+  const slideSummaryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => {
+    if (!isTeacher || review || !state || state.ended || !state.showSlides || !deck || !state.currentTopicId) return;
+    const topic = state.topics.find((item) => item.id === state.currentTopicId);
+    if (!topic || !deck.pages[deck.current]) return;
+    const pages = topic.slides?.deck === deck.id ? topic.slides.pages : [];
+    if (pages.includes(deck.current)) return;
+    const next = [...pages, deck.current].sort((a, b) => a - b);
+    mutate((s) => ({ ...s, topics: s.topics.map((t) => t.id === topic.id ? { ...t, slides: { deck: deck.id, pages: next } } : t) }));
+    // Topics made only of slides get their title and description from the slide text.
+    clearTimeout(slideSummaryTimer.current);
+    slideSummaryTimer.current = setTimeout(async () => {
+      const s = getState();
+      const current = s?.topics.find((t) => t.id === topic.id);
+      if (!s || s.ended || !current?.auto || s.blocks.some((block) => block.topicId === topic.id) || !s.slides) return;
+      const texts = (current.slides?.pages ?? []).map((n) => (s.slides?.pages[n]?.text ?? s.privateSlidePages?.[n]?.text ?? "").trim().slice(0, 600)).filter(Boolean);
+      if (!texts.length) return;
+      try {
+        const r = await askAI({ kind: "summarize", selected: texts, context: [], topicTitle: current.title, mode: "standard" });
+        if (!r.title && !r.summary) return;
+        mutate((st) => ({ ...st, topics: st.topics.map((t) => t.id === topic.id && t.auto && !st.blocks.some((block) => block.topicId === t.id)
+          ? { ...t, title: r.title || t.title, summary: r.summary ?? t.summary } : t) }));
+      } catch { /* keep the slide numbers as the description */ }
+    }, 1500);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTeacher, review, state?.showSlides, state?.ended, state?.currentTopicId, state?.topics, deck?.id, deck?.current, deck?.pages]);
+  useEffect(() => () => clearTimeout(slideSummaryTimer.current), []);
   // The teacher's board always opens with a first topic, so the topic row is there before anything is written.
   const startedTopic = useRef(false);
   useEffect(() => {
@@ -365,7 +425,7 @@ export function Classroom({ code, review }: { code: string; review?: {
     mutate((s) => ({
       ...(clear ? archiveBoard(s, "all") : s),
       currentTopicId: id,
-      topics: [...s.topics, { id, title: "New topic", summary: "", ts: Date.now(), auto: true }],
+      topics: [...s.topics, { id, title: `Topic ${s.topics.length + 1}`, summary: "", ts: Date.now(), auto: true }],
     }));
     setChooseBoard(false);
   };
@@ -409,7 +469,7 @@ export function Classroom({ code, review }: { code: string; review?: {
     rememberBlocks(current);
     mutate((room) => ({ ...room, blocks: room.blocks.map((block) => block.id === id ? { ...block, ...changes } : block) }));
   };
-  const addBlock = (k: BlockKind, content: string, position: [number, number], textRuns?: BoardTextRun[], shapeSize?: BoardShapeSize) => {
+  const addBlock = (k: BlockKind, content: string, position: [number, number], textRuns?: BoardTextRun[], shapeSize?: BoardShapeSize, surface = annotationSurface) => {
     const s = getState(); if (!s || !content.trim()) return;
     const heading = k === "text" ? content.trim().match(/^(?:new topic|next topic|topic)\s*:\s*(.+)$/i)?.[1]?.trim() : undefined;
     let tid = s.currentTopicId; let tps = s.topics;
@@ -418,7 +478,7 @@ export function Classroom({ code, review }: { code: string; review?: {
     if (heading) tps = tps.map((t) => t.id === topicId ? { ...t, title: heading, auto: false } : t);
     const id = uid();
     rememberBlocks(s);
-    mutate((st) => ({ ...st, topics: tps, currentTopicId: topicId, blocks: [...st.blocks, { id, topicId, kind: k, content, textRuns, position, shapeSize, order: st.blocks.length, ts: Date.now(), ...(annotationSurface ? { surface: annotationSurface } : {}) }] }));
+    mutate((st) => ({ ...st, topics: tps, currentTopicId: topicId, blocks: [...st.blocks, { id, topicId, kind: k, content, textRuns, position, shapeSize, order: st.blocks.length, ts: Date.now(), ...(surface ? { surface } : {}) }] }));
     if (!heading) scheduleSummary(topicId);
     return id;
   };
@@ -435,7 +495,7 @@ export function Classroom({ code, review }: { code: string; review?: {
   const restoreInk = (direction: "undo" | "redo") => {
     const current = getState();
     if (!current || current.ended) return;
-    if (slidePage && slideNumber && current.slides) {
+    if (onSlideSide && slidePage && slideNumber && current.slides) {
       const history = slideHistory.current[slidePage.id];
       const next = history?.[direction].pop();
       if (!history || !next) return;
@@ -584,7 +644,7 @@ export function Classroom({ code, review }: { code: string; review?: {
     if (auto && (a.ids.length || a.image)) void ask(a, auto);
   };
   const askAboutSlide = (selection?: Anchor) => {
-    const element = boardRef.current;
+    const element = (split ? slideRef : boardRef).current;
     const image = element?.querySelector<HTMLImageElement>('img[alt="Lecture slide"]');
     if (!element || !image || !slidePage) return;
     const bounds = element.getBoundingClientRect(), media = image.getBoundingClientRect();
@@ -701,6 +761,16 @@ export function Classroom({ code, review }: { code: string; review?: {
     return { ...s, archive: [...(s.archive ?? []), snap].slice(-20), strokes: [], blocks: what === "all" ? s.blocks.filter((block) => block.surface) : s.blocks };
   };
   const clearBoard = (what: "pen" | "all") => {
+    if (clearsSlide && slidePage) {
+      track("board_clear", "teacher", code);
+      editSlideInk(() => []);
+      const current = getState();
+      if (what === "all" && current?.blocks.some((block) => block.surface === slidePage.id)) {
+        rememberBlocks(current);
+        mutate((s) => ({ ...s, blocks: s.blocks.filter((block) => block.surface !== slidePage.id) }));
+      }
+      return;
+    }
     clearTimeout(inkTimer.current);
     inkHistory.current = { undo: [], redo: [] };
     track("board_clear", "teacher", code);
@@ -751,7 +821,115 @@ export function Classroom({ code, review }: { code: string; review?: {
   };
   const spot = state.spotlight && Date.now() - state.spotlight.ts < 180000 ? state.spotlight : null;
   const spotBlock = spot ? state.blocks.find((b) => b.id === spot.blockId) : undefined;
-  const board = boardRef.current?.getBoundingClientRect();
+  const renderBoard = (sp: typeof slidePage, surface: string | undefined, ref: RefObject<HTMLDivElement | null>, showAsk: boolean) => {
+    const rect = ref.current?.getBoundingClientRect();
+    const addPrivate = (items: Partial<Block>[]) => addPrivateBlocks(items, surface);
+    return (
+    <Whiteboard key={surface ?? (browseTopic ? browsedTopicId : "live")} boardRef={ref} spotlightId={browseTopic ? undefined : spotBlock?.id}
+      blocks={[...blocksFor(sp), ...(sp ? [] : sharedNotepads), ...(!isTeacher && annotationVisible ? privateNotes.data.blocks.filter((block) => block.surface === surface) : [])]}
+      strokes={[...(sp ? slideInk : visibleInk), ...(!isTeacher && annotationVisible ? privateNotes.data.strokes.filter((stroke) => stroke.surface === surface) : [])]} isTeacher={isTeacher} selectedIds={anchor?.ids ?? []}
+      privateInk={privateEditing}
+      canEraseStroke={privateEditing ? (id) => privateNotes.data.strokes.some((stroke) => stroke.id === id) : undefined}
+      canEditBlock={(id) => isTeacher ? !sharedNotepads.some((note) => note.id === id) : privateEditing && isPrivate(id)}
+      connectorMode={(isTeacher || privateEditing) && connectorMode}
+      onConnector={privateEditing ? (connector, id) => {
+        if (id) editPrivateBlock(id, { connector });
+        else addPrivate([{ kind: "connector", content: "Connector", connector }]);
+      } : isTeacher && !state.ended ? (connector, id) => {
+        if (id) { editBoardBlock(id, { connector }); return; }
+        const current = getState();
+        if (!current || current.ended) return;
+        const topicId = current.currentTopicId ?? uid();
+        rememberBlocks(current);
+        mutate((room) => ({ ...room, currentTopicId: topicId,
+          topics: room.currentTopicId ? room.topics : [...room.topics, { id: topicId, title: "New topic", summary: "", ts: Date.now(), auto: true }],
+          blocks: [...room.blocks, { id: uid(), kind: "connector", topicId, content: "Connector", connector, order: room.blocks.length, ts: Date.now(), ...(surface ? { surface: surface } : {}) }] }));
+      } : undefined}
+      modeIcon={privateEditing ? placement ?? insertPanel ?? (tool !== "select" ? tool : undefined)
+        : isTeacher && !state.ended ? placement ?? insertPanel ?? (tool !== "select" ? tool : undefined) : undefined}
+      placement={(isTeacher && !state.ended) || privateEditing ? placement : undefined}
+      onPlace={(kind, content, position, runs, shapeSize) => {
+        const id = isTeacher ? addBlock(kind, content, position, runs, shapeSize, surface) : undefined;
+        if (privateEditing) {
+          const target = kind === "text" ? state.blocks.find((block) => block.id === attachTo?.id) : undefined;
+          const privateId = addPrivate([{ kind, content, textRuns: runs, position, shapeSize,
+            attachedTo: target?.id, attachmentOrigin: target ? target.position ?? attachTo?.position : undefined,
+          }]);
+          setAttachTo(undefined);
+          setPlacement(undefined);
+          return privateId;
+        }
+        setPlacement(undefined);
+        return id;
+      }}
+      onCancelPlacement={() => { setPlacement(undefined); setConnectorMode(false); }}
+      onMoveBlock={(isTeacher && !state.ended) || privateEditing ? (id, position) => {
+        setAnchor(null);
+        if (privateEditing) editPrivateBlock(id, { position });
+        else editBoardBlock(id, { position });
+      } : undefined}
+      slide={sp ? { url: review?.slideSrc ?? slideUrl(sp), aspect: sp.width / sp.height } : undefined}
+      zoom={sp ? 1 : browseTopic || privateEditing ? studentView.zoom : boardZoom}
+      position={sp ? undefined : browseTopic || privateEditing ? studentView.position : state.boardPosition}
+      onZoom={sp ? undefined : browseTopic || privateEditing ? (zoom, position) => setStudentView({ zoom, position }) : isTeacher && !state.ended ? setBoardZoom : undefined}
+      onSelect={(a) => {
+        if (privateEditing) {
+          if (!isPrivate(a.ids[0]) && state.blocks.some((block) => block.id === a.ids[0])) {
+            setAttachTo({ id: a.ids[0], position: a.boardPosition }); setTool("select"); setPlacement("text");
+          }
+        } else if (!isTeacher) openAnchor(a);
+      }} snipActive={snip && !isTeacher && !privateEditing} tool={privateEditing || !state.ended ? tool : "select"}
+      ink={tool === "highlight" ? { color: highlightColor, width: highlightWidth, opacity: 0.35 } : { color: penColor, width: penWidth }}
+      onSnip={(a) => { if (!a) { setSnip(false); return; } if (sp) askAboutSlide(a); else openAnchor(a); }}
+      onStroke={(stroke) => privateEditing
+        ? privateNotes.update((data) => ({ ...data, strokes: [...data.strokes, { ...stroke, id: uid(), surface: surface }] }))
+        : sp ? editSlideInk((ink) => [...ink, { ...stroke, id: uid() }]) : addStroke(stroke)}
+      onErase={(ids) => privateEditing
+        ? privateNotes.update((data) => ({ ...data, strokes: data.strokes.filter((stroke) => !ids.has(stroke.id)) }))
+        : sp ? editSlideInk((ink) => ink.filter((stroke) => !ids.has(stroke.id))) : eraseInk(ids)}
+      onEditSticky={privateEditing ? editPrivateBlock : isTeacher && !state.ended ? editBoardBlock : undefined}
+      onResizeBlock={privateEditing ? editPrivateBlock : isTeacher && !state.ended ? editBoardBlock : undefined}
+      onEditText={(isTeacher && !state.ended) || privateEditing ? (id, content, textRuns) => {
+        if (privateEditing) {
+          editPrivateBlock(id, { content, textRuns });
+          return;
+        }
+        const block = getState()?.blocks.find((item) => item.id === id);
+        if (block && (block.content !== content || JSON.stringify(block.textRuns) !== JSON.stringify(textRuns))) {
+          editBoardBlock(id, { content, textRuns });
+        }
+      } : undefined}
+      onDuplicateSticky={privateEditing ? (block) => addPrivate([{ ...block,
+        position: block.position && [block.position[0] + .025, block.position[1] + .035],
+      }]) : isTeacher && !state.ended ? (block) => mutate((room) => ({
+        ...room, blocks: [...room.blocks, { ...block, id: uid(), ts: Date.now(), order: room.blocks.length,
+          position: block.position && [block.position[0] + .025, block.position[1] + .035] }],
+      })) : undefined}
+      onDelete={(id, detached, origin) => {
+        if (privateEditing) {
+          privateNotes.update((data) => ({ ...data, blocks: data.blocks.filter((block) => block.id !== id)
+            .map((block) => detached?.[block.id] ? { ...block, connector: detached[block.id] } : block) }));
+          return;
+        }
+        const current = getState();
+        if (!current || !isTeacher || current.ended) return;
+        rememberBlocks(current);
+        mutate((room) => ({ ...room, removedBlockPositions: origin ? { ...room.removedBlockPositions, [id]: origin } : room.removedBlockPositions, blocks: room.blocks.filter((block) => block.id !== id)
+          .map((block) => detached?.[block.id] ? { ...block, connector: detached[block.id] } : block) }));
+      }}>
+      {anchor && !isTeacher && rect && showAsk && (
+        <AskPanel key={`${anchor.rect.left}:${anchor.rect.top}:${anchor.ids.join()}:${anchor.image?.length ?? 0}`} rect={anchor.rect} boardW={rect.width} boardH={rect.height} empty={anchor.ids.length === 0 && !anchor.image && !anchor.topicTitle}
+          excerpt={[...(anchor.image ? ["✎ handwriting"] : []), ...sel.map((b) => b.content)].join("  ·  ") || `Topic: ${anchor.topicTitle}`} basedOn={`${state.topics.find((t) => t.id === sel[0]?.topicId)?.title ?? anchor.topicTitle ?? "lecture"} · ${sel.length} note${sel.length === 1 ? "" : "s"}, plus nearby lecture context`}
+          msgs={msgs} loading={loading} error={error} suggestion={suggestion} fed={fed}
+          onSend={(k, q, g) => void ask(anchor, k as AIKind, q, g)} onQuiz={(ok) => rec(ok ? "quizRight" : "quizWrong")} onClose={() => { setAnchor(null); setMsgs([]); }} onFeedback={feedback}
+          onSaveClip={wantTeacher || anchor.topicTitle || (!sel.length && !anchor.image) ? undefined : () => topicNotes.addClip({
+            topicId: noteTopicFor(anchor), image: anchor.image, text: sel.map((b) => b.content).join("\n"),
+            label: anchor.slideTitle ?? (sel.length ? "From the board" : "Handwriting from the board") })}
+          onSaveAnswer={wantTeacher ? undefined : (text) => topicNotes.append(noteTopicFor(anchor), `Explanation (AI)\n${plainNote(text)}`)} />
+      )}
+    </Whiteboard>
+    );
+  };
   const joinUrl = typeof window !== "undefined" ? `${window.location.origin}/room/${code}` : "";
   const pill = status === "live" ? "Connected" : status === "waiting" ? "Waiting for teacher…" : "Connecting…";
 
@@ -956,7 +1134,7 @@ export function Classroom({ code, review }: { code: string; review?: {
             </div>
             <div className="notebook-tool-group">
               {(["undo", "redo"] as const).map((action) => <button key={action} type="button" className="notebook-tool capitalize"
-                disabled={slidePage ? !currentSlideHistory?.[action].length : !inkHistory.current[action].length} onClick={() => restoreInk(action)}>
+                disabled={onSlideSide ? !currentSlideHistory?.[action].length : !inkHistory.current[action].length} onClick={() => restoreInk(action)}>
                 <BoardToolIcon tool={action} />{action}
               </button>)}
             </div>
@@ -976,21 +1154,37 @@ export function Classroom({ code, review }: { code: string; review?: {
           )}
         </aside>}
 
-        <main className={`${slidePage ? "bg-slate-100" : "notebook-stage"} flex min-w-0 flex-1 flex-col gap-3 p-3 md:p-5 lg:overflow-y-auto lg:overscroll-contain ${!isTeacher && mobilePane === "notes" ? "max-lg:hidden" : ""}`}>
+        <main className={`${slidePage && !split ? "bg-slate-100" : "notebook-stage"} flex min-w-0 flex-1 flex-col gap-3 p-3 md:p-5 lg:overflow-y-auto lg:overscroll-contain ${!isTeacher && mobilePane === "notes" ? "max-lg:hidden" : ""}`}>
           {review?.controls}
           {!review && (isTeacher || (collaborationId && user && collaboration.ready)) && (
             <div className="board-topbar">
               {isTeacher && <TopicStrip topics={topics} currentId={live} canEdit={!state.ended} hrefFor={(id) => `/room/${code}/topic/${id}${roleQ}`}
+                describe={describeTopic}
                 onEdit={(id, p) => mutate((s) => ({ ...s, topics: s.topics.map((t) => (t.id === id ? { ...t, ...p, auto: false } : t)) }))} />}
+              {isTeacher && !state.ended && deck && (
+                <div role="radiogroup" aria-label="Board layout" className="layout-switch">
+                  {([["slides", "Slides"], ["board", "Board"], ["split", "Split"]] as const).map(([value, label]) => (
+                    <button key={value} type="button" role="radio" aria-checked={layout === value} disabled={slideBusy}
+                      onClick={() => setLayout(value)}>
+                      <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
+                        {value === "split" ? <><rect x="1.5" y="3" width="5.5" height="10" rx="1" /><rect x="9" y="3" width="5.5" height="10" rx="1" /></>
+                          : value === "slides" ? <><rect x="1.5" y="3" width="13" height="9" rx="1" /><path d="M8 12v2M5.5 14h5" /></>
+                          : <><rect x="1.5" y="2.5" width="13" height="11" rx="1" /><path d="M4.5 10.5c1.5-3 3-3 4 0s2.5 1 3-2" strokeLinecap="round" /></>}
+                      </svg>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
               {isTeacher && !state.ended && (
                 <div className="board-actions-wrap">
-                  <div role="group" aria-label="Board actions" className="board-actions">
+                  <div role="group" aria-label={clearsSlide ? "Board actions, clearing the slide" : "Board actions"} className="board-actions">
                     <button type="button" className="btn btn-sm btn-outline" aria-expanded={chooseBoard}
-                      disabled={!boardHasContent && !currentTopicHasContent}
-                      title={!boardHasContent && !currentTopicHasContent ? "The current topic is still empty" : undefined}
-                      onClick={() => { if (boardHasContent) setChooseBoard((open) => !open); else startTopic(false); }}>Start new topic</button>
-                    <button type="button" className="btn btn-sm btn-outline" disabled={!state.strokes.length} onClick={() => clearBoard("pen")}>Clear pen</button>
-                    <button type="button" className="btn btn-sm btn-outline" disabled={!boardHasContent} onClick={() => clearBoard("all")}>Clear board</button>
+                      onClick={() => { if (asksToKeepBoard) setChooseBoard((open) => !open); else startTopic(false); }}>Start new topic</button>
+                    <button type="button" className="btn btn-sm btn-outline" disabled={!canClearPen} title={clearsSlide ? "Clear pen marks on this slide" : "Clear pen marks on the whiteboard"}
+                      onClick={() => clearBoard("pen")}>Clear pen</button>
+                    <button type="button" className="btn btn-sm btn-outline" disabled={!canClearAll} title={clearsSlide ? "Clear everything added to this slide" : "Clear the whiteboard"}
+                      onClick={() => clearBoard("all")}>Clear board</button>
                   </div>
                   <AnimatedPanel open={chooseBoard} reduced={prefs.reduceMotion}>
                     <div role="group" aria-label="Board options for the new topic" className="board-actions-pop">
@@ -1066,7 +1260,8 @@ export function Classroom({ code, review }: { code: string; review?: {
             </div>
           )}
           {isTeacher && !state.ended && (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className={(!uploadEnabled && teacherStorageEnabled && authReady && signInEnabled && !user) || slideBusy || slideError || teacherStorageError
+              ? "flex flex-wrap items-center gap-2" : "contents"}>
                 <input ref={uploadInput} hidden type="file" accept={lectureFormats} disabled={slideBusy || !uploadEnabled}
                   onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void changeSlide(1, "presented", file); }} />
               <p id="lecture-upload-help" className="sr-only">
@@ -1076,9 +1271,6 @@ export function Classroom({ code, review }: { code: string; review?: {
               {!uploadEnabled && teacherStorageEnabled && authReady && signInEnabled && !user &&
                 <button type="button" className="btn btn-sm btn-outline" onClick={() => void signIn()}>Sign in to upload</button>}
               {slideBusy && <p role="status" className="text-sm">Preparing pages…</p>}
-              {deck && <button className="btn btn-sm btn-outline" disabled={slideBusy} onClick={() => { setAnchor(null); mutate((s) => ({ ...s, showSlides: !s.showSlides })); }}>
-                {state.showSlides ? "Show whiteboard" : "Show slides"}
-              </button>}
               {slideError && <p role="alert" className="text-sm">{slideError}</p>}
               {teacherStorageError && <p role="status" className="text-sm">{teacherStorageError}</p>}
             </div>
@@ -1095,8 +1287,8 @@ export function Classroom({ code, review }: { code: string; review?: {
               if (privateEditing) {
                 addPrivateBlocks(items.map((item, index) => ({
                   ...item,
-                  position: [(slidePage ? 0 : studentView.position?.[0] ?? 0) / studentView.zoom + .08 + index * .24,
-                    (slidePage ? 0 : studentView.position?.[1] ?? 0) / studentView.zoom + .12],
+                  position: [(onSlideSide ? 0 : studentView.position?.[0] ?? 0) / studentView.zoom + .08 + index * .24,
+                    (onSlideSide ? 0 : studentView.position?.[1] ?? 0) / studentView.zoom + .12],
                 })));
                 setInsertPanel(undefined);
                 return;
@@ -1153,110 +1345,24 @@ export function Classroom({ code, review }: { code: string; review?: {
             </div>
           )}
           {!review && collaborationId && user && collaboration.error && <p role="status" className="text-sm">{collaboration.error}</p>}
-          <Whiteboard key={annotationSurface ?? (browseTopic ? browsedTopicId : "live")} boardRef={boardRef} spotlightId={browseTopic ? undefined : spotBlock?.id}
-            blocks={[...blocks, ...(slidePage ? [] : sharedNotepads), ...(!isTeacher && annotationVisible ? privateNotes.data.blocks.filter((block) => block.surface === annotationSurface) : [])]}
-            strokes={[...(slidePage ? slideInk : visibleInk), ...(!isTeacher && annotationVisible ? privateNotes.data.strokes.filter((stroke) => stroke.surface === annotationSurface) : [])]} isTeacher={isTeacher} selectedIds={anchor?.ids ?? []}
-            privateInk={privateEditing}
-            canEraseStroke={privateEditing ? (id) => privateNotes.data.strokes.some((stroke) => stroke.id === id) : undefined}
-            canEditBlock={(id) => isTeacher ? !sharedNotepads.some((note) => note.id === id) : privateEditing && isPrivate(id)}
-            connectorMode={(isTeacher || privateEditing) && connectorMode}
-            onConnector={privateEditing ? (connector, id) => {
-              if (id) editPrivateBlock(id, { connector });
-              else addPrivateBlocks([{ kind: "connector", content: "Connector", connector }]);
-            } : isTeacher && !state.ended ? (connector, id) => {
-              if (id) { editBoardBlock(id, { connector }); return; }
-              const current = getState();
-              if (!current || current.ended) return;
-              const topicId = current.currentTopicId ?? uid();
-              rememberBlocks(current);
-              mutate((room) => ({ ...room, currentTopicId: topicId,
-                topics: room.currentTopicId ? room.topics : [...room.topics, { id: topicId, title: "New topic", summary: "", ts: Date.now(), auto: true }],
-                blocks: [...room.blocks, { id: uid(), kind: "connector", topicId, content: "Connector", connector, order: room.blocks.length, ts: Date.now(), ...(annotationSurface ? { surface: annotationSurface } : {}) }] }));
-            } : undefined}
-            modeIcon={privateEditing ? placement ?? insertPanel ?? (tool !== "select" ? tool : undefined)
-              : isTeacher && !state.ended ? placement ?? insertPanel ?? (tool !== "select" ? tool : undefined) : undefined}
-            placement={(isTeacher && !state.ended) || privateEditing ? placement : undefined}
-            onPlace={(kind, content, position, runs, shapeSize) => {
-              const id = isTeacher ? addBlock(kind, content, position, runs, shapeSize) : undefined;
-              if (privateEditing) {
-                const target = kind === "text" ? state.blocks.find((block) => block.id === attachTo?.id) : undefined;
-                const privateId = addPrivateBlocks([{ kind, content, textRuns: runs, position, shapeSize,
-                  attachedTo: target?.id, attachmentOrigin: target ? target.position ?? attachTo?.position : undefined,
-                }]);
-                setAttachTo(undefined);
-                setPlacement(undefined);
-                return privateId;
-              }
-              setPlacement(undefined);
-              return id;
-            }}
-            onCancelPlacement={() => { setPlacement(undefined); setConnectorMode(false); }}
-            onMoveBlock={(isTeacher && !state.ended) || privateEditing ? (id, position) => {
-              setAnchor(null);
-              if (privateEditing) editPrivateBlock(id, { position });
-              else editBoardBlock(id, { position });
-            } : undefined}
-            slide={slidePage ? { url: review?.slideSrc ?? slideUrl(slidePage), aspect: slidePage.width / slidePage.height } : undefined}
-            zoom={slidePage ? 1 : browseTopic || privateEditing ? studentView.zoom : boardZoom}
-            position={slidePage ? undefined : browseTopic || privateEditing ? studentView.position : state.boardPosition}
-            onZoom={slidePage ? undefined : browseTopic || privateEditing ? (zoom, position) => setStudentView({ zoom, position }) : isTeacher && !state.ended ? setBoardZoom : undefined}
-            onSelect={(a) => {
-              if (privateEditing) {
-                if (!isPrivate(a.ids[0]) && state.blocks.some((block) => block.id === a.ids[0])) {
-                  setAttachTo({ id: a.ids[0], position: a.boardPosition }); setTool("select"); setPlacement("text");
-                }
-              } else if (!isTeacher) openAnchor(a);
-            }} snipActive={snip && !isTeacher && !privateEditing} tool={privateEditing || !state.ended ? tool : "select"}
-            ink={tool === "highlight" ? { color: highlightColor, width: highlightWidth, opacity: 0.35 } : { color: penColor, width: penWidth }}
-            onSnip={(a) => { if (!a) { setSnip(false); return; } if (slidePage) askAboutSlide(a); else openAnchor(a); }}
-            onStroke={(stroke) => privateEditing
-              ? privateNotes.update((data) => ({ ...data, strokes: [...data.strokes, { ...stroke, id: uid(), surface: annotationSurface }] }))
-              : slidePage ? editSlideInk((ink) => [...ink, { ...stroke, id: uid() }]) : addStroke(stroke)}
-            onErase={(ids) => privateEditing
-              ? privateNotes.update((data) => ({ ...data, strokes: data.strokes.filter((stroke) => !ids.has(stroke.id)) }))
-              : slidePage ? editSlideInk((ink) => ink.filter((stroke) => !ids.has(stroke.id))) : eraseInk(ids)}
-            onEditSticky={privateEditing ? editPrivateBlock : isTeacher && !state.ended ? editBoardBlock : undefined}
-            onResizeBlock={privateEditing ? editPrivateBlock : isTeacher && !state.ended ? editBoardBlock : undefined}
-            onEditText={(isTeacher && !state.ended) || privateEditing ? (id, content, textRuns) => {
-              if (privateEditing) {
-                editPrivateBlock(id, { content, textRuns });
-                return;
-              }
-              const block = getState()?.blocks.find((item) => item.id === id);
-              if (block && (block.content !== content || JSON.stringify(block.textRuns) !== JSON.stringify(textRuns))) {
-                editBoardBlock(id, { content, textRuns });
-              }
-            } : undefined}
-            onDuplicateSticky={privateEditing ? (block) => addPrivateBlocks([{ ...block,
-              position: block.position && [block.position[0] + .025, block.position[1] + .035],
-            }]) : isTeacher && !state.ended ? (block) => mutate((room) => ({
-              ...room, blocks: [...room.blocks, { ...block, id: uid(), ts: Date.now(), order: room.blocks.length,
-                position: block.position && [block.position[0] + .025, block.position[1] + .035] }],
-            })) : undefined}
-            onDelete={(id, detached, origin) => {
-              if (privateEditing) {
-                privateNotes.update((data) => ({ ...data, blocks: data.blocks.filter((block) => block.id !== id)
-                  .map((block) => detached?.[block.id] ? { ...block, connector: detached[block.id] } : block) }));
-                return;
-              }
-              const current = getState();
-              if (!current || !isTeacher || current.ended) return;
-              rememberBlocks(current);
-              mutate((room) => ({ ...room, removedBlockPositions: origin ? { ...room.removedBlockPositions, [id]: origin } : room.removedBlockPositions, blocks: room.blocks.filter((block) => block.id !== id)
-                .map((block) => detached?.[block.id] ? { ...block, connector: detached[block.id] } : block) }));
-            }}>
-            {anchor && !isTeacher && board && (
-              <AskPanel key={`${anchor.rect.left}:${anchor.rect.top}:${anchor.ids.join()}:${anchor.image?.length ?? 0}`} rect={anchor.rect} boardW={board.width} boardH={board.height} empty={anchor.ids.length === 0 && !anchor.image && !anchor.topicTitle}
-                excerpt={[...(anchor.image ? ["✎ handwriting"] : []), ...sel.map((b) => b.content)].join("  ·  ") || `Topic: ${anchor.topicTitle}`} basedOn={`${state.topics.find((t) => t.id === sel[0]?.topicId)?.title ?? anchor.topicTitle ?? "lecture"} · ${sel.length} note${sel.length === 1 ? "" : "s"}, plus nearby lecture context`}
-                msgs={msgs} loading={loading} error={error} suggestion={suggestion} fed={fed}
-                onSend={(k, q, g) => void ask(anchor, k as AIKind, q, g)} onQuiz={(ok) => rec(ok ? "quizRight" : "quizWrong")} onClose={() => { setAnchor(null); setMsgs([]); }} onFeedback={feedback}
-                onSaveClip={wantTeacher || anchor.topicTitle || (!sel.length && !anchor.image) ? undefined : () => topicNotes.addClip({
-                  topicId: noteTopicFor(anchor), image: anchor.image, text: sel.map((b) => b.content).join("\n"),
-                  label: anchor.slideTitle ?? (sel.length ? "From the board" : "Handwriting from the board") })}
-                onSaveAnswer={wantTeacher ? undefined : (text) => topicNotes.append(noteTopicFor(anchor), `Explanation (AI)\n${plainNote(text)}`)} />
-            )}
-          </Whiteboard>
-          {((isTeacher && !state.ended) || privateEditing) && !slidePage && (
+          {split && slidePage ? (
+            <div className="board-split">
+              <div role="tablist" aria-label="Split view side" className="board-split-tabs">
+                {([["slide", "Slide"], ["board", "Whiteboard"]] as const).map(([side, label]) => (
+                  <button key={side} type="button" role="tab" aria-selected={activeSide === side} onClick={() => setActiveSide(side)}>{label}</button>
+                ))}
+              </div>
+              <section aria-label="Slide" className="board-split-pane" data-active={activeSide === "slide"}
+                onPointerDownCapture={() => setActiveSide("slide")} onFocusCapture={() => setActiveSide("slide")}>
+                {renderBoard(slidePage, slidePage.id, slideRef, activeSide === "slide")}
+              </section>
+              <section aria-label="Whiteboard" className="board-split-pane" data-active={activeSide === "board"}
+                onPointerDownCapture={() => setActiveSide("board")} onFocusCapture={() => setActiveSide("board")}>
+                {renderBoard(undefined, undefined, boardRef, activeSide === "board")}
+              </section>
+            </div>
+          ) : renderBoard(slidePage, slidePage?.id ?? review?.surface, boardRef, true)}
+          {((isTeacher && !state.ended) || privateEditing) && (!slidePage || (split && activeSide === "board")) && (
               <div role="group" aria-label="Board zoom" className="flex items-center justify-end gap-1">
                 <button type="button" className="btn btn-sm btn-outline" aria-label="Zoom out" disabled={annotationZoom <= 0.5}
                   onClick={() => adjustAnnotationZoom(Math.max(.5, annotationZoom - .25))}>−</button>

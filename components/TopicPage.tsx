@@ -9,6 +9,8 @@ import { Logo } from "./Logo";
 import { MathView } from "./MathView";
 import { RichText } from "./RichText";
 import { handwritingImage } from "./Whiteboard";
+import { InkPath } from "./InkPath";
+import { slideUrl } from "@/lib/slides";
 
 export function TopicPage({ code, id }: { code: string; id: string }) {
   const teacher = useSearchParams().get("role") === "teacher";
@@ -27,6 +29,9 @@ export function TopicPage({ code, id }: { code: string; id: string }) {
   useEffect(() => {
     setImage(handwritingImage(ink, 960, 960 / (topic?.inkAspect ?? 1.5)));
   }, [ink, topic?.inkAspect]);
+  const deck = state?.slides;
+  const slidePages = topic?.slides && deck && topic.slides.deck === deck.id
+    ? topic.slides.pages.filter((n) => deck.pages[n]) : [];
   const blocks = [...(state?.archive ?? []).flatMap((a) => a.blocks), ...(state?.blocks ?? [])].filter((b) => b.topicId === id).filter((b, i, arr) => arr.findIndex((x) => x.id === b.id) === i);
 
   const go = async () => {
@@ -46,7 +51,25 @@ export function TopicPage({ code, id }: { code: string; id: string }) {
         <>
           <h1 className="display mt-10 text-[40px]">{topic.title}</h1>
           <p className="mt-3 text-lg text-smoke">{topic.summary}</p>
-          <h2 className="mt-8 text-sm font-medium">From the whiteboard</h2>
+          {slidePages.length > 0 && deck && <>
+            <h2 className="mt-8 text-sm font-medium">From the slides</h2>
+            <div className="mt-2 grid gap-4">
+              {slidePages.map((n) => {
+                const page = deck.pages[n];
+                return <figure key={n} className="overflow-hidden rounded-[20px] border border-stone bg-white">
+                  <div className="relative" style={{ aspectRatio: `${page.width} / ${page.height}` }}>
+                    <img src={slideUrl(page)} alt={`Slide ${n}`} className="absolute inset-0 size-full object-contain" />
+                    <svg aria-hidden="true" viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 size-full">
+                      {(deck.ink[n] ?? []).map((stroke) => <InkPath key={stroke.id} stroke={stroke} />)}
+                    </svg>
+                  </div>
+                  <figcaption className="border-t border-stone px-4 py-2 text-sm text-smoke">{deck.name} · Slide {n}</figcaption>
+                </figure>;
+              })}
+            </div>
+          </>}
+          {(blocks.length > 0 || image) && <h2 className="mt-8 text-sm font-medium">From the whiteboard</h2>}
+          {!blocks.length && !image && !slidePages.length && <p className="mt-8 text-smoke">Nothing has been added to this topic yet.</p>}
           <ul className="mt-2 space-y-3">{blocks.map((b) => (
             <li key={b.id} className="rounded-[20px] border border-stone bg-taupe px-5 py-4">{b.kind === "equation" ? <div className="text-2xl"><MathView tex={b.content} /></div> : <p className="text-xl">{b.content}</p>}</li>))}</ul>
           {image && <img className="mt-3 max-w-full rounded-2xl border border-stone" src={image} alt="Handwritten notes for this topic" />}

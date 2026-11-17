@@ -6,7 +6,7 @@ import { publishSlide, slideUrl } from "./slides";
 import { uid, type Block, type FeedbackEvent, type RoomState } from "./types";
 
 export type LectureMaterials = Pick<RoomState, "topics" | "blocks" | "strokes" | "archive" |
-  "currentTopicId" | "slides" | "privateSlidePages" | "showSlides" | "boardZoom" | "boardPosition">;
+  "currentTopicId" | "slides" | "privateSlidePages" | "showSlides" | "splitView" | "boardZoom" | "boardPosition">;
 
 export interface SavedLecture extends Lesson {
   materials?: LectureMaterials;
@@ -79,7 +79,7 @@ export async function saveLecture(state: RoomState, events: FeedbackEvent[], use
     materials: {
       topics: state.topics, blocks: state.blocks, strokes: state.strokes, archive: state.archive,
       currentTopicId: state.currentTopicId, slides: state.slides, privateSlidePages: state.privateSlidePages,
-      showSlides: state.showSlides, boardZoom: state.boardZoom, boardPosition: state.boardPosition,
+      showSlides: state.showSlides, splitView: state.splitView, boardZoom: state.boardZoom, boardPosition: state.boardPosition,
     },
     struggles: rows.filter((row) => row.unresolved >= MIN_GROUP).map(({ label, topic, unresolved }) => ({ label, topic, unresolved })),
     checkIn: checkIn && checkIn.total >= MIN_GROUP ? { text: checkIn.text, total: checkIn.total, correct: checkIn.correct } : undefined,
