@@ -337,6 +337,14 @@ button.notebook-section { display: flex; justify-content: space-between; }
 .topic-strip-label { flex: 0 0 auto; font-size: .8125rem; font-weight: 650; color: #4a5272; }
 .topic-strip-list { display: flex; min-width: 0; flex: 1 1 auto; gap: .35rem; overflow-x: auto; scrollbar-width: none; }
 .topic-strip-list::-webkit-scrollbar { display: none; }
+.topic-strip-list { --fade-start: 0px; --fade-end: 0px; scroll-behavior: smooth; scroll-padding-inline: 28px;
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent 100%); }
+@property --fade-start { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --fade-end { syntax: "<length>"; inherits: false; initial-value: 0px; }
+.topic-strip-list { transition: --fade-start .25s ease, --fade-end .25s ease; }
+.topic-strip-list[data-fade-start] { --fade-start: 36px; }
+.topic-strip-list[data-fade-end] { --fade-end: 36px; }
 .topic-card { position: relative; display: flex; flex: 0 0 auto; align-items: flex-start; gap: .5rem; width: 14.5rem; padding: .45rem .4rem .45rem .5rem; border: 1px solid #e6e9f4; border-radius: 12px; background: #f7f8fd; color: #30385b; transition: background-color .15s, border-color .15s, box-shadow .15s; }
 .topic-card:hover { background: #eef1fb; }
 .topic-card[data-live] { width: 17rem; border-color: #b9c8ff; background: #eef3ff; box-shadow: 0 0 0 3px #2454e812; }
@@ -434,7 +442,7 @@ button.notebook-section { display: flex; justify-content: space-between; }
 .board-share-primary:hover { background: #1d47cc; }
 .board-share-count { min-width: 1.3rem; padding: 0 .35rem; border-radius: 999px; background: #ffffff33; font-size: .75rem; text-align: center; }
 .board-share-btn:not(.board-share-primary) .board-share-count { background: #eef1fb; color: #4a5272; }
-.board-share-pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; display: grid; gap: .65rem; width: min(22rem, calc(100vw - 2rem)); padding: 1rem; border: 1px solid #dcdfee; border-radius: 16px; background: #fff; box-shadow: 0 16px 40px #1823482e; transform-origin: top right; }
+.board-share-pop { position: fixed; z-index: 60; display: grid; gap: .65rem; width: min(22rem, calc(100vw - 2rem)); padding: 1rem; border: 1px solid #dcdfee; border-radius: 16px; background: #fff; box-shadow: 0 16px 40px #1823482e; transform-origin: top right; }
 .board-share-heading { font-size: .9375rem; font-weight: 650; color: #171d38; }
 .board-share-sub { margin-top: -.4rem; font-size: .8125rem; color: var(--color-smoke); }
 .board-share-roles { display: grid; gap: .35rem; }
@@ -456,7 +464,7 @@ button.notebook-section { display: flex; justify-content: space-between; }
 .board-share-foot { padding-top: .55rem; border-top: 1px solid #eef0f7; font-size: .75rem; color: var(--color-smoke); }
 .nb-link.notebook-danger { color: #992f34; }
 .nb-link.notebook-danger:hover:not(:disabled) { background: #fff0ee; }
-@media (width < 40rem) { .board-share-pop, .board-actions-pop { right: auto; left: 0; } }
+@media (width < 40rem) { .board-actions-pop { right: auto; left: 0; } }
 
 /* Pen / highlighter colors: the tray rises in and each swatch pops in turn. */
 .ink-tray { transform-origin: top center; }
@@ -470,3 +478,14 @@ button.notebook-section { display: flex; justify-content: space-between; }
   .topic-card-live::before { animation: live-pulse 1.6s ease-in-out infinite; }
 }
 @media (prefers-reduced-motion: reduce) { .tool-slider, .segmented-thumb, .segmented button, .notebook-pages, .notebook-pages-caret { transition: none; } }
+
+/* Invite: a centered card that pops in with a little spring. */
+.invite-close { position: absolute; top: 12px; right: 12px; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 999px; color: #6b655d; cursor: pointer; transition: background-color .15s; }
+.invite-close svg { width: 14px; height: 14px; }
+.invite-close:hover { background: #f0eeeb; }
+@media (prefers-reduced-motion: no-preference) {
+  .panel-motion[data-motion="dialog"][data-open="true"] > * > .invite-card { animation: invite-pop .34s cubic-bezier(.3, 1.4, .5, 1) both; }
+  .panel-motion[data-motion="dialog"][data-open="false"] > * > .invite-card { animation: invite-pop-out .17s ease-in both; }
+}
+@keyframes invite-pop { from { opacity: 0; transform: scale(.88) translateY(10px); } }
+@keyframes invite-pop-out { to { opacity: 0; transform: scale(.94) translateY(6px); } }

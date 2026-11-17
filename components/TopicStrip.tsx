@@ -13,9 +13,22 @@ export function TopicStrip({ topics, currentId, hrefFor, canEdit, describe, onEd
   const [editing, setEditing] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [summary, setSummary] = useState("");
+  // Fade the row's edges only on the sides that have more cards scrolled out of view.
+  const [edges, setEdges] = useState({ start: false, end: false });
+  const measure = () => {
+    const el = strip.current;
+    if (!el) return;
+    const next = { start: el.scrollLeft > 2, end: el.scrollLeft + el.clientWidth < el.scrollWidth - 2 };
+    setEdges((prev) => prev.start === next.start && prev.end === next.end ? prev : next);
+  };
   useEffect(() => {
     const el = strip.current;
-    if (el) el.scrollTo({ left: el.scrollWidth });
+    if (!el) return;
+    el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
+    measure();
+    const resize = new ResizeObserver(measure);
+    resize.observe(el);
+    return () => resize.disconnect();
   }, [topics.length]);
   const save = (topic: Topic) => {
     const nextTitle = title.trim() || topic.title;
@@ -27,7 +40,12 @@ export function TopicStrip({ topics, currentId, hrefFor, canEdit, describe, onEd
   return (
     <nav aria-label="Lecture topics" className="topic-strip">
       <span className="topic-strip-label">Topics</span>
-      <ol ref={strip} className="topic-strip-list">
+      <ol ref={strip} className="topic-strip-list" data-fade-start={edges.start || undefined} data-fade-end={edges.end || undefined}
+        onScroll={measure} onWheel={(event) => {
+          // A mouse wheel scrolls the row sideways.
+          const el = event.currentTarget;
+          if (Math.abs(event.deltaY) > Math.abs(event.deltaX) && el.scrollWidth > el.clientWidth) el.scrollLeft += event.deltaY;
+        }}>
         {topics.length === 0 && <li className="topic-card topic-card-empty">Starting…</li>}
         {topics.map((topic, index) => {
           const live = topic.id === currentId;

@@ -69,7 +69,7 @@ export function SegmentedControl<T extends string>({ label, options, value, disa
     onKeyDown={keys}
     onPointerDown={(event: PointerEvent<HTMLDivElement>) => {
       if (disabled || event.button !== 0) return;
-      event.currentTarget.setPointerCapture(event.pointerId);
+      try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* pointer already released */ }
       setDrag(indexAt(event.clientX));
     }}
     onPointerMove={(event) => { if (drag !== null) setDrag(indexAt(event.clientX)); }}
@@ -118,9 +118,65 @@ export function ToolGroup({ children }: { children: ReactNode }) {
     const frame = requestAnimationFrame(() => setBox((prev) => prev && { ...prev, jump: false }));
     return () => cancelAnimationFrame(frame);
   }, [box?.jump]);
-  return <div ref={ref} className="notebook-tool-group tool-group-slide">
-    {box && <span aria-hidden="true" className="tool-slider" data-on={box.on} data-jump={box.jump}
-      style={{ width: box.w, height: box.h, transform: `translate(${box.x}px, ${box.y}px)` }} />}
+
+  // Press a tool and drag along the group: the highlight follows, and letting go picks the tool under it.
+  const press = useRef<{ x: number; y: number; id: number; dragging: boolean }>(undefined);
+  const [hover, setHover] = useState<HTMLButtonElement | null>(null);
+  const suppressClick = useRef(false);
+  const [hoverFresh, setHoverFresh] = useState(false);
+  useEffect(() => {
+    if (!hoverFresh) return;
+    const frame = requestAnimationFrame(() => setHoverFresh(false));
+    return () => cancelAnimationFrame(frame);
+  }, [hoverFresh]);
+  useEffect(() => {
+    hover?.setAttribute("data-drag-over", "");
+    return () => hover?.removeAttribute("data-drag-over");
+  }, [hover]);
+  const nearest = (x: number, y: number) => {
+    let best: HTMLButtonElement | null = null; let bestDistance = Infinity;
+    ref.current?.querySelectorAll<HTMLButtonElement>(":scope > button:not(:disabled)").forEach((button) => {
+      const r = button.getBoundingClientRect();
+      const dx = Math.max(r.left - x, 0, x - r.right); const dy = Math.max(r.top - y, 0, y - r.bottom);
+      const distance = dx * dx + dy * dy;
+      if (distance < bestDistance) { bestDistance = distance; best = button; }
+    });
+    return best as HTMLButtonElement | null;
+  };
+  const shown = hover ? { x: hover.offsetLeft, y: hover.offsetTop, w: hover.offsetWidth, h: hover.offsetHeight, on: true, jump: hoverFresh } : box;
+  return <div ref={ref} className="notebook-tool-group tool-group-slide" data-dragging={!!hover}
+    onPointerDown={(event) => {
+      if (event.button !== 0 || !(event.target as HTMLElement).closest("button:not(:disabled)")) return;
+      press.current = { x: event.clientX, y: event.clientY, id: event.pointerId, dragging: false };
+    }}
+    onPointerMove={(event) => {
+      const p = press.current;
+      if (!p || p.id !== event.pointerId) return;
+      if (!p.dragging) {
+        if (Math.hypot(event.clientX - p.x, event.clientY - p.y) < 6) return;
+        p.dragging = true;
+        setHoverFresh(!box?.on);
+        try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* pointer already released */ }
+      }
+      setHover(nearest(event.clientX, event.clientY));
+    }}
+    onPointerUp={(event) => {
+      const p = press.current;
+      press.current = undefined;
+      if (!p?.dragging) return;
+      const target = nearest(event.clientX, event.clientY);
+      setHover(null);
+      suppressClick.current = true;
+      window.setTimeout(() => { suppressClick.current = false; }, 0);
+      if (target && target.getAttribute("aria-pressed") !== "true" && target.getAttribute("aria-expanded") !== "true") target.click();
+    }}
+    onPointerCancel={() => { press.current = undefined; setHover(null); }}
+    onClickCapture={(event) => {
+      // The click that follows a drag would land on the tool where the drag started.
+      if (suppressClick.current && event.isTrusted) { event.preventDefault(); event.stopPropagation(); }
+    }}>
+    {shown && <span aria-hidden="true" className="tool-slider" data-on={shown.on} data-jump={shown.jump}
+      style={{ width: shown.w, height: shown.h, transform: `translate(${shown.x}px, ${shown.y}px)` }} />}
     {children}
   </div>;
 }

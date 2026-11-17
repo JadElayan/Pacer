@@ -1049,12 +1049,20 @@ export function Classroom({ code, review }: { code: string; review?: {
         </div>
       </AnimatedPanel>
 
-      <AnimatedPanel open={showInvite && isTeacher} reduced={prefs.reduceMotion}>
-        <div className="absolute right-4 top-16 z-40 w-[260px] rounded-[20px] border border-stone bg-eggshell p-4 text-center shadow-xl">
-          <p className="text-xs text-smoke">Meeting code</p><p className="text-3xl font-light tracking-[0.2em]">{code}</p>
-          <div className="mx-auto my-3 w-fit rounded-xl border border-stone bg-white p-2"><QRCodeSVG value={joinUrl} size={140} /></div>
-          <input aria-label="Meeting link" className="input mb-2 text-xs" readOnly value={joinUrl} onFocus={(event) => event.currentTarget.select()} />
-          <CopyLinkButton key={joinUrl} link={joinUrl} />
+      <AnimatedPanel open={showInvite && isTeacher} motion="dialog" reduced={prefs.reduceMotion}>
+        <div className="invite-backdrop fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-[2px]" onClick={() => setShowInvite(false)}>
+          <section role="dialog" aria-modal="true" aria-labelledby="invite-title" className="invite-card relative w-full max-w-sm rounded-[24px] border border-stone bg-eggshell p-6 text-center shadow-2xl"
+            onClick={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape") setShowInvite(false); }}>
+            <button type="button" autoFocus className="invite-close" aria-label="Close invite" onClick={() => setShowInvite(false)}>
+              <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+            </button>
+            <h2 id="invite-title" className="text-lg font-semibold">Invite students</h2>
+            <p className="mt-1 text-sm text-smoke">Students scan the code or enter the meeting code on the Pacer home page.</p>
+            <p className="mt-4 text-xs text-smoke">Meeting code</p><p className="text-4xl font-light tracking-[0.2em]">{code}</p>
+            <div className="mx-auto my-4 w-fit rounded-2xl border border-stone bg-white p-3"><QRCodeSVG value={joinUrl} size={180} /></div>
+            <input aria-label="Meeting link" className="input mb-2 text-xs" readOnly value={joinUrl} onFocus={(event) => event.currentTarget.select()} />
+            <CopyLinkButton key={joinUrl} link={joinUrl} />
+          </section>
         </div>
       </AnimatedPanel>
 
@@ -1429,7 +1437,9 @@ export function Classroom({ code, review }: { code: string; review?: {
       <AnimatedPanel open={showArchive} motion="drawer" reduced={prefs.reduceMotion}>
         <ArchiveSheet boards={state.archive ?? []} onClose={() => setShowArchive(false)} />
       </AnimatedPanel>
-      {isTeacher && showRecap && <PostClassSheet state={state} onClose={() => setShowRecap(false)} />}
+      <AnimatedPanel open={isTeacher && showRecap} motion="drawer" reduced={prefs.reduceMotion}>
+        <PostClassSheet state={state} onClose={() => setShowRecap(false)} />
+      </AnimatedPanel>
       <AnimatedPanel open={showSettings} motion="drawer" reduced={prefs.reduceMotion}>
         <SettingsSheet prefs={prefs} update={update} reset={reset} onClose={() => setShowSettings(false)} />
       </AnimatedPanel>

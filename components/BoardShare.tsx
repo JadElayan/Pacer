@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { boardRpc, type Notepad } from "@/lib/useBoardCollaboration";
 import { AnimatedPanel } from "./AnimatedPanel";
 
@@ -24,6 +24,23 @@ export function BoardShare({ board, userId, teacher, allowed, notes, ended, conn
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const root = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  // The popover is placed against the window, under the button, so it never slides under the side panels.
+  const [place, setPlace] = useState<{ top: number; left: number; width: number }>();
+  useLayoutEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const r = button.current?.getBoundingClientRect();
+      if (!r) return;
+      const width = Math.min(352, window.innerWidth - 24);
+      const left = Math.min(Math.max(12, r.right - width), window.innerWidth - width - 12);
+      setPlace({ top: r.bottom + 8, left, width });
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => { window.removeEventListener("resize", update); window.removeEventListener("scroll", update, true); };
+  }, [open]);
   useEffect(() => {
     try { setDraft(JSON.parse(localStorage.getItem(key) ?? "null") ?? undefined); } catch { /* ignore */ }
   }, [key]);
@@ -75,7 +92,7 @@ export function BoardShare({ board, userId, teacher, allowed, notes, ended, conn
       {authors.slice(0, 3).map((name) => <span key={name} title={name} style={{ backgroundColor: hue(name) }}>{initials(name)}</span>)}
       {authors.length > 3 && <span className="board-share-more">+{authors.length - 3}</span>}
     </div>}
-    <button type="button" className={`board-share-btn ${teacher ? "board-share-primary" : ""}`} aria-expanded={open} aria-haspopup="dialog"
+    <button ref={button} type="button" className={`board-share-btn ${teacher ? "board-share-primary" : ""}`} aria-expanded={open} aria-haspopup="dialog"
       onClick={() => setOpen((value) => !value)}>
       {teacher ? <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="5.5" r="2.5" /><path d="M1.5 13.5c.6-2.4 2.4-3.6 4.5-3.6s3.9 1.2 4.5 3.6M11 3.2a2.4 2.4 0 0 1 0 4.6M12.8 9.9c1 .5 1.6 1.6 1.9 3.1" /></svg>
         : <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"><path d="M2.5 2.5h11v7l-4 4h-7z" /><path d="M9.5 13.5v-4h4" /></svg>}
@@ -83,7 +100,8 @@ export function BoardShare({ board, userId, teacher, allowed, notes, ended, conn
       {notes.length > 0 && <span className="board-share-count">{notes.length}</span>}
     </button>
     <AnimatedPanel open={open} reduced={reduced}>
-      <div role="dialog" aria-label={teacher ? "Share this board" : "Class board sticky notes"} className="board-share-pop">
+      <div role="dialog" aria-label={teacher ? "Share this board" : "Class board sticky notes"} className="board-share-pop"
+        style={place ? { top: place.top, left: place.left, width: place.width, maxHeight: `calc(100dvh - ${place.top + 12}px)`, overflowY: "auto" } : undefined}>
         {teacher && <>
           <p className="board-share-heading">Share this board</p>
           <p className="board-share-sub">{connected ?? 0} student{connected === 1 ? "" : "s"} connected · everyone in the room can see the board.</p>
