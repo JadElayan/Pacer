@@ -57,7 +57,7 @@ export default function Home() {
       const materials = lecture ? await continueLecture(lecture, user?.id) : undefined;
       const meetingTitle = (lecture?.title ?? title.trim()) || "Untitled lecture";
       const meetingSubject = lecture ? lecture.subject : subject.trim() || undefined;
-      const meeting = createMeeting(meetingTitle, meetingSubject, materials);
+      const meeting = await createMeeting(meetingTitle, meetingSubject, materials);
       setLobby(meeting);
       if (user) void recordLecture(user.id, { code: meeting, title: meetingTitle, subject: meetingSubject });
     } catch {
@@ -70,7 +70,7 @@ export default function Home() {
   return (
     <main className="relative min-h-screen overflow-hidden">
       <div aria-hidden className="glow pointer-events-none absolute left-1/2 top-[42%] h-[720px] w-[720px] rounded-full bg-sky opacity-30 blur-3xl" style={{ transform: "translate(-50%,-50%)" }} />
-      <header className="relative mx-auto flex h-16 max-w-[1280px] items-center justify-between px-6"><Logo /><AuthBar /></header>
+      <header className="relative mx-auto flex h-16 max-w-[1280px] items-center justify-between px-6"><Logo />{(!authEnabled() || user || guest) && <AuthBar />}</header>
       {!ready ? <p role="status" className="relative px-6 py-8 text-center text-smoke">Opening Pacer…</p> :
         authEnabled() && !user && !guest ? <div className="relative px-6"><SignIn onGuest={() => { try { localStorage.setItem("pacer:guest", "1"); } catch { /* ignore */ } setGuest(true); }} /></div> : (
       <>

@@ -43,6 +43,9 @@ export function LearnedBox() {
               <span><span className="block font-medium">{l.title}</span><span className="text-xs text-smoke">{l.subject ? `${l.subject} · ` : ""}{when(l.ts)} · {l.topics.length} topic{l.topics.length === 1 ? "" : "s"}{l.boards?.length ? ` · ${l.boards.length} saved board${l.boards.length === 1 ? "" : "s"}` : ""}</span></span>
               <span aria-hidden className="text-smoke">{open === l.code ? "–" : "+"}</span>
             </button>
+            <Link href={`/lesson/${encodeURIComponent(l.code)}`} className="btn btn-primary btn-sm mt-3">
+              Open lesson
+            </Link>
             {open === l.code && <ul className="mt-3 space-y-2">{l.topics.map((t, i) => (
               <li key={i} className="rounded-2xl bg-taupe p-3"><p className="text-sm font-medium">{t.title}</p><p className="text-xs text-smoke">{t.summary}</p><p className="mt-1 text-xs">{t.notes.join("  ·  ")}</p></li>))}{(l.boards ?? []).map((b, i) => <li key={b.id}><p className="mb-1 text-xs text-smoke">Saved board {i + 1}</p><BoardPreview b={b} /></li>)}</ul>}
             {open === l.code && l.slides && <div className="mt-3"><SavedSlides key={l.slides.id} deck={l.slides} userId={userId} /></div>}

@@ -2,9 +2,11 @@
 import { ChoiceMenu } from "./ChoiceMenu";
 import { AnimatedPanel } from "./AnimatedPanel";
 import { SharedNotepads } from "./SharedNotepads";
+import { Drawer } from "./Drawer";
 import { CopyLinkButton } from "./CopyLinkButton";
 import { TeacherSlidePreviews } from "./TeacherSlidePreviews";
-import { StudentNotes } from "./StudentNotes";
+import { Notebook, plainNote } from "./Notebook";
+import { GENERAL_NOTES, useTopicNotes } from "@/lib/useTopicNotes";
 import { privateNoteKey } from "@/lib/privateNoteKey";
 import { boardRpc, useBoardCollaboration, usePrivateAnnotations } from "@/lib/useBoardCollaboration";
 import Link from "next/link";
@@ -24,7 +26,7 @@ import { bump, loadProfile, loadStudy, mergeStudy, saveProfile, saveStudy, subje
 import { ProfileSheet } from "./ProfileSheet";
 import { mergeProfiles, pullLearning, pushProfile } from "@/lib/cloudProfile";
 import { useAuth } from "@/lib/useAuth";
-import { pushLesson, saveLesson } from "@/lib/lessons";
+import { loadLessons, pushLesson, saveLesson } from "@/lib/lessons";
 import { ArchiveSheet } from "./ArchiveSheet";
 import { Logo } from "./Logo";
 import { RichText } from "./RichText";
@@ -46,11 +48,16 @@ const HIGHLIGHT_COLORS = [
 ];
 const BOARD_TOOLS: [BoardTool, string][] = [["select", "Select"], ["pen", "Pen"], ["highlight", "Highlighter"], ["erase", "Eraser"]];
 
-export function Classroom({ code }: { code: string }) {
+export function Classroom({ code, review }: { code: string; review?: {
+  state: RoomState; surface?: string; slideSrc?: string; controls: React.ReactNode;
+} }) {
   const sp = useSearchParams();
-  const wantTeacher = sp.get("role") === "teacher";
+  const wantTeacher = !review && sp.get("role") === "teacher";
   const { user, ready: authReady, signIn, enabled: signInEnabled } = useAuth();
-  const { state, events, status, isTeacher, mutate, sendEvent, submitAnswer, grades, connected, transportKind, getState } = useRoom(code, wantTeacher, user?.id);
+  const room = useRoom(code, wantTeacher, user?.id, !!review);
+  const { events, status, isTeacher, mutate, sendEvent, submitAnswer, grades, connected, transportKind, lock } = room;
+  const state = review?.state ?? room.state;
+  const getState = review ? () => review.state : room.getState;
   const { prefs, update, reset, score } = usePrefs();
   const boardRef = useRef<HTMLDivElement>(null);
   const localSlides = useRef<{ id: string; pages: LocalSlide[] } | undefined>(undefined);
@@ -65,6 +72,7 @@ export function Classroom({ code }: { code: string }) {
   const studentSlide = studentSelection?.deckId === deck?.id ? studentSelection?.page : undefined;
   const slideNumber = deck && (!isTeacher && studentSlide && deck.pages[studentSlide] ? studentSlide : deck.current);
   const slidePage = state?.showSlides && slideNumber ? deck?.pages[slideNumber] : undefined;
+  const annotationSurface = slidePage?.id ?? review?.surface;
   const slideInk = slideNumber ? deck?.ink[slideNumber] ?? [] : [];
   const currentSlideHistory = slidePage && slideHistory.current[slidePage.id];
   const availableSlides = deck ? Object.keys(deck.pages).map(Number).sort((a, b) => a - b) : [];
@@ -74,8 +82,15 @@ export function Classroom({ code }: { code: string }) {
   const localUploads = process.env.NODE_ENV === "development";
   const uploadEnabled = localUploads || (teacherStorageEnabled && !!user);
   const studentNotesKey = privateNoteKey(code, user?.id);
+  // Notes synced from the account fill the notebook on a device that has none yet.
+  const syncedNotes = useMemo(() => {
+    const lesson = loadLessons(user?.id).find((saved) => saved.code === code);
+    return lesson && { notes: lesson.myNotes, clips: lesson.myClips };
+  }, [code, user?.id]);
+  const topicNotes = useTopicNotes(studentNotesKey, syncedNotes);
+  const [mobilePane, setMobilePane] = useState<"board" | "notes">("board");
   const checkInKey = `pacer:check-in:${code}:${user?.id ?? "guest"}:${state?.question?.id}`;
-  useEffect(() => { setAnchor(null); setSnip(false); }, [slidePage?.id]);
+  useEffect(() => { setAnchor(null); setSnip(false); setPlacement(undefined); setConnectorMode(false); }, [annotationSurface]);
 
   const changeSlide = async (pageNumber: number, access = deck?.access ?? "presented", file?: File) => {
     if (slideChangePending.current || !isTeacher || !getState() || getState()?.ended || (file && !uploadEnabled)) return;
@@ -176,6 +191,8 @@ export function Classroom({ code }: { code: string }) {
   const [showArchive, setShowArchive] = useState(false);
   const [chooseBoard, setChooseBoard] = useState(false);
   const [catchup, setCatchup] = useState<{ text: string; source: string } | null>(null);
+  const [catchupTopic, setCatchupTopic] = useState<string | null>(null);
+  const [catchupSaved, setCatchupSaved] = useState(false);
   const [catchupLoading, setCatchupLoading] = useState(false);
   const [lastViewed, setLastViewed] = useState<string | null>(null);
   const [popup, setPopup] = useState<PopupData | null>(null);
@@ -189,9 +206,10 @@ export function Classroom({ code }: { code: string }) {
   const [annotationVisible, setAnnotationVisible] = useState(true);
   const [attachTo, setAttachTo] = useState<{ id: string; position?: [number, number] }>();
   const collaborationId = state?.collaborationId;
-  const collaboration = useBoardCollaboration(collaborationId, code, user?.id, isTeacher);
-  const privateNotes = usePrivateAnnotations(collaborationId, user?.id, !isTeacher && collaboration.ready);
-  const privateEditing = !isTeacher && !!user && annotationMode && privateNotes.ready;
+  const collaboration = useBoardCollaboration(review ? undefined : collaborationId, code, user?.id, isTeacher);
+  const privateNotes = usePrivateAnnotations(collaborationId, user?.id,
+    !isTeacher && authReady && (!!review || collaboration.ready), review ? code : undefined);
+  const privateEditing = !isTeacher && (!!user || !!review) && annotationMode && privateNotes.ready;
   const annotationZoom = privateEditing ? studentView.zoom : boardZoom;
   const adjustAnnotationZoom = (zoom: number) => {
     if (privateEditing) setStudentView({ zoom });
@@ -225,7 +243,7 @@ export function Classroom({ code }: { code: string }) {
     const ids = items.map(() => uid());
     privateNotes.update((data) => ({ ...data, blocks: [...data.blocks, ...items.map((item, index): Block => ({
       kind: "text", content: "", ...item, id: ids[index], topicId: state?.currentTopicId ?? "",
-      order: data.blocks.length + index, ts: Date.now(), surface: slidePage?.id,
+      order: data.blocks.length + index, ts: Date.now(), surface: annotationSurface,
     }))] }));
     return ids[0];
   };
@@ -266,7 +284,7 @@ export function Classroom({ code }: { code: string }) {
   useEffect(() => () => clearTimeout(inkTimer.current), [code]);
 
   const live = state?.currentTopicId ?? state?.topics[state.topics.length - 1]?.id ?? null;
-  const focus = prefs.mode === "focus" && !isTeacher;
+  const focus = prefs.mode === "focus" && !isTeacher && !review;
   const browseTopic = !isTeacher && browsedTopicId !== null;
   const browsedTopic = browseTopic ? state?.topics.find((t) => t.id === browsedTopicId) : undefined;
   const blocks = (state?.blocks ?? []).filter((b) => browseTopic ? b.topicId === browsedTopicId : !focus || b.topicId === live);
@@ -276,7 +294,7 @@ export function Classroom({ code }: { code: string }) {
   }));
   const isPrivate = (id: string) => privateNotes.data.blocks.some((block) => block.id === id);
   useEffect(() => {
-    if (!state || !privateNotes.ready) return;
+    if (review || !state || !privateNotes.ready) return;
     privateNotes.update((data) => {
       let changed = false;
       const next = data.blocks.map((note) => {
@@ -293,7 +311,7 @@ export function Classroom({ code }: { code: string }) {
       });
       return changed ? { ...data, blocks: next } : data;
     }, false);
-  }, [state?.blocks, state?.removedBlockPositions, state?.archive, privateNotes.ready]);
+  }, [state?.blocks, state?.removedBlockPositions, state?.archive, privateNotes.ready, !!review]);
   const topicInk = new Set(browsedTopic?.strokeIds);
   // New pen marks are visible immediately, even before AI has assigned them to a topic.
   const visibleInk = (state?.strokes ?? []).filter((stroke) => !browseTopic || browsedTopicId === live || topicInk.has(stroke.id));
@@ -489,15 +507,17 @@ export function Classroom({ code }: { code: string }) {
   // Save what was covered so the student can review it later from the dashboard.
   const lessonContent = useMemo(() => state && ({
     code: state.code, title: state.title, subject: state.subject, blocks: state.blocks,
-    topics: state.topics, strokes: state.strokes, archive: state.archive, slides: state.slides,
-  }), [state?.code, state?.title, state?.subject, state?.blocks, state?.topics, state?.strokes, state?.archive, state?.slides]);
+    topics: state.topics, strokes: state.strokes, archive: state.archive, slides: state.slides, collaborationId: state.collaborationId,
+  }), [state?.code, state?.title, state?.subject, state?.blocks, state?.topics, state?.strokes, state?.archive, state?.slides, state?.collaborationId]);
+  const myNotes = topicNotes.ready ? topicNotes.notes : undefined;
   useEffect(() => {
-    if (!authReady || isTeacher || wantTeacher || !lessonContent) return;
-    const lesson = saveLesson(lessonContent, userId);
-    if (!lesson || !userId) return;
-    const timer = setTimeout(() => void pushLesson(userId, lesson).catch(() => setSyncError(true)), 800);
+    if (review || !authReady || isTeacher || wantTeacher || !lessonContent || !myNotes) return;
+    const timer = setTimeout(() => {
+      const lesson = saveLesson(lessonContent, userId, myNotes, topicNotes.clips);
+      if (lesson && userId) void pushLesson(userId, lesson).catch(() => setSyncError(true));
+    }, 800);
     return () => clearTimeout(timer);
-  }, [lessonContent, authReady, isTeacher, wantTeacher, userId]);
+  }, [lessonContent, myNotes, topicNotes.clips, authReady, isTeacher, wantTeacher, userId, !!review]);
 
   // ---- student: AI ----
   const selectedBlocks = (a: Anchor | null) => (a ? blocks.filter((b) => a.ids.includes(b.id)) : []);
@@ -512,7 +532,7 @@ export function Classroom({ code }: { code: string }) {
       question: question?.trim() || (guided ? "Step by step" : label[k]), ts: Date.now() });
     try {
       const r = await askAI({ kind: k, selected: a.slideText ? a.slideText.match(/[\s\S]{1,550}/g) ?? [] : sel.map((b) => b.content),
-        context: a.slideTitle ? [] : state.blocks.map((b) => b.content), topicTitle: a.slideTitle ?? tp?.title, mode: guided ? "guided" : prefs.mode, question, history, image: a.image, slide: !!a.slideTitle });
+        context: a.slideTitle ? [] : state.blocks.map((b) => b.content), topicTitle: a.slideTitle ?? tp?.title ?? a.topicTitle, mode: guided ? "guided" : prefs.mode, question, history, image: a.image, slide: !!a.slideTitle });
       const view = (k === "graph" || k === "visual" || k === "quiz") && r.data ? { type: k, data: r.data } : undefined;
       setMsgs((m) => [...m, { role: "assistant", text: r.text, source: r.source, view }]);
     } catch (e) { setError(e instanceof Error ? `${e.message}.` : "Something went wrong."); }
@@ -553,15 +573,36 @@ export function Classroom({ code }: { code: string }) {
         .catch(() => { /* The student's review flag remains saved. */ });
     }
   };
+  /** Which notebook topic something from the board belongs to: its notes' topic, the topic it was asked about, or the live one. */
+  const noteTopicFor = (a: Anchor) => selectedBlocks(a)[0]?.topicId ?? state?.topics.find((topic) => topic.title === a.topicTitle)?.id ?? live ?? GENERAL_NOTES;
+  const notebookHelp = (kind: "lost" | "ask" | "catchup", topic: { id: string; title: string } | null) => {
+    if (!state) return;
+    const topicId = topic?.id ?? live;
+    if (kind === "catchup") { void openCatchup("short", topic?.id ?? null); return; }
+    if (kind === "lost") {
+      sendEvent("confused", null, topicId); rec("confused");
+      recordStudy({ id: uid(), lecture: state.title, topic: topic?.title ?? state.title, ts: Date.now() });
+      return;
+    }
+    setMobilePane("board");
+    const width = boardRef.current?.clientWidth ?? 0;
+    const left = Math.max(0, width - 364);
+    openAnchor({ ids: blocks.filter((block) => block.topicId === topicId).map((block) => block.id), source: "block", rect: { left, right: left, top: 12, bottom: 12 },
+      topicTitle: topic?.title ?? state.topics.find((item) => item.id === topicId)?.title ?? state.title });
+  };
   const suggestion = (() => {
     const best = (Object.entries(prefs.scores) as [Mode, number][]).sort((a, b) => b[1] - a[1])[0];
     return best && best[1] > 0 && best[0] !== prefs.mode ? `Based on your taps, ${best[0]} mode may suit you. (This is a preference score, not a measure of understanding.)` : "";
   })();
 
-  const openCatchup = async (detail: "short" | "long" = "short") => {
-    if (!state) return; setCatchupLoading(true);
+  /** topicId: catch up on one topic; null: everything since the student last looked; undefined: same as the open catch-up. */
+  const openCatchup = async (detail: "short" | "long" = "short", topicId?: string | null) => {
+    if (!state) return; setCatchupLoading(true); setCatchupSaved(false);
+    const target = topicId === undefined ? catchupTopic : topicId;
+    setCatchupTopic(target);
     const idx = state.topics.findIndex((t) => t.id === lastViewed);
-    const t = state.topics.slice(idx + 1 || 0).map((x) => ({ title: x.title, summary: x.summary }));
+    const focused = target ? state.topics.filter((x) => x.id === target) : [];
+    const t = (focused.length ? focused : state.topics.slice(idx + 1 || 0)).map((x) => ({ title: x.title, summary: x.summary }));
     setCatchup((c) => c ?? { text: "", source: "demo" });
     try { const r = await askAI({ kind: "catchup", selected: [], context: state.blocks.map((b) => b.content), topics: t.length ? t : state.topics.map((x) => ({ title: x.title, summary: x.summary })), mode: prefs.mode, detail }); setCatchup({ text: r.text, source: r.source }); }
     catch { setCatchup({ text: "Couldn't load the catch-up. Try again.", source: "demo" }); }
@@ -587,7 +628,7 @@ export function Classroom({ code }: { code: string }) {
     if (!state || isTeacher) return;
     const n = state.topics.length;
     if (prevTopics.current !== null && n > prevTopics.current) {
-      const t = state.topics[n - 1]; offer({ id: uid(), text: `New topic: "${t.title}". Want a quick catch-up?`, action: "Catch me up", run: () => void openCatchup() });
+      const t = state.topics[n - 1]; offer({ id: uid(), text: `New topic: "${t.title}". Want a quick catch-up?`, action: "Catch me up", run: () => void openCatchup("short", null) });
     }
     prevTopics.current = n;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -706,61 +747,64 @@ export function Classroom({ code }: { code: string }) {
         </div>
         <span className={`inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs md:px-3 ${state.ended ? "bg-taupe text-smoke" : isTeacher || status === "live" ? "notebook-live" : "bg-amber-50 text-amber-800"}`}>
           <span aria-hidden className={`size-2 rounded-full bg-current`} />
-          {isTeacher ? `${state.ended ? "Ended" : "Live"} · ${connected} connected` : pill}
+          {review ? "Saved lesson" : isTeacher ? `${state.ended ? "Ended" : "Live"} · ${connected} connected` : pill}
         </span>
+        <div className="md:hidden">
+          <button type="button" className="btn btn-outline btn-sm" aria-controls="classroom-more"
+            aria-expanded={showClassTools} onClick={() => setShowClassTools((open) => !open)}>
+            More{isTeacher && alerts.length ? ` (${alerts.length})` : ""}
+          </button>
+        </div>
         <div className="basis-full md:hidden" aria-hidden="true" />
         {isTeacher ? (
           <>
-            <button className="btn btn-outline btn-sm notebook-accent-blue" aria-expanded={showInvite} onClick={() => setShowInvite((v) => !v)}>Invite · {code}</button>
-            <button className={`btn btn-sm ${state.ended ? "btn-primary" : "btn-outline notebook-accent-rose"}`} onClick={() => setShowFinish(true)}>{state.ended ? "Save lecture" : "End lecture"}</button>
+            <button className="btn btn-outline btn-sm" aria-expanded={showInvite} onClick={() => setShowInvite((v) => !v)}>Invite · {code}</button>
           </>
         ) : (
-          <>
+          <div role="group" aria-label="Study tools" className="flex flex-wrap items-center gap-2">
+            {!wantTeacher && authReady && <div role="group" aria-label="Show" className="flex rounded-xl border border-stone bg-white p-0.5 lg:hidden">
+              {(["board", "notes"] as const).map((pane) => <button key={pane} type="button" aria-pressed={mobilePane === pane}
+                className={`rounded-[10px] px-3 py-1.5 text-[.8125rem] font-medium capitalize ${mobilePane === pane ? "bg-[#2454e8] text-white" : "text-[#242c49]"}`}
+                onClick={() => setMobilePane(pane)}>{pane}</button>)}
+            </div>}
+            {(browseTopic || studentSlide) && <button className="btn btn-primary btn-sm" onClick={() => {
+              setBrowsedTopicId(null); setStudentSelection(undefined); setAnchor(null); setSnip(false);
+            }}>Return to live</button>}
+            {!review && <ChoiceMenu label="Board view" value={browseTopic ? "browse" : "follow"}
+              onChange={(value) => {
+                const current = getState();
+                setBrowsedTopicId(value === "browse" ? current?.currentTopicId ?? current?.topics.at(-1)?.id ?? null : null);
+                setStudentView({ zoom: 1 });
+                setAnchor(null);
+                setSnip(false);
+              }}>
+              <option value="follow">Follow teacher</option>
+              <option value="browse" disabled={!live}>Browse topic notes</option>
+            </ChoiceMenu>}
             <button className={`btn btn-sm ${snip ? "btn-primary" : "btn-outline"}`} aria-pressed={snip}
               onClick={() => {
                 if (!snip) leaveAnnotationMode();
                 setSnip(!snip);
                 setAnchor(null);
               }}>Snip</button>
-            <button className="btn btn-outline btn-sm" onClick={() => void openCatchup()}>Catch me up</button>
-            {(browseTopic || studentSlide) && <button className="btn btn-primary btn-sm" onClick={() => {
-              setBrowsedTopicId(null); setStudentSelection(undefined); setAnchor(null); setSnip(false);
-            }}>Return to live</button>}
-          </>
+            {!review && <button className={`btn btn-outline btn-sm ${!wantTeacher && authReady ? "max-sm:!hidden" : ""}`} onClick={() => void openCatchup("short", null)}>Catch me up</button>}
+          </div>
         )}
-        <div className="ml-auto md:hidden">
-          <button type="button" className="btn btn-outline btn-sm" aria-controls="classroom-more"
-            aria-expanded={showClassTools} onClick={() => setShowClassTools((open) => !open)}>
-            More{isTeacher && alerts.length ? ` (${alerts.length})` : ""}
-          </button>
-        </div>
-        <div id="classroom-more" className={`${showClassTools ? "flex" : "hidden"} w-full flex-wrap items-center gap-2 rounded-xl bg-white/70 p-2 md:flex md:w-auto md:bg-transparent md:p-0`}>
-          {!isTeacher && <div className="flex items-center gap-2 text-sm">
-              Board view
-              <ChoiceMenu label="Board view" value={browseTopic ? "browse" : "follow"}
-                onChange={(value) => {
-                  const current = getState();
-                  setBrowsedTopicId(value === "browse" ? current?.currentTopicId ?? current?.topics.at(-1)?.id ?? null : null);
-                  setStudentView({ zoom: 1 });
-                  setAnchor(null);
-                  setSnip(false);
-                }}>
-                <option value="follow">Follow teacher</option>
-                <option value="browse" disabled={!live}>Browse topic notes</option>
-              </ChoiceMenu>
-            </div>}
-          <button className="btn btn-outline btn-sm" onClick={() => { setShowClassTools(false); setShowArchive(true); }}>Board archive{state.archive?.length ? ` (${state.archive.length})` : ""}</button>
-          {isTeacher ? <>
-            <button className="btn btn-outline btn-sm" onClick={toggleDemo} aria-pressed={demoMode} title="Show insights in classes with only one or two students">Small class: {demoMode ? "on" : "off"}</button>
-            <button className="btn btn-outline btn-sm notebook-accent-violet" onClick={() => { setShowClassTools(false); setShowInsights((v) => !v); }} aria-pressed={showInsights}>Insights{alerts.length ? ` (${alerts.length})` : ""}</button>
-          </> : <>
+        <span aria-hidden="true" className="hidden h-6 w-px bg-stone md:block" />
+        <div id="classroom-more" role="group" aria-label="Class tools" className={`${showClassTools ? "flex" : "hidden"} w-full flex-wrap items-center gap-2 rounded-xl bg-white/70 p-2 md:flex md:w-auto md:bg-transparent md:p-0`}>
+          {isTeacher && <button className="btn btn-outline btn-sm" onClick={() => { setShowClassTools(false); setShowInsights((v) => !v); }} aria-pressed={showInsights}>Insights{alerts.length ? ` (${alerts.length})` : ""}</button>}
+          {!review && <button className="btn btn-outline btn-sm" onClick={() => { setShowClassTools(false); setShowArchive(true); }}>Board archive{state.archive?.length ? ` (${state.archive.length})` : ""}</button>}
+          {isTeacher ? <button className="btn btn-outline btn-sm" onClick={toggleDemo} aria-pressed={demoMode} title="Show insights in classes with only one or two students">Small class: {demoMode ? "on" : "off"}</button> : <>
             <button className="btn btn-outline btn-sm" onClick={() => { setShowClassTools(false); setShowProfile(true); }}>My profile</button>
-            <button className="btn btn-outline btn-sm" onClick={() => { setShowClassTools(false); setShowSettings(true); }}>Mode: {prefs.mode}</button>
+            <button className="btn btn-outline btn-sm" title={`Reading mode: ${prefs.mode}`} onClick={() => { setShowClassTools(false); setShowSettings(true); }}>Settings</button>
           </>}
         </div>
+        {isTeacher && <button className={`btn btn-sm ${state.ended ? "btn-primary" : "btn-outline notebook-danger"}`} onClick={() => setShowFinish(true)}>{state.ended ? "Save lecture" : "End lecture"}</button>}
       </header>
       {transportKind === "local" && isTeacher && <p className="bg-taupe px-4 py-1 text-center text-xs text-smoke">Local classroom · Join from another tab in this browser.</p>}
-      {state.ended && <p role="status" className="bg-ink px-4 py-2 text-center text-sm text-white">This lecture has ended.</p>}
+      {isTeacher && !review && lock === "conflict" && <p role="alert" className="bg-amber-50 px-4 py-2 text-center text-sm text-amber-900">Students can&apos;t verify updates from this browser because another device holds this room&apos;s key. Start a new meeting to continue teaching.</p>}
+      {isTeacher && !review && transportKind === "supabase" && lock === "open" && <p className="bg-taupe px-4 py-1 text-center text-xs text-smoke">Room lock is off. Apply supabase/room_keys.sql so students only accept updates from you.</p>}
+      {state.ended && !review && <p role="status" className="bg-ink px-4 py-2 text-center text-sm text-white">This lecture has ended.</p>}
       {isTeacher && !showFinish && lectureMessage && <p role="status" className="px-4 py-2 text-center text-sm">{lectureMessage} <Link href="/?view=teaching" className="underline">View saved lectures</Link></p>}
       <AnimatedPanel open={isTeacher && showFinish} motion="dialog" reduced={prefs.reduceMotion}>
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4">
@@ -791,7 +835,7 @@ export function Classroom({ code }: { code: string }) {
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {!isTeacher && privateNotes.ready && <nav aria-label="Private annotation tools"
-          className="notebook-rail flex shrink-0 gap-2 overflow-x-auto p-2 lg:w-max lg:flex-col lg:overflow-y-auto">
+          className={`notebook-rail flex shrink-0 gap-2 overflow-x-auto p-2 lg:w-max lg:flex-col lg:overflow-y-auto ${mobilePane === "notes" ? "max-lg:!hidden" : ""}`}>
           <div className="notebook-tool-group">
             <button type="button" className="notebook-tool" aria-label="Edit my annotations" title="Edit my annotations"
               aria-pressed={privateEditing} disabled={!privateNotes.ready}
@@ -886,14 +930,12 @@ export function Classroom({ code }: { code: string }) {
           )}
         </aside>}
 
-        <main className={`${slidePage ? "bg-slate-100" : "notebook-stage"} flex min-w-0 flex-1 flex-col gap-3 p-3 md:p-5 lg:overflow-y-auto lg:overscroll-contain`}>
-          {topics.length > 0 && <details className="notebook-topics min-w-0 rounded-xl border border-stone bg-eggshell px-3">
-          <summary className="notebook-section">Topics <span className="text-sm font-normal text-smoke">{topics.length}</span></summary>
-          <div className="pb-2">
+        <main className={`${slidePage ? "bg-slate-100" : "notebook-stage"} flex min-w-0 flex-1 flex-col gap-3 p-3 md:p-5 lg:overflow-y-auto lg:overscroll-contain ${!isTeacher && mobilePane === "notes" ? "max-lg:hidden" : ""}`}>
+          {review?.controls}
+          {isTeacher && !review && topics.length > 0 && <Drawer title="Topics" badge={topics.length} hint={topics.find((topic) => topic.id === live)?.title} className="notebook-topics">
           <ConceptColumn topics={topics} currentId={live} canEdit={isTeacher} hrefFor={(id) => `/room/${code}/topic/${id}${roleQ}`}
             onEdit={(id, p) => mutate((s) => ({ ...s, topics: s.topics.map((t) => (t.id === id ? { ...t, ...p, auto: false } : t)) }))} />
-          </div>
-          </details>}
+          </Drawer>}
           {!isTeacher && authReady && state.question && <CheckIn key={checkInKey} storageKey={checkInKey} text={state.question.text} open={state.question.open} answer={state.question.answer} correct={state.question.correct} total={state.question.total} grade={grades[state.question.id]} onSubmit={(v) => submitAnswer(state.question!.id, v)} />}
           {!isTeacher && spotBlock && spot && spot.ts !== spotSeen && (
             <div role="status" className="pop-in flex flex-wrap items-center gap-3 rounded-[20px] border border-sky bg-sky-soft p-3 text-sm">
@@ -992,7 +1034,7 @@ export function Classroom({ code }: { code: string }) {
             }} />}
           </AnimatedPanel>
           </div>
-          {deck && slidePage && (
+          {!review && deck && slidePage && (
             <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Slide controls">
               {(!isTeacher || !state.ended) && <div aria-label="Slide navigation" role="group" className="flex items-center gap-2">
                 <button type="button" className="btn btn-sm btn-outline" aria-label="Previous slide"
@@ -1026,25 +1068,14 @@ export function Classroom({ code }: { code: string }) {
               </>}
             </div>
           )}
-          {!isTeacher && !wantTeacher && authReady && <StudentNotes key={studentNotesKey} storageKey={studentNotesKey} />}
-          {collaborationId && user && collaboration.ready && <SharedNotepads key={`${collaborationId}:${user.id}`}
-            board={collaborationId} userId={user.id} teacher={isTeacher} allowed={collaboration.allowed && state.studentStickyPermission !== "closed"}
+          {isTeacher && !review && collaborationId && user && collaboration.ready && <SharedNotepads key={`${collaborationId}:${user.id}`}
+            board={collaborationId} userId={user.id} teacher allowed={collaboration.allowed && state.studentStickyPermission !== "closed"}
             notes={collaboration.notes} ended={state.ended}
             onAccessChange={(allowed) => mutate((room) => ({ ...room, studentStickyPermission: allowed ? "open" : "closed" }))} />}
-          {collaborationId && user && collaboration.error && <p role="status" className="text-sm">{collaboration.error}</p>}
-          {!isTeacher && (!privateNotes.ready || privateEditing || privateNotes.status === "Retry") && <div className="flex flex-wrap items-center gap-2">
-            {authReady && !user && signInEnabled && <button type="button" className="btn btn-outline btn-sm" onClick={() => void signIn()}>Sign in to save private annotations</button>}
-            {user && !privateNotes.ready && privateNotes.status !== "Retry" && <span role="status" className="text-sm text-smoke">
-              {collaborationId ? "Waiting for account storage…" : "A signed-in teacher must open the board to enable account storage."}
-            </span>}
-            {user && privateNotes.status === "Retry" && <button type="button" className="btn btn-outline btn-sm" onClick={privateNotes.retry}>Retry annotation sync</button>}
-            {privateEditing && privateNotes.status !== "Retry" && <span role="status" className="text-sm text-smoke">
-              {privateNotes.status === "Saved" ? "Private annotations saved" : "Saving private annotations…"}
-            </span>}
-          </div>}
-          <Whiteboard key={slidePage?.id ?? (browseTopic ? browsedTopicId : "live")} boardRef={boardRef} spotlightId={browseTopic ? undefined : spotBlock?.id}
-            blocks={[...(slidePage ? [] : [...blocks, ...sharedNotepads]), ...(!isTeacher && annotationVisible ? privateNotes.data.blocks.filter((block) => block.surface === slidePage?.id) : [])]}
-            strokes={[...(slidePage ? slideInk : visibleInk), ...(!isTeacher && annotationVisible ? privateNotes.data.strokes.filter((stroke) => stroke.surface === slidePage?.id) : [])]} isTeacher={isTeacher} selectedIds={anchor?.ids ?? []}
+          {!review && collaborationId && user && collaboration.error && <p role="status" className="text-sm">{collaboration.error}</p>}
+          <Whiteboard key={annotationSurface ?? (browseTopic ? browsedTopicId : "live")} boardRef={boardRef} spotlightId={browseTopic ? undefined : spotBlock?.id}
+            blocks={[...(slidePage ? [] : [...blocks, ...sharedNotepads]), ...(!isTeacher && annotationVisible ? privateNotes.data.blocks.filter((block) => block.surface === annotationSurface) : [])]}
+            strokes={[...(slidePage ? slideInk : visibleInk), ...(!isTeacher && annotationVisible ? privateNotes.data.strokes.filter((stroke) => stroke.surface === annotationSurface) : [])]} isTeacher={isTeacher} selectedIds={anchor?.ids ?? []}
             privateInk={privateEditing}
             canEraseStroke={privateEditing ? (id) => privateNotes.data.strokes.some((stroke) => stroke.id === id) : undefined}
             canEditBlock={(id) => isTeacher ? !sharedNotepads.some((note) => note.id === id) : privateEditing && isPrivate(id)}
@@ -1085,7 +1116,7 @@ export function Classroom({ code }: { code: string }) {
               if (privateEditing) editPrivateBlock(id, { position });
               else editBoardBlock(id, { position });
             } : undefined}
-            slide={slidePage ? { url: slideUrl(slidePage), aspect: slidePage.width / slidePage.height } : undefined}
+            slide={slidePage ? { url: review?.slideSrc ?? slideUrl(slidePage), aspect: slidePage.width / slidePage.height } : undefined}
             zoom={slidePage ? 1 : browseTopic || privateEditing ? studentView.zoom : boardZoom}
             position={slidePage ? undefined : browseTopic || privateEditing ? studentView.position : state.boardPosition}
             onZoom={slidePage ? undefined : browseTopic || privateEditing ? (zoom, position) => setStudentView({ zoom, position }) : isTeacher && !state.ended ? setBoardZoom : undefined}
@@ -1099,7 +1130,7 @@ export function Classroom({ code }: { code: string }) {
             ink={tool === "highlight" ? { color: highlightColor, width: highlightWidth, opacity: 0.35 } : { color: penColor, width: penWidth }}
             onSnip={(a) => { if (!a) { setSnip(false); return; } if (slidePage) askAboutSlide(a); else openAnchor(a); }}
             onStroke={(stroke) => privateEditing
-              ? privateNotes.update((data) => ({ ...data, strokes: [...data.strokes, { ...stroke, id: uid(), surface: slidePage?.id }] }))
+              ? privateNotes.update((data) => ({ ...data, strokes: [...data.strokes, { ...stroke, id: uid(), surface: annotationSurface }] }))
               : slidePage ? editSlideInk((ink) => [...ink, { ...stroke, id: uid() }]) : addStroke(stroke)}
             onErase={(ids) => privateEditing
               ? privateNotes.update((data) => ({ ...data, strokes: data.strokes.filter((stroke) => !ids.has(stroke.id)) }))
@@ -1135,10 +1166,14 @@ export function Classroom({ code }: { code: string }) {
                 .map((block) => detached?.[block.id] ? { ...block, connector: detached[block.id] } : block) }));
             }}>
             {anchor && !isTeacher && board && (
-              <AskPanel rect={anchor.rect} boardW={board.width} boardH={board.height} empty={anchor.ids.length === 0 && !anchor.image}
-                excerpt={[...(anchor.image ? ["✎ handwriting"] : []), ...sel.map((b) => b.content)].join("  ·  ")} basedOn={`${state.topics.find((t) => t.id === sel[0]?.topicId)?.title ?? "lecture"} · ${sel.length} note${sel.length === 1 ? "" : "s"}, plus nearby lecture context`}
+              <AskPanel key={`${anchor.rect.left}:${anchor.rect.top}:${anchor.ids.join()}:${anchor.image?.length ?? 0}`} rect={anchor.rect} boardW={board.width} boardH={board.height} empty={anchor.ids.length === 0 && !anchor.image && !anchor.topicTitle}
+                excerpt={[...(anchor.image ? ["✎ handwriting"] : []), ...sel.map((b) => b.content)].join("  ·  ") || `Topic: ${anchor.topicTitle}`} basedOn={`${state.topics.find((t) => t.id === sel[0]?.topicId)?.title ?? anchor.topicTitle ?? "lecture"} · ${sel.length} note${sel.length === 1 ? "" : "s"}, plus nearby lecture context`}
                 msgs={msgs} loading={loading} error={error} suggestion={suggestion} fed={fed}
-                onSend={(k, q, g) => void ask(anchor, k as AIKind, q, g)} onQuiz={(ok) => rec(ok ? "quizRight" : "quizWrong")} onClose={() => { setAnchor(null); setMsgs([]); }} onFeedback={feedback} />
+                onSend={(k, q, g) => void ask(anchor, k as AIKind, q, g)} onQuiz={(ok) => rec(ok ? "quizRight" : "quizWrong")} onClose={() => { setAnchor(null); setMsgs([]); }} onFeedback={feedback}
+                onSaveClip={wantTeacher || anchor.topicTitle || (!sel.length && !anchor.image) ? undefined : () => topicNotes.addClip({
+                  topicId: noteTopicFor(anchor), image: anchor.image, text: sel.map((b) => b.content).join("\n"),
+                  label: anchor.slideTitle ?? (sel.length ? "From the board" : "Handwriting from the board") })}
+                onSaveAnswer={wantTeacher ? undefined : (text) => topicNotes.append(noteTopicFor(anchor), `Explanation (AI)\n${plainNote(text)}`)} />
             )}
           </Whiteboard>
           {((isTeacher && !state.ended) || privateEditing) && !slidePage && (
@@ -1152,6 +1187,9 @@ export function Classroom({ code }: { code: string }) {
               </div>
           )}
 
+          {!isTeacher && !review && collaborationId && user && collaboration.ready && <SharedNotepads key={`${collaborationId}:${user.id}`}
+            board={collaborationId} userId={user.id} teacher={false} allowed={collaboration.allowed && state.studentStickyPermission !== "closed"}
+            notes={collaboration.notes} ended={state.ended} title="Post to class board" onAccessChange={() => {}} />}
           {isTeacher && !state.ended && !slidePage && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-stone bg-eggshell px-2 py-1.5">
               <button type="button" className="btn btn-sm btn-outline" aria-expanded={chooseBoard} onClick={() => {
@@ -1186,6 +1224,22 @@ export function Classroom({ code }: { code: string }) {
           )}
         </main>
 
+        {!isTeacher && !wantTeacher && authReady && <aside aria-label="Notebook"
+          className={`flex min-h-0 flex-col p-3 lg:w-[clamp(320px,30vw,440px)] lg:shrink-0 lg:border-l lg:border-[var(--notebook-border)] lg:p-0 ${mobilePane === "board" ? "max-lg:hidden" : ""}`}>
+          <Notebook lessonTitle={state.title} topics={state.topics.map((topic) => ({ id: topic.id, title: topic.title }))} liveId={live} review={!!review}
+            notes={topicNotes.notes} clips={topicNotes.clips} status={topicNotes.status} ready={topicNotes.ready} onChange={topicNotes.update} onRemoveClip={topicNotes.removeClip}
+            onHelp={notebookHelp}
+            onBackOnTrack={(topic) => { sendEvent("helped", null, topic?.id ?? live); rec("helped"); }}
+            onViewBoard={review ? undefined : (id) => { setBrowsedTopicId(id); setStudentView({ zoom: 1 }); setAnchor(null); setSnip(false); setMobilePane("board"); }}
+            headerExtra={(!privateNotes.ready || privateNotes.status === "Retry" || (!review && authReady && !user && signInEnabled)) ? <>
+              {!review && authReady && !user && signInEnabled && <span>Notes stay on this device. <button type="button" className="nb-link" onClick={() => void signIn()}>Sign in</button> to keep them in your account and annotate the board.</span>}
+              {(user || review) && !privateNotes.ready && privateNotes.status !== "Retry" && <span role="status">
+                {review ? "Loading board annotations…" : collaborationId ? "Connecting board annotations…" : "Board annotations open once your teacher's board is saved."}
+              </span>}
+              {(user || review) && privateNotes.status === "Retry" && <span role="status" className="text-amber-800">Board annotations didn&apos;t sync. <button type="button" className="nb-link" onClick={privateNotes.retry}>Try again</button></span>}
+            </> : undefined} />
+        </aside>}
+
         <AnimatedPanel open={isTeacher && showInsights} motion="side" reduced={prefs.reduceMotion}>
           <Insights state={state} events={events} connected={connected} demo={demoMode} />
         </AnimatedPanel>
@@ -1216,10 +1270,13 @@ export function Classroom({ code }: { code: string }) {
         <div className="fixed inset-0 z-50 flex justify-end bg-black/20" onClick={() => setCatchup(null)}>
           <aside role="dialog" aria-label="Catch me up" className="h-full w-[min(380px,100vw)] overflow-y-auto bg-eggshell p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="display text-3xl">Catch me up</h2>
+            {catchupTopic && <p className="mt-1 text-sm font-medium">{state.topics.find((topic) => topic.id === catchupTopic)?.title}</p>}
             <p className="mt-1 text-xs text-smoke">{catchup.source === "demo" ? "Demo response (no AI key set)" : "AI summary of what changed"}</p>
             <p className="mt-4 whitespace-pre-wrap" aria-live="polite">{catchupLoading ? "Thinking…" : <RichText text={catchup.text} />}</p>
             <div className="mt-6 flex flex-wrap gap-2">
               <button className="btn btn-outline" disabled={catchupLoading} onClick={() => void openCatchup("long")}>Explain more</button>
+              {!wantTeacher && authReady && <button className="btn btn-outline" disabled={catchupLoading || !catchup.text.trim() || catchupSaved}
+                onClick={() => { topicNotes.append(catchupTopic ?? live ?? GENERAL_NOTES, `Catch-up\n${plainNote(catchup.text)}`); setCatchupSaved(true); }}>{catchupSaved ? "Added to notes" : "Add to my notes"}</button>}
               <button className="btn btn-primary" onClick={() => { setCatchup(null); setLastViewed(live); setAnchor(null); boardRef.current?.querySelector("[role=region]")?.scrollTo({ top: 1e6 }); }}>Return to live</button>
             </div>
           </aside>

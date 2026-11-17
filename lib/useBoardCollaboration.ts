@@ -64,8 +64,10 @@ export function useBoardCollaboration(board: string | undefined, code: string, u
   return { ready: !!current, allowed: !!current?.allowed, notes: current?.notes ?? [], error: failure?.scope === scope ? failure.message : "" };
 }
 
-export function usePrivateAnnotations(board: string | undefined, userId: string | undefined, enabled: boolean) {
-  const key = enabled && board && userId ? `pacer:annotations:${board}:${userId}` : "";
+export function usePrivateAnnotations(board: string | undefined, userId: string | undefined, enabled: boolean, localLesson?: string) {
+  const cloud = !!(board && userId);
+  const key = !enabled ? "" : cloud ? `pacer:annotations:${board}:${userId}`
+    : localLesson ? `pacer:lesson-annotations:${localLesson}:${userId ?? "guest"}` : "";
   const [loaded, setLoaded] = useState<{ key: string; cache: Cache }>();
   const [status, setStatus] = useState<"Loading" | "Saving" | "Saved" | "Retry">("Loading");
   const [retry, setRetry] = useState(0);
@@ -75,17 +77,21 @@ export function usePrivateAnnotations(board: string | undefined, userId: string 
   const cache = loaded?.key === key ? loaded.cache : undefined;
   const scope: Scope | undefined = key && board && userId ? { board, userId } : undefined;
   const set = (data: Annotations, pending: boolean) => {
-    const entry = { key, cache: { data, pending } };
+    const entry = { key, cache: { data, pending: cloud && pending } };
     latest.current = entry;
     setLoaded(entry);
-    try { localStorage.setItem(key, JSON.stringify(entry.cache)); } catch { /* cloud still available */ }
+    try {
+      localStorage.setItem(key, JSON.stringify(entry.cache));
+      if (!cloud) setStatus("Saved");
+    } catch { if (!cloud) setStatus("Retry"); }
   };
   useEffect(() => {
-    if (!board || !userId || !enabled || !key) return;
+    if (!key) return;
     let closed = false;
     setStatus("Loading");
     let local: Cache | undefined;
     try { local = JSON.parse(localStorage.getItem(key) ?? "null") ?? undefined; } catch { /* ignore */ }
+    if (!board || !userId) { set(local?.data ?? empty, false); return; }
     if (local?.pending) { set(local.data, true); return; }
     void (async () => {
       const result = await getSupabase()?.from("pacer_annotations").select("data").eq("board_id", board).eq("user_id", userId).maybeSingle();
@@ -118,7 +124,7 @@ export function usePrivateAnnotations(board: string | undefined, userId: string 
   }, [key, cache, retry]);
   const update = (fn: (data: Annotations) => Annotations, record = true) => {
     const current = latest.current;
-    if (!scope || !current || current.key !== key) return;
+    if (!key || !current || current.key !== key) return;
     const next = fn(current.cache.data);
     if (next === current.cache.data) return;
     if (record) setHistory((old) => ({ key, undo: [...(old.key === key ? old.undo.slice(-39) : []), current.cache.data], redo: [] }));
@@ -134,5 +140,5 @@ export function usePrivateAnnotations(board: string | undefined, userId: string 
   };
   return { data: cache?.data ?? empty, ready: !!cache, status, update, restore,
     canRestore: (direction: "undo" | "redo") => history.key === key && history[direction].length > 0,
-    retry: () => setRetry((value) => value + 1) };
+    retry: () => { if (!cloud && cache) set(cache.data, false); else setRetry((value) => value + 1); } };
 }

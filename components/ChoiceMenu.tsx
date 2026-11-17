@@ -1,6 +1,7 @@
 "use client";
 
 import { Children, isValidElement, useId, useRef, type ReactNode } from "react";
+import { Chevron } from "./Drawer";
 
 type Choice = { value?: string | number; disabled?: boolean; children?: ReactNode };
 
@@ -42,7 +43,7 @@ export function ChoiceMenu({ label, value, onChange, disabled, children }: {
       aria-label={`${label}: ${selected?.children ?? ""}`} popoverTarget={id}
       onClick={(event) => { event.preventDefault(); open(); }}
       onKeyDown={(event) => { if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); open(); } }}>
-      <span>{selected?.children ?? label}</span><span aria-hidden="true">⌄</span>
+      <span>{selected?.children ?? label}</span><Chevron className="choice-chevron" />
     </button>
     <div ref={popup} id={id} popover="auto" className="choice-popup" role="group" aria-label={label}
       onKeyDown={(event) => {
@@ -58,7 +59,7 @@ export function ChoiceMenu({ label, value, onChange, disabled, children }: {
       {options.filter((option) => !(option.disabled && option.value === "")).map((option) =>
         <button type="button" key={option.value} disabled={option.disabled} aria-current={option === selected || undefined}
           onClick={() => { popup.current?.hidePopover(); trigger.current?.focus(); onChange(option.value); }}>
-          <span>{option.children}</span>{option === selected && <span aria-hidden="true">✓</span>}
+          <span>{option.children}</span>{option === selected && <svg aria-hidden="true" viewBox="0 0 16 16" className="choice-check" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3.5 8.5 3 3 6-7" /></svg>}
         </button>
       )}
     </div>

@@ -24,20 +24,26 @@ body { font-family: var(--font-sans); letter-spacing: 0.01em; line-height: 1.5; 
 
 .display { font-weight: 300; letter-spacing: -0.02em; line-height: 1.08; }
 
-:focus-visible { outline: 3px solid var(--color-sky); outline-offset: 2px; border-radius: 9999px; }
-.block-card:focus-visible, .card:focus-visible { border-radius: 20px; }
+/* Outlines follow each element's own corner radius, so buttons, cards and inputs all get a matching focus ring. */
+:focus-visible { outline: 3px solid var(--color-sky); outline-offset: 2px; }
 
+/* One button system for the home page, teacher view and student view. */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; padding: 0 1.25rem;
-  border-radius: 9999px; font-weight: 500; font-size: .9375rem; border: 1px solid #e5e5e5; cursor: pointer; transition: background .15s, transform .15s; }
+  border-radius: 12px; font-weight: 500; font-size: .9375rem; border: 1px solid #dcdfee; cursor: pointer;
+  transition: background-color .15s, border-color .15s, color .15s, transform .15s; }
+.btn:active:not(:disabled) { transform: scale(.97); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
-.btn-primary { background: var(--color-sky); color: #000; border-color: var(--color-sky); }
-.btn-primary:hover:not(:disabled) { background: #6bb4ff; }
-.btn-dark { background: #000; color: #fff; border-color: #000; }
-.btn-dark:hover:not(:disabled) { background: #222; }
-.btn-outline { background: var(--color-eggshell); color: #000; }
-.btn-outline:hover:not(:disabled) { background: var(--color-taupe); }
+.btn-primary { background: #2454e8; color: #fff; border-color: #2454e8; }
+.btn-primary:hover:not(:disabled) { background: #1d47cc; border-color: #1d47cc; }
+.btn-dark { background: #171d38; color: #fff; border-color: #171d38; }
+.btn-dark:hover:not(:disabled) { background: #2a3254; }
+.btn-outline { background: #fff; color: #242c49; }
+.btn-outline:hover:not(:disabled) { background: #f0f3ff; }
+.btn-outline[aria-pressed="true"], .btn-outline[aria-expanded="true"] { background: #e8eeff; border-color: #b9c9ff; color: #2442a2; }
 .btn-sm { min-height: 36px; padding: 0 .9rem; font-size: .8125rem; }
-.btn.chip-on, .btn.chip-on:hover:not(:disabled) { background: #000; color: #fff; border-color: #000; }
+.btn.chip-on, .btn.chip-on:hover:not(:disabled) { background: #2454e8; color: #fff; border-color: #2454e8; }
+.btn.notebook-danger { color: #992f34; border-color: #f5d4d1; background: #fff6f5; }
+.btn.notebook-danger:hover:not(:disabled) { background: #ffe8e6; }
 
 .input { min-height: 48px; width: 100%; border: 1px solid var(--color-stone); background: #fff; border-radius: 10px; padding: 0 1rem; font-size: 1rem; }
 .input:focus { outline: 3px solid var(--color-sky); outline-offset: 1px; }
@@ -97,52 +103,66 @@ body { font-family: var(--font-sans); letter-spacing: 0.01em; line-height: 1.5; 
 .notebook-stage {
   background: #f0f1f9;
 }
+/* Tool rail: one set of sizes for the teacher and student rails, scaled to the screen. */
+.notebook-rail {
+  --tool-w: 76px;                      /* every tool in the vertical rail is this wide, so labels never touch */
+  --tool-h: clamp(44px, 6vh, 60px);    /* tools grow on tall screens and tighten on short ones */
+  scrollbar-width: thin;
+}
 .notebook-tool-group {
   display: flex; flex: 0 0 auto; gap: 2px; padding: 4px; border-radius: 16px;
   background: var(--notebook-paper); border: 1px solid var(--notebook-border);
   box-shadow: 0 3px 9px #18234810;
 }
-@media (min-width: 64rem) { .notebook-tool-group { flex-direction: column; } }
-@media (min-width: 64rem) and (max-height: 800px) {
-  .notebook-rail { padding: 4px; gap: 4px; overflow-x: hidden; scrollbar-width: thin; }
-  .notebook-rail .notebook-tool-group { padding: 2px; gap: 1px; border-radius: 12px; }
-  .notebook-rail .notebook-tool { width: 44px; height: 44px; padding-inline: 0; font-size: .6rem; gap: 2px; }
-  .notebook-rail .notebook-tool svg { width: 16px; height: 16px; }
-}
 .notebook-tool {
-  display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 3px;
-  flex: 0 0 auto; width: 60px; height: 60px; padding: 3px; border-radius: 10px; text-align: center;
-  color: #242c49; font-size: .6875rem; font-weight: 650; line-height: 1.15; cursor: pointer;
-  transition: background-color .15s, transform .15s;
+  display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 4px;
+  flex: 0 0 auto; min-width: var(--tool-w); height: var(--tool-h); padding: 4px 8px; border-radius: 12px;
+  text-align: center; white-space: nowrap; color: #242c49; font-size: .6875rem; font-weight: 600; line-height: 1;
+  cursor: pointer; transition: background-color .15s, transform .15s;
 }
 .notebook-tool svg { width: 20px; height: 20px; flex: 0 0 auto; }
+
+/* Laptop and desktop: vertical rail beside the board. */
+@media (min-width: 64rem) {
+  .notebook-rail { gap: 8px; padding: 10px 8px; overflow-x: hidden; }
+  .notebook-tool-group { flex-direction: column; }
+  .notebook-tool { width: var(--tool-w); }
+}
+@media (min-width: 64rem) and (max-height: 760px) {
+  .notebook-rail { --tool-w: 66px; --tool-h: clamp(36px, 5.6vh, 46px); gap: 4px; padding: 6px; }
+  .notebook-rail .notebook-tool-group { padding: 3px; }
+  .notebook-tool { gap: 3px; font-size: .625rem; }
+  .notebook-tool svg { width: 18px; height: 18px; }
+}
+
+/* Tablet and phone: one horizontal toolbar above the board that scrolls sideways instead of squeezing. */
 @media (width < 64rem) {
-  .notebook-rail {
-    flex-wrap: wrap;
-    gap: 4px;
-    overflow: visible;
-  }
-  .notebook-rail .notebook-tool-group { display: contents; }
-  .notebook-rail .notebook-tool {
-    width: 44px;
-    height: 44px;
-    padding-inline: 0;
-    gap: 2px;
-    font-size: .6rem;
-  }
-  .notebook-rail .notebook-tool svg { width: 16px; height: 16px; }
+  /* Tablets: groups wrap onto a second centered row when they don't fit, so no tool hides off-screen. */
+  .notebook-rail { --tool-w: 64px; --tool-h: 52px; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 8px 12px; overflow: visible; }
+  .notebook-tool-group { flex-direction: row; }
+}
+@media (width < 40rem) {
+  /* Phones: a single row that scrolls sideways, to keep the board as tall as possible. */
+  .notebook-rail { --tool-w: 54px; --tool-h: 48px; flex-wrap: nowrap; justify-content: flex-start; gap: 6px; padding: 6px 8px; overflow-x: auto; overflow-y: hidden; }
+  .notebook-tool { gap: 3px; padding-inline: 5px; font-size: .625rem; }
+  .notebook-tool svg { width: 18px; height: 18px; }
 }
 .notebook-tool:is([data-tool="highlight"], [data-tool="sticky"]):not([aria-pressed="true"], [aria-expanded="true"]) svg { color: #926000; }
 .notebook-tool:is([data-tool="shapes"], [data-tool="templates"]):not([aria-expanded="true"]) svg { color: #6441a7; }
 
 .choice-menu { display: inline-flex; min-width: 0; max-width: 100%; }
 .choice-trigger {
-  display: inline-flex; align-items: center; justify-content: space-between; gap: .75rem;
-  max-width: 100%; min-height: 2.25rem; padding: .35rem .7rem;
-  border: 1px solid var(--notebook-border, #dcdfee); border-radius: 10px;
-  background: #fff; color: #242c49; cursor: pointer; font-size: .875rem;
+  display: inline-flex; align-items: center; justify-content: space-between; gap: .5rem;
+  max-width: 100%; min-height: 36px; padding: 0 .6rem 0 .9rem;
+  border: 1px solid var(--notebook-border, #dcdfee); border-radius: 12px;
+  background: #fff; color: #242c49; cursor: pointer; font-size: .8125rem; font-weight: 500; line-height: 1.2;
+  transition: background-color .15s, border-color .15s;
 }
 .choice-trigger > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.choice-chevron { width: 16px; height: 16px; flex: 0 0 auto; color: #7a8099; transition: rotate .15s; }
+.choice-trigger:has(+ .choice-popup:popover-open) { border-color: #b9c9ff; background: #f5f7ff; }
+.choice-trigger:has(+ .choice-popup:popover-open) .choice-chevron { rotate: 180deg; color: #2442a2; }
+.choice-check { width: 16px; height: 16px; flex: 0 0 auto; }
 .choice-trigger:disabled { opacity: .55; cursor: default; }
 .choice-trigger:hover:not(:disabled) { background: #f0f3ff; }
 .choice-popup {
@@ -168,10 +188,26 @@ body { font-family: var(--font-sans); letter-spacing: 0.01em; line-height: 1.5; 
 .notebook-tool:hover:not(:disabled, [aria-pressed="true"], [aria-expanded="true"]) { background: #e7ebfe; }
 .notebook-tool:is([aria-pressed="true"], [aria-expanded="true"]) { background: var(--notebook-blue); color: white; }
 .notebook-tool:disabled { opacity: .4; cursor: default; }
-.notebook-tool:active, .notebook .btn:active:not(:disabled) { transform: scale(.96); }
+.notebook-tool:active { transform: scale(.96); }
 .notebook-section {
   width: 100%; padding: 6px 4px; cursor: pointer; font-size: .875rem; font-weight: 700;
 }
+/* Collapsible panels above the board (Topics, My notes, Shared notepads). */
+.drawer { min-width: 0; border: 1px solid var(--notebook-border, #dcdfee); border-radius: 16px; background: #fff; box-shadow: 0 1px 3px #1823480d; }
+.drawer > summary {
+  display: flex; align-items: center; gap: .6rem; min-height: 48px; padding: .5rem .75rem .5rem 1rem;
+  border-radius: 15px; cursor: pointer; list-style: none; transition: background-color .15s;
+}
+.drawer > summary::-webkit-details-marker { display: none; }
+.drawer > summary:hover { background: #f7f8ff; }
+.drawer[open] > summary { border-bottom: 1px solid var(--notebook-border, #dcdfee); border-radius: 15px 15px 0 0; }
+.drawer-title { flex: 0 0 auto; font-size: .9375rem; font-weight: 600; color: #171d38; }
+.drawer-badge { flex: 0 0 auto; min-width: 1.4rem; padding: .1rem .45rem; border-radius: 999px; background: #eef1fb; color: #4a5272; font-size: .75rem; font-weight: 600; text-align: center; }
+.drawer-hint { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-smoke); font-size: .8125rem; }
+.drawer-chevron { width: 18px; height: 18px; flex: 0 0 auto; margin-left: auto; color: #7a8099; transition: rotate .2s; }
+.drawer[open] > summary .drawer-chevron { rotate: 180deg; }
+.drawer-body { padding: .75rem 1rem 1rem; }
+.drawer-row { display: grid; gap: .5rem; align-items: start; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
 button.notebook-section { display: flex; justify-content: space-between; }
 .notebook-thumbnail {
   display: grid; grid-template-columns: 1.25rem minmax(0, 1fr); align-items: center; gap: 6px;
@@ -193,18 +229,49 @@ button.notebook-section { display: flex; justify-content: space-between; }
 .notebook-swatch span { transition: transform .16s ease; }
 .notebook-swatch[aria-pressed="true"] { border-color: var(--notebook-blue); }
 .notebook-swatch[aria-pressed="true"] span { transform: scale(1.13); }
-.notebook .btn { border-radius: 10px; }
-.notebook .btn-outline { color: #242c49; border-color: var(--notebook-border); }
-.notebook .btn.chip-on, .notebook .btn.chip-on:hover:not(:disabled) { background: var(--notebook-blue); border-color: var(--notebook-blue); color: #fff; }
-.notebook .notebook-accent-blue { background: #e8eeff; border-color: #ccd8ff; color: #2442a2; }
-.notebook .notebook-accent-violet { background: #f0eaff; border-color: #e1d4fb; color: #57368c; }
-.notebook .notebook-accent-rose { background: #fff0ef; border-color: #f5d4d1; color: #992f34; }
-.notebook .notebook-accent-blue:hover { background: #dce6ff; }
-.notebook .notebook-accent-violet:hover { background: #e7dcff; }
-.notebook .notebook-accent-rose:hover { background: #ffe1df; }
 .notebook-upload { background: #e1e8ff; border-color: #c8d4ff; color: #193db1; }
 .notebook .notebook-board { background: var(--notebook-paper); border-color: var(--notebook-border); box-shadow: 0 6px 22px #18234814; }
 .notebook .notebook-board-blank { background-image: radial-gradient(#d9ddeb 0.8px, transparent 0.8px); background-size: 18px 18px; }
 @media (min-width: 1024px) {
   .notebook-rail, .notebook-pages { border-right: 1px solid var(--notebook-border); border-bottom: 0; }
+}
+
+/* Student notebook beside the board: one scrolling page with a section per topic. */
+.nb { position: relative; display: flex; min-height: 0; height: 100%; flex-direction: column; background: #fff; }
+.nb-head { display: flex; align-items: center; gap: .6rem; padding: .75rem 1rem; border-bottom: 1px solid var(--notebook-border, #dcdfee); }
+.nb-extra { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .5rem 1rem; border-bottom: 1px solid var(--notebook-border, #dcdfee); background: #fafbff; font-size: .8125rem; color: var(--color-smoke); }
+.nb-page { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: .5rem 1rem 1.5rem; scroll-padding-top: .5rem; }
+.nb-section { padding: .85rem 0 .35rem; border-bottom: 1px solid #eef0f7; }
+.nb-section:last-child { border-bottom: 0; }
+.nb-num { display: grid; place-items: center; flex: 0 0 auto; width: 1.4rem; height: 1.4rem; border-radius: 999px; background: #eef1fb; color: #4a5272; font-size: .6875rem; font-weight: 700; }
+.nb-section-active .nb-num { background: #2454e8; color: #fff; }
+.nb-now { flex: 0 0 auto; padding: .1rem .5rem; border-radius: 999px; background: #e3f6ea; color: #1d6b3d; font-size: .6875rem; font-weight: 700; }
+.nb-link { flex: 0 0 auto; padding: .2rem .4rem; border-radius: 6px; color: #2454e8; font-size: .8125rem; font-weight: 500; cursor: pointer; }
+.nb-link:hover:not(:disabled) { background: #eef2ff; }
+.nb-link:disabled { color: #9aa0b8; cursor: default; }
+.nb-text {
+  display: block; width: 100%; min-height: 3.2rem; margin-top: .35rem; padding: .25rem .1rem .5rem; resize: none; overflow: hidden;
+  border: 0; border-radius: 6px; background: transparent; color: #1f2540; font-size: .9375rem; line-height: 1.65; white-space: pre-wrap;
+}
+.nb-text::placeholder { color: #a3a8bd; }
+.nb-text:focus { outline: none; background: #fafbff; box-shadow: inset 2px 0 0 #2454e8; padding-left: .6rem; }
+.nb-live { position: absolute; left: 50%; bottom: calc(100% + .75rem); transform: translateX(-50%); white-space: nowrap; box-shadow: 0 6px 18px #2454e840; z-index: 2; }
+.nb-help { position: relative; display: grid; gap: .5rem; padding: .75rem 1rem; border-top: 1px solid var(--notebook-border, #dcdfee); background: #fafbff; }
+.nb-clip { margin: .35rem 0 .6rem; padding: .5rem .6rem .6rem; border: 1px solid #e3e6f2; border-left: 3px solid #8ea6f5; border-radius: 0 10px 10px 0; background: #fafbff; }
+.nb-clip figcaption { color: #4a5272; font-size: .75rem; font-weight: 600; }
+.nb-clip img { display: block; max-width: 100%; max-height: 220px; margin-top: .4rem; border-radius: 6px; background: #fff; border: 1px solid #eef0f7; }
+.nb-clip p { margin-top: .35rem; white-space: pre-wrap; color: #1f2540; font-size: .875rem; line-height: 1.55; }
+.nb-clip-remove { display: grid; place-items: center; width: 1.5rem; height: 1.5rem; flex: 0 0 auto; border-radius: 6px; color: #7a8099; font-size: 1rem; cursor: pointer; }
+.nb-clip-remove:hover { background: #eef1fb; color: #992f34; }
+.btn.nb-lost-btn { background: #fff7e8; border-color: #f3d9a4; color: #7a4a00; }
+.btn.nb-lost-btn:hover:not(:disabled) { background: #ffefd2; }
+.nb-lost { display: grid; gap: .5rem; padding: .6rem .75rem; border-radius: 12px; background: #fff7e8; color: #7a4a00; font-size: .8125rem; }
+@media (width < 64rem) {
+  .nb { height: auto; min-height: 70dvh; border-radius: 16px; border: 1px solid var(--notebook-border, #dcdfee); overflow: hidden; }
+  .nb-page { overflow: visible; }
+  /* Phones: the help bar stays on screen while the page scrolls, and typing uses 16px so iOS doesn't zoom in. */
+  .nb { overflow: visible; }
+  .nb-head { border-radius: 16px 16px 0 0; }
+  .nb-help { position: sticky; bottom: 0; z-index: 3; border-radius: 0 0 16px 16px; box-shadow: 0 -6px 16px #18234810; }
+  .nb-text { font-size: 1rem; }
 }

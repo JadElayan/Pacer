@@ -5,7 +5,7 @@ import { BoardConnectors, boardAnchors, resolveEnd } from "./BoardConnectors";
 import { BoardText, BoardTextEditor } from "./BoardTextEditor";
 import { MathView } from "./MathView";
 import { InkPath } from "./InkPath";
-import { BoardObject, StickyTools } from "./BoardObjects";
+import { BoardObject, StickyEditor, StickyTools } from "./BoardObjects";
 import { BoardToolIcon, boardToolCursor } from "./BoardToolIcon";
 import type { ComponentProps } from "react";
 
@@ -31,7 +31,7 @@ function hitsStroke(stroke: Stroke, [x, y]: Point, w: number, h: number) {
 }
 
 export interface Rect { left: number; top: number; right: number; bottom: number }
-export interface Anchor { ids: string[]; rect: Rect; source: "block" | "snip"; image?: string; slideText?: string; slideTitle?: string; boardPosition?: Point }
+export interface Anchor { ids: string[]; rect: Rect; source: "block" | "snip"; image?: string; slideText?: string; slideTitle?: string; boardPosition?: Point; topicTitle?: string }
 
 /** Renders ink within the selected area as a white-background PNG for the AI. */
 function strokesImage(strokes: Stroke[], box: Rect, w: number, h: number): string | undefined {
@@ -113,6 +113,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
   const [shapePreview, setShapePreview] = useState<ShapePreview>();
   const [selectedSticky, setSelectedSticky] = useState<string>();
   const [editingText, setEditingText] = useState<string>();
+  const [editingSticky, setEditingSticky] = useState<string>();
   const [moving, setMoving] = useState<{ id: string; position: Point }>();
   const [resizing, setResizing] = useState<{ id: string; size: number; position: Point }>();
   const resizeDrag = useRef<{ pointer: number; origin: Point; start: Point; span: Point; pixels: Point; size: number; next?: { size: number; position: Point } } | undefined>(undefined);
@@ -434,7 +435,8 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
     const location = resize?.position ?? (moving?.id === b.id ? moving.position : b.position);
     const origin = resize ? resizeDrag.current?.origin : blockDrag.current?.origin;
     const editable = canEditBlock?.(b.id) ?? true;
-    const editing = editable && editingText === b.id && !!onEditText && !active && !placement;
+    const stickyEditing = editable && b.kind === "sticky" && editingSticky === b.id && !!onEditSticky && !active && !placement;
+    const editing = stickyEditing || (editable && editingText === b.id && !!onEditText && !active && !placement);
     const movable = editable && !!onMoveBlock && !placement && !active && !editing && !connectorMode;
     const type = b.kind === "text" || b.kind === "equation";
     const fontSize = b.fontSize ?? (b.kind === "equation" ? 26 : 20);
@@ -487,12 +489,16 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
         const rect = event.currentTarget.getBoundingClientRect();
         onSelect({ ids: [b.id], rect: rel(rect), source: "block", boardPosition: canvasPoint(rect.left, rect.top) });
       }}
-      onDoubleClick={() => { if (movable && reflow && onEditText) { setSelectedSticky(b.id); setEditingText(b.id); } }}
+      onDoubleClick={() => {
+        if (movable && reflow && onEditText) { setSelectedSticky(b.id); setEditingText(b.id); }
+        if (movable && b.kind === "sticky" && onEditSticky) { setSelectedSticky(b.id); setEditingSticky(b.id); }
+      }}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget || placement || !["Enter", " "].includes(event.key)) return;
         event.preventDefault();
         if (onMoveBlock && editable) {
           if (event.key === "Enter" && reflow && selected && onEditText) setEditingText(b.id);
+          if (event.key === "Enter" && b.kind === "sticky" && selected && onEditSticky) setEditingSticky(b.id);
           setSelectedSticky(b.id);
         }
         const rect = event.currentTarget.getBoundingClientRect();
@@ -505,7 +511,10 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
             toolbarAbove={((location?.[1] ?? 0) * displayZoom - viewY) * height > 60}
             onCommit={(content, runs) => { onEditText?.(b.id, content, runs); setEditingText(undefined); }} /> :
           <div className="whitespace-pre-wrap break-words leading-snug"><BoardText content={b.content} runs={b.textRuns} /></div>}
-      </div> : <div style={{ zoom: (resize?.size ?? size) / 100 }}><BoardObject kind={b.kind} content={b.content} stickyStyle={b.stickyStyle} shapeSize={b.shapeSize} /></div>}
+      </div> : <div style={{ zoom: (resize?.size ?? size) / 100 }}>{stickyEditing ?
+        <StickyEditor content={b.content} style={b.stickyStyle} onCancel={() => setEditingSticky(undefined)}
+          onCommit={(content) => { onEditSticky?.(b.id, { content }); setEditingSticky(undefined); }} /> :
+        <BoardObject kind={b.kind} content={b.content} stickyStyle={b.stickyStyle} shapeSize={b.shapeSize} />}</div>}
       {editable && selected && !editing && !connectorMode && onResizeBlock && resizeCorners.map(([label, sx, sy, classes]) => <button key={label} type="button"
         aria-label={`${label} resize handle`} className={`absolute z-20 size-3 touch-none rounded-full border-2 border-sky bg-white after:absolute after:-inset-2 after:content-[''] ${classes}`}
         onClick={(event) => event.stopPropagation()}
@@ -547,13 +556,10 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
           const current = reflow ? event.currentTarget.parentElement!.getBoundingClientRect().width / displayZoom : size;
           commitSize(clampSize(current + (event.key === "ArrowUp" || event.key === "ArrowRight" ? 1 : -1) * (type && !reflow ? 2 : 10)));
         }} />)}
-      {b.kind === "sticky" && editable && selected && onEditSticky && <div className="absolute left-0 top-full z-10 min-w-64">
+      {b.kind === "sticky" && editable && selected && !editing && onEditSticky && <div className="absolute left-0 top-full z-10 min-w-64">
         <StickyTools style={b.stickyStyle}
         onChange={(stickyStyle) => onEditSticky(b.id, { stickyStyle })}
-        onEdit={() => {
-          const content = window.prompt("Edit sticky note", b.content)?.trim();
-          if (content && content !== b.content) onEditSticky(b.id, { content: content.slice(0, 500) });
-        }}
+        onEdit={() => setEditingSticky(b.id)}
         onDuplicate={() => onDuplicateSticky?.(b)} /></div>}
       {editable && onMoveBlock && !editing && <button type="button" aria-label="Delete note" className="absolute bottom-full left-1/2 mb-1 grid size-6 -translate-x-1/2 place-items-center rounded-full border border-stone bg-eggshell opacity-0 focus:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
         onClick={(event) => { event.stopPropagation(); deleteObject(b.id); }}>×</button>}
@@ -703,7 +709,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
           {live && <InkPath stroke={{ ...gesture.current?.ink, pts: live }} />}
         </svg>
         <BoardConnectors root={boardRef} plane={inkLayer} blocks={blocks} width={width} height={height} viewOrigin={[targetX / displayZoom, targetY / displayZoom]}
-          selectedObject={editingText ? undefined : selectedSticky} enabled={!!onConnector && !active && !placement}
+          selectedObject={editingText || editingSticky ? undefined : selectedSticky} enabled={!!onConnector && !active && !placement}
           drawing={!!connectorMode} canEdit={canEditBlock} onCancel={onCancelPlacement ?? (() => {})}
           onSave={(connector, id) => onConnector?.(connector, id)} onDelete={deleteObject} />
         </div>
