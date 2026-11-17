@@ -36,7 +36,9 @@ Before editing Next.js code, follow [AGENTS.md](AGENTS.md) and read the relevant
 
 ## Deployment and database
 
-Deploy this Next.js repository to Vercel and configure the environment variables above for the target environment. The public Supabase settings are read at build time. Add the deployment URL to Google sign-in redirects as described in [account setup](AUTH_SETUP.md). Keep the Anthropic key in server-side environment settings.
+The live demo is the Vercel project `pacer-demo` (pacer-demo.vercel.app). [Deploy to Vercel](.github/workflows/vercel-deploy.yml) deploys it from this repository: every push to `main` goes to production, and every pull request gets a preview link. Anyone with write access to this repository can deploy by pushing. The workflow needs one repository secret, `VERCEL_TOKEN`, created in the Vercel account that owns the project. It does not use Vercel's Git connection, which only works for repositories owned by that account's GitHub user.
+
+Configure the environment variables above in the Vercel project for the target environment. The public Supabase settings are read at build time. Add the deployment URL to Google sign-in redirects as described in [account setup](AUTH_SETUP.md). Keep the Anthropic key in server-side environment settings.
 
 Supabase SQL is applied separately from Git and Vercel. For a new environment, configure the existing account tables described in the account setup, then apply [student lessons](supabase/student_lessons.sql), [saved teacher lectures](supabase/saved_teacher_lectures.sql), [teacher storage](supabase/pacer_cloud_storage.sql), [transparent slide support](supabase/transparent_slide_images.sql), and [board collaboration](supabase/board_collaboration.sql) with its [annotation owner access](supabase/annotation_owner_access.sql) follow-up, and [room keys](supabase/room_keys.sql). Confirm which scripts are already applied before setting up an existing project: [supabase/README.md](supabase/README.md) lists every script in order with its status, and [check_installed.sql](supabase/check_installed.sql) reports what a project has.
 

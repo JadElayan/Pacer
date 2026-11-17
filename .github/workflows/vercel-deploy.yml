@@ -1,0 +1,95 @@
+# Deploys Pacer to the pacer-demo project on Vercel (pacer-demo.vercel.app).
+#   push to main      -> production deploy
+#   pull request      -> preview deploy (link in the run summary and as a PR comment)
+#   Actions tab "Run" -> deploy any branch by hand
+# Anyone with write access to this repo (Marcus, Jad) deploys just by pushing; no Vercel Git connection needed.
+# Needs one repository secret: VERCEL_TOKEN (a Vercel access token from the account that owns pacer-demo).
+# The IDs below aren't secrets: they only say which Vercel project to deploy to.
+name: Deploy to Vercel
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      production:
+        description: Deploy to production (otherwise a preview)
+        type: boolean
+        default: false
+
+concurrency:
+  group: vercel-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VERCEL_ORG_ID: team_9nn1Ys5K694jupaGdfXV20jD
+  VERCEL_PROJECT_ID: prj_xEWY6mM3iflIGiBMOTBAEEsBag8M
+  VERCEL_CLI: vercel@65.17.0
+
+jobs:
+  deploy:
+    # Pull requests from forks don't get the token, so they're skipped instead of failing.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check for the Vercel token
+        id: token
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::warning::VERCEL_TOKEN isn't set, so nothing was deployed. Add it under Settings > Secrets and variables > Actions."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.token.outputs.ready == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.token.outputs.ready == 'true'
+        with:
+          node-version: 22
+
+      - name: Choose production or preview
+        if: steps.token.outputs.ready == 'true'
+        id: target
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.production }}" = "true" ]; then
+            echo "env=production" >> "$GITHUB_OUTPUT"; echo "flag=--prod" >> "$GITHUB_OUTPUT"
+          else
+            echo "env=preview" >> "$GITHUB_OUTPUT"; echo "flag=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pull project settings and environment variables
+        if: steps.token.outputs.ready == 'true'
+        run: npx --yes "$VERCEL_CLI" pull --yes --environment=${{ steps.target.outputs.env }} --token="${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Build
+        if: steps.token.outputs.ready == 'true'
+        run: npx --yes "$VERCEL_CLI" build ${{ steps.target.outputs.flag }} --token="${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Deploy
+        if: steps.token.outputs.ready == 'true'
+        id: deploy
+        run: |
+          url=$(npx --yes "$VERCEL_CLI" deploy --prebuilt ${{ steps.target.outputs.flag }} --token="${{ secrets.VERCEL_TOKEN }}")
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "### Deployed (${{ steps.target.outputs.env }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "$url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment the preview link on the pull request
+        if: steps.token.outputs.ready == 'true' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
+              body: `Preview deployed: ${{ steps.deploy.outputs.url }}`,
+            });
