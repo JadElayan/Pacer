@@ -303,8 +303,8 @@ button.notebook-section { display: flex; justify-content: space-between; }
 .nb-fmt-wide { min-width: 0; padding: 0 6px 0 8px; }
 .nb-fmt-style { max-width: 7.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8125rem; font-weight: 500; }
 .nb-caret { font-size: .6rem; color: #7a8099; margin-left: 1px; }
-.nb-fmt-color { font-weight: 700; padding: 0 1px; border-bottom: 3px solid #c2410c; line-height: 1.1; }
-.nb-fmt-mark { font-weight: 700; padding: 0 3px; background: #fef08a; border-radius: 3px; background-image: none; }
+.nb-fmt-color { display: inline-flex; padding: 0 1px; border-bottom: 3px solid #c2410c; line-height: 1; }
+.nb-fmt-mark { display: inline-flex; padding: 1px 2px; background: #fef08a; border-radius: 3px; background-image: none; }
 .nb-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; display: grid; min-width: 9.5rem; padding: .3rem; border: 1px solid #dcdfee; border-radius: 12px; background: #fff; box-shadow: 0 12px 30px #18234826; }
 .nb-menu-item { display: flex; align-items: center; gap: .5rem; padding: .4rem .6rem; border-radius: 8px; text-align: left; color: #242c49; font-size: .875rem; cursor: pointer; white-space: nowrap; }
 .nb-menu-item:hover, .nb-menu-item[aria-checked="true"] { background: #eef2ff; }

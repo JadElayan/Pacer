@@ -155,6 +155,8 @@ const ICONS = {
   center: "M4 6h16M7 12h10M5 18h14",
   right: "M4 6h16M10 12h10M6 18h14",
   clear: "M4 7V5h12v2M10 5l-3 14M13 19H5M15 14l5 5M20 14l-5 5",
+  /** A drawn letter "A" for the text and highlight color buttons (an icon, so it isn't read as text). */
+  letter: "M6 19 12 5l6 14M8.5 14h7",
 };
 const TEXT_COLORS = [["Default", "#1f2540"], ["Gray", "#6b7280"], ["Red", "#c2410c"], ["Orange", "#b45309"], ["Green", "#15803d"], ["Blue", "#1d4ed8"], ["Purple", "#7e22ce"]] as const;
 const HIGHLIGHTS = [["None", "none"], ["Yellow", "#fef08a"], ["Green", "#bbf7d0"], ["Blue", "#bfdbfe"], ["Pink", "#fbcfe8"], ["Orange", "#fed7aa"]] as const;
@@ -267,11 +269,11 @@ export function FormatBar({ target }: { target: () => HTMLElement | null }) {
       {button("italic", `Italic (${mod}I)`, <i className="font-serif">I</i>, !!state.italic)}
       {button("underline", `Underline (${mod}U)`, <u>U</u>, !!state.underline)}
       {button("strikeThrough", `Strikethrough (${mod}Shift+X)`, <s>S</s>, !!state.strikeThrough)}
-      <Dropdown label="Text color" title="Text color" button={<span className="nb-fmt-color">A</span>}>
+      <Dropdown label="Text color" title="Text color" button={<span className="nb-fmt-color"><Icon d={ICONS.letter} size={16} /></span>}>
         {(close) => <span className="nb-swatches">{TEXT_COLORS.map(([name, color]) => <button key={name} type="button" role="menuitem" aria-label={name} title={name}
           className="nb-swatch" style={{ background: color }} onClick={() => { apply(`color:${color}`); close(); }} />)}</span>}
       </Dropdown>
-      <Dropdown label="Highlight color" title="Highlight" button={<span className="nb-fmt-mark">A</span>}>
+      <Dropdown label="Highlight color" title="Highlight" button={<span className="nb-fmt-mark"><Icon d={ICONS.letter} size={16} /></span>}>
         {(close) => <span className="nb-swatches">{HIGHLIGHTS.map(([name, color]) => <button key={name} type="button" role="menuitem" aria-label={`${name} highlight`} title={name}
           className={`nb-swatch ${color === "none" ? "nb-swatch-none" : ""}`} style={color === "none" ? undefined : { background: color }}
           onClick={() => { apply(`highlight:${color}`); close(); }} />)}</span>}
