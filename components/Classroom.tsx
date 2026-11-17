@@ -1,6 +1,7 @@
 "use client";
 import { ChoiceMenu } from "./ChoiceMenu";
 import { AnimatedPanel } from "./AnimatedPanel";
+import { Collapse, SegmentedControl, ToolGroup } from "./Motion";
 import { BoardShare } from "./BoardShare";
 import { CopyLinkButton } from "./CopyLinkButton";
 import { TeacherSlidePreviews } from "./TeacherSlidePreviews";
@@ -1060,7 +1061,7 @@ export function Classroom({ code, review }: { code: string; review?: {
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {!isTeacher && privateNotes.ready && <nav aria-label="Private annotation tools"
           className={`notebook-rail flex shrink-0 gap-2 overflow-x-auto p-2 lg:w-max lg:flex-col lg:overflow-y-auto ${mobilePane === "notes" ? "max-lg:!hidden" : ""}`}>
-          <div className="notebook-tool-group">
+          <ToolGroup>
             <button type="button" className="notebook-tool" aria-label="Edit my annotations" title="Edit my annotations"
               aria-pressed={privateEditing} disabled={!privateNotes.ready}
               onClick={() => privateEditing ? leaveAnnotationMode() : chooseAnnotationTool("select")}>
@@ -1071,15 +1072,15 @@ export function Classroom({ code, review }: { code: string; review?: {
               onClick={() => { if (annotationVisible) leaveAnnotationMode(); setAnnotationVisible(!annotationVisible); }}>
               <BoardToolIcon tool={annotationVisible ? "visibility" : "hidden"} />{annotationVisible ? "Hide" : "Show"}
             </button>
-          </div>
-          <div className="notebook-tool-group">
+          </ToolGroup>
+          <ToolGroup>
             {BOARD_TOOLS.map(([value, label]) => <button key={value} type="button" className="notebook-tool" data-tool={value}
               aria-label={label} title={label} disabled={!privateNotes.ready}
               aria-pressed={privateEditing && !placement && tool === value} onClick={() => chooseAnnotationTool(value)}>
               <BoardToolIcon tool={value} />{value === "highlight" ? "Highlight" : label}
             </button>)}
-          </div>
-          <div className="notebook-tool-group">
+          </ToolGroup>
+          <ToolGroup>
             {(["text", "equation", "sticky"] as const).map((value) => <button key={value} type="button" className="notebook-tool capitalize"
               data-tool={value} aria-pressed={privateEditing && placement === value} disabled={!privateNotes.ready}
               onClick={() => chooseAnnotationTool(value)}>
@@ -1094,22 +1095,22 @@ export function Classroom({ code, review }: { code: string; review?: {
               disabled={!privateNotes.ready} onClick={() => chooseAnnotationTool("connector")}>
               <BoardToolIcon tool="arrow" />Connector
             </button>
-          </div>
-          <div className="notebook-tool-group">
+          </ToolGroup>
+          <ToolGroup>
             {(["undo", "redo"] as const).map((action) => <button key={action} type="button" className="notebook-tool capitalize"
               disabled={!privateEditing || !privateNotes.canRestore(action)} onClick={() => privateNotes.restore(action)}>
               <BoardToolIcon tool={action} />{action}
             </button>)}
-          </div>
+          </ToolGroup>
         </nav>}
         {isTeacher && !state.ended && (
           <nav aria-label="Teacher whiteboard tools" className="notebook-rail flex shrink-0 gap-2 overflow-x-auto p-2 lg:w-max lg:flex-col lg:overflow-y-auto">
-            <div className="notebook-tool-group">
+            <ToolGroup>
             {BOARD_TOOLS.map(([value, label]) => <button key={value} type="button" className="notebook-tool"
               aria-label={label} title={label} data-tool={value}
               aria-pressed={!placement && !connectorMode && tool === value} onClick={() => { setConnectorMode(false); setTool(value); setInsertPanel(undefined); setPlacement(undefined); }}><BoardToolIcon tool={value} />{value === "highlight" ? "Highlight" : label}</button>)}
-            </div>
-            <div className="notebook-tool-group">
+            </ToolGroup>
+            <ToolGroup>
                 {(["text", "equation", "sticky"] as const).map((value) => <button key={value} type="button" className="notebook-tool"
                   data-tool={value}
                   aria-pressed={placement === value}
@@ -1131,25 +1132,27 @@ export function Classroom({ code, review }: { code: string; review?: {
                 aria-describedby="lecture-upload-help" onClick={() => uploadInput.current?.click()}>
                 <BoardToolIcon tool="upload" />Upload
               </button>
-            </div>
-            <div className="notebook-tool-group">
+            </ToolGroup>
+            <ToolGroup>
               {(["undo", "redo"] as const).map((action) => <button key={action} type="button" className="notebook-tool capitalize"
                 disabled={onSlideSide ? !currentSlideHistory?.[action].length : !inkHistory.current[action].length} onClick={() => restoreInk(action)}>
                 <BoardToolIcon tool={action} />{action}
               </button>)}
-            </div>
+            </ToolGroup>
           </nav>
         )}
-        {slidePage && deck && isTeacher && <aside className={`notebook-pages shrink-0 p-3 lg:overflow-y-auto ${showPages ? "lg:w-44" : "lg:w-20"}`}>
+        {slidePage && deck && isTeacher && <aside className={`notebook-pages shrink-0 p-3 lg:overflow-y-auto ${showPages ? "lg:w-44" : "lg:w-20"}`} data-open={showPages}>
           {slidePage && deck && isTeacher && (
             <section className="mb-3">
               <button type="button" className="notebook-section" aria-expanded={showPages} onClick={() => setShowPages((open) => !open)}>
-                Pages <span aria-hidden="true">{showPages ? "«" : "»"}</span>
+                Pages <span aria-hidden="true" className="notebook-pages-caret">«</span>
               </button>
-              {showPages && <TeacherSlidePreviews key={deck.id} deck={deck}
-                imported={localSlides.current?.id === deck.id ? localSlides.current.pages : undefined}
-                privatePages={state.privateSlidePages} storageOwner={teacherStorageEnabled ? userId : undefined}
-                disabled={slideBusy || state.ended} onPresent={(page) => void changeSlide(page)} />}
+              <Collapse open={showPages} reduced={prefs.reduceMotion} className="notebook-pages-list">
+                <TeacherSlidePreviews key={deck.id} deck={deck}
+                  imported={localSlides.current?.id === deck.id ? localSlides.current.pages : undefined}
+                  privatePages={state.privateSlidePages} storageOwner={teacherStorageEnabled ? userId : undefined}
+                  disabled={slideBusy || state.ended} onPresent={(page) => void changeSlide(page)} />
+              </Collapse>
             </section>
           )}
         </aside>}
@@ -1162,19 +1165,14 @@ export function Classroom({ code, review }: { code: string; review?: {
                 describe={describeTopic}
                 onEdit={(id, p) => mutate((s) => ({ ...s, topics: s.topics.map((t) => (t.id === id ? { ...t, ...p, auto: false } : t)) }))} />}
               {isTeacher && !state.ended && deck && (
-                <div role="radiogroup" aria-label="Board layout" className="layout-switch">
-                  {([["slides", "Slides"], ["board", "Board"], ["split", "Split"]] as const).map(([value, label]) => (
-                    <button key={value} type="button" role="radio" aria-checked={layout === value} disabled={slideBusy}
-                      onClick={() => setLayout(value)}>
-                      <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
-                        {value === "split" ? <><rect x="1.5" y="3" width="5.5" height="10" rx="1" /><rect x="9" y="3" width="5.5" height="10" rx="1" /></>
-                          : value === "slides" ? <><rect x="1.5" y="3" width="13" height="9" rx="1" /><path d="M8 12v2M5.5 14h5" /></>
-                          : <><rect x="1.5" y="2.5" width="13" height="11" rx="1" /><path d="M4.5 10.5c1.5-3 3-3 4 0s2.5 1 3-2" strokeLinecap="round" /></>}
-                      </svg>
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedControl label="Board layout" value={layout} disabled={slideBusy} onChange={setLayout}
+                  options={([["slides", "Slides"], ["board", "Board"], ["split", "Split"]] as const).map(([value, label]) => ({ value, label, icon: (
+                    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
+                      {value === "split" ? <><rect x="1.5" y="3" width="5.5" height="10" rx="1" /><rect x="9" y="3" width="5.5" height="10" rx="1" /></>
+                        : value === "slides" ? <><rect x="1.5" y="3" width="13" height="9" rx="1" /><path d="M8 12v2M5.5 14h5" /></>
+                        : <><rect x="1.5" y="2.5" width="13" height="11" rx="1" /><path d="M4.5 10.5c1.5-3 3-3 4 0s2.5 1 3-2" strokeLinecap="round" /></>}
+                    </svg>
+                  ) }))} />
               )}
               {isTeacher && !state.ended && (
                 <div className="board-actions-wrap">
@@ -1219,8 +1217,9 @@ export function Classroom({ code, review }: { code: string; review?: {
               <button className="btn btn-outline btn-sm" onClick={() => setSpotSeen(spot.ts)}>Got it</button>
             </div>
           )}
-          <AnimatedPanel open={((isTeacher && !state.ended) || privateEditing) && (tool === "pen" || tool === "highlight")} reduced={prefs.reduceMotion}>
-            <div role="group" aria-label="Ink settings" className="ink-tray notebook-tray flex flex-wrap items-center gap-x-4 gap-y-2 self-center p-2 [@media(pointer:coarse)]:[&_button]:min-h-11 [@media(pointer:coarse)]:[&_button]:min-w-11 [@media(pointer:coarse)]:[&_select]:min-h-11">
+          <Collapse open={((isTeacher && !state.ended) || privateEditing) && (tool === "pen" || tool === "highlight")} reduced={prefs.reduceMotion}
+            className="ink-collapse" innerClassName="flex justify-center">
+            <div role="group" aria-label="Ink settings" className="ink-tray notebook-tray flex flex-wrap items-center gap-x-4 gap-y-2 p-2 [@media(pointer:coarse)]:[&_button]:min-h-11 [@media(pointer:coarse)]:[&_button]:min-w-11 [@media(pointer:coarse)]:[&_select]:min-h-11">
                 <div key={inkTool} role="group" aria-label="Ink color" className="ink-swatches flex gap-1">
                   {(inkTool === "pen" ? INK_COLORS : HIGHLIGHT_COLORS).map(([name, color], index) => (
                     <button type="button" key={name} aria-label={name} title={name} aria-pressed={(inkTool === "pen" ? penColor : highlightColor) === color}
@@ -1241,7 +1240,7 @@ export function Classroom({ code, review }: { code: string; review?: {
                   </ChoiceMenu>
                 </div>
             </div>
-          </AnimatedPanel>
+          </Collapse>
           {browseTopic && (
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-2 text-sm">

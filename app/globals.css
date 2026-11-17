@@ -360,13 +360,47 @@ button.notebook-section { display: flex; justify-content: space-between; }
 .topic-card-input-sub { height: 24px; font-size: .75rem; font-weight: 400; color: #4a5272; }
 .topic-card-input:focus { outline: 2px solid var(--color-sky); outline-offset: 0; }
 
-/* Slides / Board / Split switch. */
-.layout-switch { display: inline-flex; flex: 0 0 auto; gap: 2px; padding: 4px; border: 1px solid var(--notebook-border, #dcdfee); border-radius: 14px; background: #fff; box-shadow: 0 1px 3px #1823480d; }
-.layout-switch button { display: inline-flex; align-items: center; gap: .35rem; min-height: 32px; padding: 0 .7rem; border-radius: 10px; color: #4a5272; font-size: .8125rem; font-weight: 600; cursor: pointer; transition: background-color .18s, color .18s; }
-.layout-switch button svg { width: 15px; height: 15px; }
-.layout-switch button:hover:not(:disabled, [aria-checked="true"]) { background: #f0f3ff; }
-.layout-switch button[aria-checked="true"] { background: #2454e8; color: #fff; }
-.layout-switch button:disabled { opacity: .5; cursor: default; }
+/* Slides / Board / Split: an iOS-style segmented control whose thumb slides, and can be dragged. */
+.segmented { position: relative; display: inline-grid; flex: 0 0 auto; padding: 4px; border: 1px solid var(--notebook-border, #dcdfee); border-radius: 14px; background: #eef0f8; box-shadow: inset 0 1px 2px #1823480f; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.segmented-thumb { position: absolute; top: 4px; bottom: 4px; left: 4px; border-radius: 10px; background: #2454e8; box-shadow: 0 3px 8px #2454e83d, 0 1px 2px #18234826; transition: transform .38s cubic-bezier(.3, 1.35, .5, 1), scale .2s ease; }
+.segmented[data-dragging="true"] .segmented-thumb { scale: .95; transition: transform .22s cubic-bezier(.3, 1.2, .5, 1), scale .2s ease; }
+.segmented button { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: .35rem; min-height: 32px; padding: 0 .8rem; border-radius: 10px; color: #4a5272; font-size: .8125rem; font-weight: 600; white-space: nowrap; cursor: pointer; transition: color .25s ease; }
+.segmented button svg { width: 15px; height: 15px; }
+.segmented button[data-under="true"] { color: #fff; }
+.segmented button:not([data-under="true"]):hover:not(:disabled) { color: #171d38; }
+.segmented button:focus-visible { outline-offset: -2px; }
+.segmented[aria-disabled="true"] { opacity: .6; }
+.segmented button:disabled { cursor: default; }
+
+/* Tool rails: the active highlight slides between tools. */
+.tool-group-slide { position: relative; }
+.tool-group-slide > button { position: relative; z-index: 1; }
+.tool-group-slide > button:is([aria-pressed="true"], [aria-expanded="true"]) { background: transparent; }
+.tool-slider { position: absolute; top: 0; left: 0; z-index: 0; border-radius: 12px; background: var(--notebook-blue); box-shadow: 0 4px 10px #2454e830; pointer-events: none;
+  transition: transform .34s cubic-bezier(.3, 1.3, .5, 1), width .34s cubic-bezier(.3, 1.3, .5, 1), height .34s cubic-bezier(.3, 1.3, .5, 1), opacity .18s ease, scale .22s ease; }
+.tool-slider[data-on="false"] { opacity: 0; scale: .7; }
+.tool-slider[data-jump="true"] { transition: none; opacity: 0; scale: .7; }
+
+/* Height-animated open and close (Motion.tsx Collapse): content below slides instead of jumping. */
+.collapse-motion { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .3s cubic-bezier(.2, .8, .2, 1), margin .3s cubic-bezier(.2, .8, .2, 1), opacity .22s ease; }
+.collapse-motion[data-open="true"] { grid-template-rows: 1fr; opacity: 1; }
+.collapse-motion > div { min-height: 0; overflow: hidden; }
+.collapse-motion[data-settled="true"] > div { overflow: visible; }
+.collapse-motion > div > * { transition: transform .3s cubic-bezier(.2, .8, .2, 1); transform: translateY(-8px) scale(.97); }
+.collapse-motion[data-open="true"] > div > * { transform: none; }
+/* In the board column (gap .75rem), a closed panel also gives back its gap. */
+.ink-collapse { margin-bottom: -.75rem; }
+.ink-collapse[data-open="true"] { margin-bottom: 0; }
+.ink-collapse > div { padding: 2px 6px 6px; margin: -2px -6px -6px; }
+
+/* Pages panel: width and the page list animate open and closed. */
+.notebook-pages { transition: width .3s cubic-bezier(.2, .8, .2, 1); }
+.notebook-pages-caret { display: inline-block; transition: rotate .3s ease; }
+.notebook-pages[data-open="false"] .notebook-pages-caret { rotate: 180deg; }
+@media (prefers-reduced-motion: no-preference) {
+  .notebook-pages { animation: pages-in .3s cubic-bezier(.2, .8, .2, 1); }
+}
+@keyframes pages-in { from { opacity: 0; transform: translateX(-12px); } }
 
 /* Split view: slide on the left, whiteboard on the right; tabs on narrow screens. */
 .board-split { display: grid; gap: .75rem; flex: 0 0 auto; }
@@ -435,3 +469,4 @@ button.notebook-section { display: flex; justify-content: space-between; }
   .notebook-tool { transition: background-color .18s, color .18s, transform .12s; }
   .topic-card-live::before { animation: live-pulse 1.6s ease-in-out infinite; }
 }
+@media (prefers-reduced-motion: reduce) { .tool-slider, .segmented-thumb, .segmented button, .notebook-pages, .notebook-pages-caret { transition: none; } }
