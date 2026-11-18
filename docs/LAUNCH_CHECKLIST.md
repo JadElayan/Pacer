@@ -22,7 +22,7 @@ Work through this top to bottom. Items marked **before real users** must be done
 - [ ] Open a business bank account when the first customer pays.
 
 ## Optional environment variables for the AI limits
-`AI_LIMIT_PER_MINUTE` (default 20 per device), `AI_LIMIT_PER_DAY` (default 400 per device), `AI_GLOBAL_DAILY_CAP` (default 6000 AI calls per day across everyone). Lower the global cap while you are testing.
+`AI_LIMIT_PER_MINUTE` (default 20 per device), `AI_LIMIT_PER_DAY` (default 400 per device), `AI_GLOBAL_DAILY_CAP` (default 6000 AI calls per day across everyone). Token budgets cap spending, not just call counts: `AI_UNITS_PER_DEVICE_DAY` (600,000), `AI_UNITS_PER_ROOM_DAY` (4,000,000), `AI_UNITS_GLOBAL_DAY` (40,000,000); one unit is about one input token, and output counts 5x. `AI_UNITS_GLOBAL_DAY` is the hard ceiling on a day's bill: 40M units is roughly $80 on Claude Sonnet 5.5. Lower it while you are testing, and run `supabase/ai_token_budget.sql`.
 
 ## Reading your numbers
 After the SQL has run, in the Supabase SQL editor: `select * from usage_daily;` and `select email, role, note from waitlist order by created_at desc;`

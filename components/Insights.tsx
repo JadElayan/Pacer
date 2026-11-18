@@ -54,7 +54,7 @@ export function Insights({ state, events, connected, demo }: { state: RoomState;
   };
 
   return (
-    <aside aria-label="Live insights" className="w-full shrink-0 overflow-y-auto rounded-[24px] border border-stone bg-eggshell p-5 md:w-[320px]">
+    <aside aria-label="Live insights" style={{ viewTransitionName: "pacer-insights" }} className="w-full shrink-0 overflow-y-auto rounded-[24px] border border-stone bg-eggshell p-5 md:w-[320px]">
       <h2 className="display text-2xl">Live insights</h2>
       <p className="mt-1 text-xs text-smoke">Anonymous and aggregated. You never see individual questions or settings.</p>
       <div className="mt-4 grid grid-cols-3 gap-2 text-center">

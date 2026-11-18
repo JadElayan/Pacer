@@ -1,4 +1,5 @@
 "use client";
+import { ChoiceMenu } from "./ChoiceMenu";
 
 import { useLayoutEffect, useRef, useState } from "react";
 import type { BoardTextRun, BoardTextStyle } from "@/lib/types";
@@ -149,17 +150,23 @@ export function BoardTextEditor({ content, runs, baseSize, toolbarAbove, onCommi
       if (event.key === "Escape" && !event.nativeEvent.isComposing) { event.stopPropagation(); commit(); }
     }}>
     <div ref={toolbar} role="toolbar" aria-label="Text formatting" className={`absolute left-0 z-30 flex w-max max-w-[80vw] items-center gap-1 rounded-xl border border-stone bg-white p-1.5 shadow-lg ${toolbarAbove ? "bottom-full mb-3" : "top-full mt-3"}`}>
-      <select aria-label="Font" className="h-8 max-w-28 rounded-md px-1 text-sm hover:bg-sky-soft" value={style.fontFamily ?? "Default"} onChange={(event) => format({ fontFamily: event.target.value })}>
-        {fonts.map((font) => <option key={font}>{font}</option>)}
-      </select>
-      <select aria-label="Font size" className="h-8 rounded-md px-1 text-sm hover:bg-sky-soft" value={style.fontSize ?? baseSize} onChange={(event) => format({ fontSize: Number(event.target.value) })}>
-        {[...new Set([...sizes, baseSize, style.fontSize ?? baseSize])].sort((a, b) => a - b).map((size) => <option key={size}>{size}</option>)}
-      </select>
+      <div className="text-tool-menu" data-kind="font">
+        <ChoiceMenu label="Font" value={style.fontFamily ?? "Default"} onChange={(value) => format({ fontFamily: value })}>
+          {fonts.map((font) => <option key={font} value={font}><span style={{ fontFamily: font === "Default" ? undefined : font }}>{font}</span></option>)}
+        </ChoiceMenu>
+      </div>
+      <div className="text-tool-menu" data-kind="size">
+        <ChoiceMenu label="Font size" value={style.fontSize ?? baseSize} onChange={(value) => format({ fontSize: Number(value) })}>
+          {[...new Set([...sizes, baseSize, style.fontSize ?? baseSize])].sort((a, b) => a - b).map((size) => <option key={size} value={size}>{size}</option>)}
+        </ChoiceMenu>
+      </div>
       <button type="button" aria-label="Bold" aria-pressed={!!style.bold} onMouseDown={(event) => event.preventDefault()} onClick={() => format({ bold: !style.bold })}
         className="grid size-8 place-items-center rounded-md font-bold hover:bg-sky-soft aria-pressed:bg-sky-soft">B</button>
-      <select aria-label="Text color" className="h-8 max-w-20 rounded-md px-1 text-sm hover:bg-sky-soft" value={style.color ?? colors[0][0]} onChange={(event) => format({ color: event.target.value })}>
-        {colors.map(([color, label]) => <option key={color} value={color}>{label}</option>)}
-      </select>
+      <div className="text-tool-menu" data-kind="color">
+        <ChoiceMenu label="Text color" value={style.color ?? colors[0][0]} onChange={(value) => format({ color: value })}>
+          {colors.map(([color, label]) => <option key={color} value={color}><span className="text-tool-swatch" style={{ background: color }} />{label}</option>)}
+        </ChoiceMenu>
+      </div>
     </div>
     <div ref={editor} role="textbox" aria-label="Edit board text" aria-multiline="true" contentEditable
       suppressContentEditableWarning className="min-h-[1.3em] whitespace-pre-wrap break-words leading-snug outline-none"

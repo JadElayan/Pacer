@@ -78,6 +78,12 @@ export function demoRecap(r: AIRequest): AIResponse {
 
 export function demoAnswer(r: AIRequest): AIResponse {
   if (r.kind === "recap") return demoRecap(r);
+  if (r.kind === "checkins") {
+    // Demo: one generic question per few slides, with no answer key (the demo can't read answers out of slides).
+    const slides = r.context.map((line) => Number(/^Slide (\d+):/.exec(line)?.[1])).filter(Boolean);
+    const picks = slides.filter((_, i) => i % 3 === 2 || i === slides.length - 1).slice(0, 4);
+    return { text: "", source: "demo", data: { suggestions: picks.map((slide) => ({ slide, question: `Demo check-in: in one word, what is the key idea on slide ${slide}?`, answer: "", answerSlide: null })), answerSlides: [] } };
+  }
   if (r.kind === "graph" || r.kind === "visual" || r.kind === "quiz") return demoTool(r);
   if (r.image && !r.selected.length) return { text: "Demo response: reading handwriting needs the AI key. With it, Pacer reads what the teacher drew (like 2x = 10) and explains it (x = 5).", source: "demo" };
   const sel = r.selected[0] ?? "";

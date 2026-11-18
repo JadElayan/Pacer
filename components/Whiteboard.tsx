@@ -3,11 +3,18 @@ import { useLayoutEffect, useRef, useState } from "react";
 import type { Block, BlockKind, BoardConnector, BoardShapeSize, BoardTextRun, Stroke } from "@/lib/types";
 import { BoardConnectors, boardAnchors, resolveEnd } from "./BoardConnectors";
 import { BoardText, BoardTextEditor } from "./BoardTextEditor";
-import { MathView } from "./MathView";
+import { MathView, mathVisibleText } from "./MathView";
+import { mathInputToTex, texToSpeech } from "@/lib/mathInput";
 import { InkPath } from "./InkPath";
-import { BoardObject, StickyEditor, StickyTools } from "./BoardObjects";
+import { BoardObject, ShapeTools, StickyEditor, StickyTools } from "./BoardObjects";
 import { BoardToolIcon, boardToolCursor } from "./BoardToolIcon";
 import type { ComponentProps } from "react";
+
+/** "Equation: <what is shown>", plus a spoken version when the two differ (fractions, powers). */
+const equationName = (tex: string) => {
+  const shown = mathVisibleText(tex), spoken = texToSpeech(tex);
+  return shown.replace(/\s/g, "") === spoken.replace(/\s/g, "") ? `Equation: ${spoken}` : `Equation: ${shown}, read as ${spoken}`;
+};
 
 export type BoardTool = "select" | "pen" | "highlight" | "erase";
 type Point = [number, number];
@@ -19,6 +26,18 @@ const resizeCorners = [
   ["Bottom left", -1, 1, "-left-1.5 -bottom-1.5 cursor-nesw-resize"],
   ["Bottom right", 1, 1, "-right-1.5 -bottom-1.5 cursor-nwse-resize"],
 ] as const;
+/** Shapes and sticky notes: corners resize width and height freely (Shift keeps the proportions); edges change one. */
+const boxHandles = [
+  ["Top left", -1, -1, "-left-1.5 -top-1.5 size-3 rounded-full cursor-nwse-resize"],
+  ["Top right", 1, -1, "-right-1.5 -top-1.5 size-3 rounded-full cursor-nesw-resize"],
+  ["Bottom left", -1, 1, "-left-1.5 -bottom-1.5 size-3 rounded-full cursor-nesw-resize"],
+  ["Bottom right", 1, 1, "-right-1.5 -bottom-1.5 size-3 rounded-full cursor-nwse-resize"],
+  ["Top edge", 0, -1, "left-1/2 -top-1 h-2 w-5 -translate-x-1/2 rounded-full cursor-ns-resize"],
+  ["Bottom edge", 0, 1, "left-1/2 -bottom-1 h-2 w-5 -translate-x-1/2 rounded-full cursor-ns-resize"],
+  ["Left edge", -1, 0, "top-1/2 -left-1 h-5 w-2 -translate-y-1/2 rounded-full cursor-ew-resize"],
+  ["Right edge", 1, 0, "top-1/2 -right-1 h-5 w-2 -translate-y-1/2 rounded-full cursor-ew-resize"],
+] as const;
+const isBoxed = (kind: BlockKind) => kind === "rectangle" || kind === "circle" || kind === "diamond" || kind === "sticky";
 
 function hitsStroke(stroke: Stroke, [x, y]: Point, w: number, h: number) {
   return stroke.pts.some(([ax, ay], i) => {
@@ -84,16 +103,16 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
   connectorMode?: boolean;
   onConnector?: (connector: BoardConnector, id?: string) => void;
   canEditBlock?: (id: string) => boolean;
-  onEditSticky?: (id: string, changes: Partial<Pick<Block, "content" | "stickyStyle">>) => void;
+  onEditSticky?: (id: string, changes: Partial<Pick<Block, "content" | "stickyStyle" | "shapeColor">>) => void;
   onDuplicateSticky?: (block: Block) => void;
-  onResizeBlock?: (id: string, changes: Pick<Block, "fontSize" | "scale" | "position" | "textWidth">) => void;
+  onResizeBlock?: (id: string, changes: Partial<Pick<Block, "fontSize" | "scale" | "position" | "textWidth" | "shapeSize">>) => void;
   onEditText?: (id: string, content: string, runs?: BoardTextRun[]) => void;
   placement?: Exclude<BlockKind, "connector">;
   modeIcon?: ComponentProps<typeof BoardToolIcon>["tool"];
   onPlace?: (kind: BlockKind, content: string, position: Point, runs?: BoardTextRun[], shapeSize?: BoardShapeSize) => string | void;
   onCancelPlacement?: () => void;
   onMoveBlock?: (id: string, position: Point) => void;
-  slide?: { url: string; aspect: number };
+  slide?: { url: string; aspect: number; maxHeight?: string };
 }) {
   const [drag, setDrag] = useState<{ pointer: number; x0: number; y0: number; x1: number; y1: number } | null>(null);
   const snipLayer = useRef<HTMLDivElement>(null);
@@ -103,7 +122,9 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
   }, [snipActive]);
   const [live, setLive] = useState<[number, number][] | null>(null);
   const [erased, setErased] = useState<Set<string>>(new Set());
-  const gesture = useRef<{ id: number; tool: BoardTool; ink: typeof ink; points: Point[]; erased: Set<string> } | null>(null);
+  const gesture = useRef<{ id: number; tool: BoardTool; ink: typeof ink; points: Point[]; erased: Set<string>; pressures: number[] } | null>(null);
+  // Palm rejection: once a stylus (Apple Pencil) has touched the board, fingers stop drawing and only pan or zoom.
+  const penSeen = useRef(false);
   const viewport = useRef<HTMLDivElement>(null);
   const appliedScroll = useRef<Point>([0, 0]);
   const inkLayer = useRef<SVGSVGElement>(null);
@@ -115,7 +136,8 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
   const [editingText, setEditingText] = useState<string>();
   const [editingSticky, setEditingSticky] = useState<string>();
   const [moving, setMoving] = useState<{ id: string; position: Point }>();
-  const [resizing, setResizing] = useState<{ id: string; size: number; position: Point }>();
+  const [resizing, setResizing] = useState<{ id: string; size: number; position: Point; box?: BoardShapeSize }>();
+  const boxDrag = useRef<{ pointer: number; sx: number; sy: number; start: Point; origin: Point; w0: number; h0: number; next?: { box: BoardShapeSize; position: Point } } | undefined>(undefined);
   const resizeDrag = useRef<{ pointer: number; origin: Point; start: Point; span: Point; pixels: Point; size: number; next?: { size: number; position: Point } } | undefined>(undefined);
   const blockDrag = useRef<{ id: string; pointer: number; start: Point; origin: Point; position?: Point } | null>(null);
   const ignoreBlockClick = useRef(false);
@@ -344,6 +366,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
     return { left: r.left - b.left, top: r.top - b.top, right: r.right - b.left, bottom: r.bottom - b.top };
   };
 
+  const clampTo = (value: number, max: number) => Math.max(0, Math.min(max, value));
   const finishSnip = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!drag || drag.pointer !== event.pointerId || !boardRef.current) return;
     const b = boardRef.current.getBoundingClientRect();
@@ -376,6 +399,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
     const last = g.points.at(-1);
     if (g.tool !== "erase" && last && Math.hypot((point[0] - last[0]) * width, (point[1] - last[1]) * height) < 1) return;
     g.points.push(point);
+    if (e.pointerType === "pen" && e.pressure > 0) g.pressures.push(e.pressure);
     if (g.tool !== "erase") { setLive([...g.points]); return; }
     const [lastX, lastY] = last ?? point;
     const steps = Math.max(1, Math.ceil(Math.hypot((point[0] - lastX) * width, (point[1] - lastY) * height) / 8));
@@ -396,7 +420,12 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
     setErased(new Set());
     if (!commit) return;
     if (g.tool === "erase") onErase(g.erased);
-    else if (g.points.length) onStroke({ ...g.ink, pts: g.points });
+    else if (g.points.length) {
+      // A pen's average pressure sets the stroke weight (light touch thinner, pressing harder thicker).
+      const pressure = g.pressures.length ? g.pressures.reduce((a, b) => a + b, 0) / g.pressures.length : undefined;
+      const width = pressure && g.ink.width ? Math.round(g.ink.width * (0.55 + pressure * 0.9) * 10) / 10 : g.ink.width;
+      onStroke({ ...g.ink, width, pts: g.points });
+    }
   };
 
   const canvasPoint = (x: number, y: number): Point | undefined => {
@@ -405,7 +434,8 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
     return [(x - bounds.left) / bounds.width, (y - bounds.top) / bounds.height];
   };
   const saveDraft = () => {
-    const content = draft?.content.trim();
+    // Equations are saved as TeX, converted from what was typed (x^2, a/b) so they look as they did in the preview.
+    const content = placement === "equation" ? mathInputToTex(draft?.content ?? "") : draft?.content.trim();
     if (placement && draft && content) onPlace?.(placement, content, draft.position);
     else onCancelPlacement?.();
   };
@@ -458,6 +488,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
     if (commit && drag.position) onMoveBlock?.(drag.id, drag.position);
   };
 
+  const isShape = (kind: BlockKind) => kind === "rectangle" || kind === "circle" || kind === "diamond" || kind === "arrow";
   const renderBlock = (b: Block) => {
     const resize = resizing?.id === b.id ? resizing : undefined;
     const location = resize?.position ?? (moving?.id === b.id ? moving.position : b.position);
@@ -479,7 +510,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
     const selected = selectedIds.includes(b.id) || (!placement && !active && selectedSticky === b.id);
     return <div key={b.id} data-block-id={b.id} role="button" tabIndex={0} aria-pressed={selected}
       data-kind={b.kind} data-motion={motion[b.id]} data-moving={moving?.id === b.id ? "" : undefined}
-      aria-label={`${b.kind === "equation" ? "Equation" : "Note"}: ${b.content}`}
+      aria-label={b.kind === "equation" ? equationName(b.content) : `Note: ${b.content}`}
       style={{ width: reflow ? resize?.size ?? b.textWidth : undefined, ...(location && (b.position ? { left: `${location[0] * 100}%`, top: `${location[1] * 100}%` } : {
         transform: `translate(${(location[0] - (origin?.[0] ?? location[0])) * width}px, ${(location[1] - (origin?.[1] ?? location[1])) * height}px)`,
       })) }}
@@ -540,11 +571,52 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
             toolbarAbove={((location?.[1] ?? 0) * displayZoom - viewY) * height > 60}
             onCommit={(content, runs) => { onEditText?.(b.id, content, runs); setEditingText(undefined); }} /> :
           <div className="whitespace-pre-wrap break-words leading-snug"><BoardText content={b.content} runs={b.textRuns} /></div>}
-      </div> : <div style={{ zoom: (resize?.size ?? size) / 100 }}>{stickyEditing ?
-        <StickyEditor content={b.content} style={b.stickyStyle} onCancel={() => setEditingSticky(undefined)}
+      </div> : <div style={{ zoom: resize?.box ? 1 : (resize?.size ?? size) / 100 }}>{stickyEditing ?
+        <StickyEditor content={b.content} style={b.stickyStyle} size={b.shapeSize} onCancel={() => setEditingSticky(undefined)}
           onCommit={(content) => { onEditSticky?.(b.id, { content }); setEditingSticky(undefined); }} /> :
-        <BoardObject kind={b.kind} content={b.content} stickyStyle={b.stickyStyle} shapeSize={b.shapeSize} />}</div>}
-      {editable && selected && !editing && !connectorMode && onResizeBlock && resizeCorners.map(([label, sx, sy, classes]) => <button key={label} type="button"
+        <BoardObject kind={b.kind} content={b.content} stickyStyle={b.stickyStyle} shapeSize={resize?.box ?? b.shapeSize} color={b.shapeColor} />}</div>}
+      {editable && selected && !editing && !connectorMode && onResizeBlock && isBoxed(b.kind) && boxHandles.map(([label, sx, sy, classes]) => <button key={label} type="button"
+        aria-label={`${label} resize handle`} className={`absolute z-20 touch-none border-2 border-sky bg-white after:absolute after:-inset-2 after:content-[''] ${classes}`}
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          if (!event.isPrimary || event.button !== 0 || !width || !height) return;
+          const rect = event.currentTarget.parentElement!.getBoundingClientRect();
+          const origin = b.position ?? canvasPoint(rect.left, rect.top);
+          if (!origin) return;
+          try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* pointer already gone */ }
+          boxDrag.current = { pointer: event.pointerId, sx, sy, start: [event.clientX, event.clientY], origin, w0: rect.width / displayZoom, h0: rect.height / displayZoom };
+        }}
+        onPointerMove={(event) => {
+          const drag = boxDrag.current;
+          if (!drag || drag.pointer !== event.pointerId) return;
+          const minW = b.kind === "sticky" ? 72 : 24, minH = b.kind === "sticky" ? 48 : 24;
+          let w = drag.w0 + drag.sx * (event.clientX - drag.start[0]) / displayZoom;
+          let h = drag.h0 + drag.sy * (event.clientY - drag.start[1]) / displayZoom;
+          if (event.shiftKey && drag.sx && drag.sy) { const k = Math.max(w / drag.w0, h / drag.h0); w = drag.w0 * k; h = drag.h0 * k; }
+          w = Math.round(Math.max(minW, Math.min(width * .95, w)));
+          h = Math.round(Math.max(minH, Math.min(height * .95, h)));
+          const position: Point = [drag.origin[0] + (drag.sx < 0 ? (drag.w0 - w) / width : 0), drag.origin[1] + (drag.sy < 0 ? (drag.h0 - h) / height : 0)];
+          drag.next = { box: { width: w, height: h }, position };
+          setResizing({ id: b.id, size: 100, position, box: drag.next.box });
+        }}
+        onPointerUp={(event) => {
+          const drag = boxDrag.current;
+          if (drag?.pointer !== event.pointerId) return;
+          boxDrag.current = undefined;
+          setResizing(undefined);
+          if (drag.next) onResizeBlock(b.id, { shapeSize: drag.next.box, scale: 1, position: drag.next.position });
+        }}
+        onLostPointerCapture={() => { boxDrag.current = undefined; setResizing(undefined); }}
+        onKeyDown={(event) => {
+          const step = { ArrowRight: [10, 0], ArrowLeft: [-10, 0], ArrowDown: [0, 10], ArrowUp: [0, -10] }[event.key];
+          if (!step) return;
+          event.preventDefault();
+          const rect = event.currentTarget.parentElement!.getBoundingClientRect();
+          const w = rect.width / displayZoom + (sx ? step[0] : 0), h = rect.height / displayZoom + (sy ? step[1] : 0);
+          onResizeBlock(b.id, { shapeSize: { width: Math.round(Math.max(24, w)), height: Math.round(Math.max(24, h)) }, scale: 1 });
+        }} />)}
+      {editable && selected && !editing && !connectorMode && onResizeBlock && !isBoxed(b.kind) && resizeCorners.map(([label, sx, sy, classes]) => <button key={label} type="button"
         aria-label={`${label} resize handle`} className={`absolute z-20 size-3 touch-none rounded-full border-2 border-sky bg-white after:absolute after:-inset-2 after:content-[''] ${classes}`}
         onClick={(event) => event.stopPropagation()}
         onPointerDown={(event) => {
@@ -585,12 +657,14 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
           const current = reflow ? event.currentTarget.parentElement!.getBoundingClientRect().width / displayZoom : size;
           commitSize(clampSize(current + (event.key === "ArrowUp" || event.key === "ArrowRight" ? 1 : -1) * (type && !reflow ? 2 : 10)));
         }} />)}
-      {b.kind === "sticky" && editable && selected && !editing && onEditSticky && <div className="board-pop absolute left-0 top-full z-10 min-w-64">
+      {b.kind === "sticky" && editable && selected && !editing && onEditSticky && <div className="object-toolbar-anchor board-pop">
         <StickyTools style={b.stickyStyle}
         onChange={(stickyStyle) => onEditSticky(b.id, { stickyStyle })}
         onEdit={() => setEditingSticky(b.id)}
-        onDuplicate={() => onDuplicateSticky?.(b)} /></div>}
-      {editable && onMoveBlock && !editing && <button type="button" aria-label="Delete note" className="absolute bottom-full left-1/2 mb-1 grid size-6 -translate-x-1/2 place-items-center rounded-full border border-stone bg-eggshell opacity-0 focus:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
+        onDuplicate={() => onDuplicateSticky?.(b)} onDelete={() => deleteObject(b.id)} /></div>}
+      {isShape(b.kind) && editable && selected && !editing && onEditSticky && <div className="object-toolbar-anchor board-pop">
+        <ShapeTools kind={b.kind} color={b.shapeColor} onChange={(shapeColor) => onEditSticky(b.id, { shapeColor })} onDelete={() => deleteObject(b.id)} /></div>}
+      {editable && onMoveBlock && !editing && !((b.kind === "sticky" || isShape(b.kind)) && selected && onEditSticky) && <button type="button" aria-label="Delete note" className="absolute bottom-full left-1/2 mb-1 grid size-6 -translate-x-1/2 place-items-center rounded-full border border-stone bg-eggshell opacity-0 focus:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
         onClick={(event) => { event.stopPropagation(); deleteObject(b.id); }}>×</button>}
     </div>;
   };
@@ -608,7 +682,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
 
   return (
     <div ref={boardRef} className={slide ? "relative shrink-0 self-center bg-white" : "relative min-h-[360px] flex-1 lg:min-h-[420px]"}
-      style={slide ? { aspectRatio: slide.aspect, width: `min(100%, ${slide.aspect * 64}dvh)` } : undefined}>
+      style={slide ? { aspectRatio: slide.aspect, width: `min(100%, calc(${slide.maxHeight ?? "64dvh"} * ${slide.aspect}))` } : undefined}>
       <div className={slide ? "absolute inset-0 overflow-hidden" : "notebook-board notebook-board-blank absolute inset-0 overflow-hidden rounded-[18px] border border-stone"}
         style={slide ? undefined : {
           backgroundPosition: `${-targetX}px ${-targetY}px`,
@@ -647,7 +721,9 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
           onPointerDownCapture={touchDown} onPointerMoveCapture={touchMove}
           onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd} onLostPointerCapture={(e) => { touchEnd(e); finishInk(e, false); finishShape(e, false); }}
           onPointerDown={(e) => {
+            if (e.pointerType === "pen") penSeen.current = true;
             if (!e.isPrimary || e.button !== 0 || (e.pointerType === "touch" && pinch.current)) return;
+            if (e.pointerType === "touch" && penSeen.current && active) return;
             if (shapeTool) {
               const start = canvasPoint(e.clientX, e.clientY);
               if (!start) return;
@@ -667,7 +743,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
             }
             // A new primary press can recover a gesture whose release was interrupted.
             e.currentTarget.setPointerCapture(e.pointerId);
-            gesture.current = { id: e.pointerId, tool, ink, points: [], erased: new Set() };
+            gesture.current = { id: e.pointerId, tool, ink, points: [], erased: new Set(), pressures: [] };
             setLive(null);
             setErased(new Set());
             moveInk(e);
@@ -737,6 +813,10 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
               transform: `translate(${draft.position[0] * displayZoom - viewX > .65 ? "-100%" : "0"}, ${draft.position[1] * displayZoom - viewY > .8 ? "-100%" : "0"})` }}
             onSubmit={(event) => { event.preventDefault(); saveDraft(); }}
             onKeyDown={(event) => { if (event.key === "Escape" && !event.nativeEvent.isComposing) { event.stopPropagation(); onCancelPlacement?.(); } }}>
+            {placement === "equation" && <div className="eq-live" aria-live="polite">
+              {draft.content.trim() ? <MathView tex={mathInputToTex(draft.content)} display={false} />
+                : <span className="eq-live-hint">x^2 for powers · a/b for fractions · sqrt(x)</span>}
+            </div>}
             <input autoFocus aria-label={placement === "equation" ? "Equation" : "Note text"}
               className="input !min-h-8 min-w-0 max-w-full [field-sizing:content]" size={Math.max(12, Math.min(40, draft.content.length))}
               placeholder={placement === "equation" ? "Type an equation…" : "Type a note…"} value={draft.content}
@@ -756,28 +836,30 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
         </div>
         </div>
         </div>
-        {snipActive && (
-          <div ref={snipLayer} tabIndex={-1} className="absolute inset-0 z-20 cursor-crosshair bg-black/5" style={{ touchAction: "none" }} aria-label="Drag to draw a box around what you want explained"
-            onPointerDown={(e) => {
-              if (!e.isPrimary || e.button !== 0 || !boardRef.current) return;
-              const b = boardRef.current.getBoundingClientRect();
-              const x = e.clientX - b.left, y = e.clientY - b.top;
-              e.currentTarget.setPointerCapture(e.pointerId);
-              setDrag({ pointer: e.pointerId, x0: x, y0: y, x1: x, y1: y });
-            }}
-            onPointerMove={(e) => {
-              if (drag?.pointer !== e.pointerId || !boardRef.current) return;
-              const b = boardRef.current.getBoundingClientRect();
-              setDrag({ ...drag, x1: e.clientX - b.left, y1: e.clientY - b.top });
-            }}
-            onPointerCancel={(e) => { if (drag?.pointer === e.pointerId) setDrag(null); }}
-            onLostPointerCapture={(e) => { if (drag?.pointer === e.pointerId) setDrag(null); }}
-            onPointerUp={finishSnip} onKeyDown={(e) => e.key === "Escape" && onSnip(null)}>
-            {drag && <div className="absolute rounded-lg border-2 border-sky bg-sky/15" style={{ left: Math.min(drag.x0, drag.x1), top: Math.min(drag.y0, drag.y1), width: Math.abs(drag.x1 - drag.x0), height: Math.abs(drag.y1 - drag.y0) }} />}
-            {!drag && <p className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded-full bg-ink px-4 py-2 text-sm text-white">Drag a box around what you want explained</p>}
-          </div>
-        )}
       </div>
+      {snipActive && (
+        // The snip layer reaches a little past the board so ink right at the edge can be boxed; the box is clamped to the board.
+        <div ref={snipLayer} tabIndex={-1} className="absolute -inset-3 z-30 cursor-crosshair" style={{ touchAction: "none" }} aria-label="Drag to draw a box around what you want explained"
+          onPointerDown={(e) => {
+            if (!e.isPrimary || e.button !== 0 || !boardRef.current) return;
+            const b = boardRef.current.getBoundingClientRect();
+            const x = clampTo(e.clientX - b.left, b.width), y = clampTo(e.clientY - b.top, b.height);
+            e.currentTarget.setPointerCapture(e.pointerId);
+            setDrag({ pointer: e.pointerId, x0: x, y0: y, x1: x, y1: y });
+          }}
+          onPointerMove={(e) => {
+            if (drag?.pointer !== e.pointerId || !boardRef.current) return;
+            const b = boardRef.current.getBoundingClientRect();
+            setDrag({ ...drag, x1: clampTo(e.clientX - b.left, b.width), y1: clampTo(e.clientY - b.top, b.height) });
+          }}
+          onPointerCancel={(e) => { if (drag?.pointer === e.pointerId) setDrag(null); }}
+          onLostPointerCapture={(e) => { if (drag?.pointer === e.pointerId) setDrag(null); }}
+          onPointerUp={finishSnip} onKeyDown={(e) => e.key === "Escape" && onSnip(null)}>
+          <div className="pointer-events-none absolute inset-3 rounded-[18px] bg-black/5">
+            {drag && <div className="snip-box absolute rounded-lg border-2 border-sky bg-sky/15" style={{ left: Math.min(drag.x0, drag.x1), top: Math.min(drag.y0, drag.y1), width: Math.abs(drag.x1 - drag.x0), height: Math.abs(drag.y1 - drag.y0) }} />}
+          </div>
+        </div>
+      )}
       {children}
     </div>
   );

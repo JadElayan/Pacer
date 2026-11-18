@@ -6,7 +6,7 @@ export interface Row { key: string; label: string; topic: string; asks: number; 
 
 export function computeRows(state: RoomState, events: FeedbackEvent[]) {
   const by = new Map<string, FeedbackEvent[]>();
-  events.filter((e) => e.kind !== "answer").forEach((e) => { const k = e.blockId ?? e.topicId ?? "?"; by.set(k, [...(by.get(k) ?? []), e]); });
+  events.filter((e) => e.kind !== "answer" && e.kind !== "blocked").forEach((e) => { const k = e.blockId ?? e.topicId ?? "?"; by.set(k, [...(by.get(k) ?? []), e]); });
   const rows: Row[] = []; const helpSet = new Set<string>();
   by.forEach((evs, key) => {
     const b = state.blocks.find((x) => x.id === key); const tp = state.topics.find((x) => x.id === (b?.topicId ?? key));

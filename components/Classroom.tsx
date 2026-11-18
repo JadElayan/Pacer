@@ -1,17 +1,19 @@
 "use client";
 import { ChoiceMenu } from "./ChoiceMenu";
 import { AnimatedPanel } from "./AnimatedPanel";
-import { Collapse, SegmentedControl, ToolGroup, useFlip } from "./Motion";
+import { Collapse, SegmentedControl, ToolGroup, runViewTransition, useFlip } from "./Motion";
 import { BoardShare } from "./BoardShare";
+import { LiquidSwatches } from "./LiquidSwatches";
 import { CopyLinkButton } from "./CopyLinkButton";
 import { TeacherSlidePreviews } from "./TeacherSlidePreviews";
 import { Notebook, plainNote } from "./Notebook";
 import { GENERAL_NOTES, useTopicNotes } from "@/lib/useTopicNotes";
 import { privateNoteKey } from "@/lib/privateNoteKey";
 import { boardRpc, useBoardCollaboration, usePrivateAnnotations } from "@/lib/useBoardCollaboration";
+import { publishAiState } from "@/lib/aiPause";
+import { planCheckins, savePlan, savedPlan, setSuggestionsEnabled, suggestionsEnabled, type CheckinPlan } from "@/lib/checkins";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { flushSync } from "react-dom";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { askAI } from "@/lib/ai";
@@ -29,6 +31,8 @@ import { mergeProfiles, pullLearning, pushProfile } from "@/lib/cloudProfile";
 import { useAuth } from "@/lib/useAuth";
 import { loadLessons, pushLesson, saveLesson } from "@/lib/lessons";
 import { ArchiveSheet } from "./ArchiveSheet";
+import { Sheet } from "./Sheet";
+import { SplitBoards } from "./SplitBoards";
 import { PostClassSheet } from "./PostClassSheet";
 import { track, trackOnce } from "@/lib/track";
 import { Logo } from "./Logo";
@@ -39,6 +43,7 @@ import { Anchor, BoardTool, handwritingImage, Whiteboard } from "./Whiteboard";
 import { BoardToolIcon } from "./BoardToolIcon";
 import { BoardObjects } from "./BoardObjects";
 import { saveLecture } from "@/lib/savedLectures";
+import { cleanClip } from "@/lib/clipImage";
 import { captureSlide, publishSlide, slideUrl, type LocalSlide } from "@/lib/slides";
 import { importLecture, lectureFormats, recoverDeck, rememberDeck } from "@/lib/importLecture";
 import { backUpSlide, restoreSlide, saveTeacherRoom, shareStoredSlide, teacherStorageEnabled } from "@/lib/teacherStorage";
@@ -50,6 +55,9 @@ const HIGHLIGHT_COLORS = [
   ["Yellow", "#facc15"], ["Blue", "#38bdf8"], ["Pink", "#f472b6"], ["Green", "#4ade80"],
 ];
 const BOARD_TOOLS: [BoardTool, string][] = [["select", "Select"], ["pen", "Pen"], ["highlight", "Highlight"], ["erase", "Eraser"]];
+
+/** Least time between automatic AI calls of one kind for one topic (each one costs credits). */
+const AUTO_COOLDOWN = 20_000;
 
 export function Classroom({ code, review }: { code: string; review?: {
   state: RoomState; surface?: string; slideSrc?: string; controls: React.ReactNode;
@@ -81,20 +89,11 @@ export function Classroom({ code, review }: { code: string; review?: {
   useLayoutEffect(() => {
     if (wantView.slides === shownView.slides && wantView.split === shownView.split) return;
     const next = { ...wantView };
-    const doc = document as Document & { startViewTransition?: (update: () => void | Promise<void>) => unknown };
-    if (!doc.startViewTransition || prefs.reduceMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setShownView(next);
-      return;
-    }
-    document.documentElement.setAttribute("data-view-transition", "");
-    const transition = doc.startViewTransition(async () => {
-      flushSync(() => setShownView(next));
+    runViewTransition(() => setShownView(next), {
+      reduced: prefs.reduceMotion,
       // Wait (briefly) for the slide image in the new layout, so the animation doesn't show it blank.
-      const images = [...document.querySelectorAll<HTMLImageElement>('main img[alt="Lecture slide"]')];
-      await Promise.race([Promise.allSettled(images.map((image) => image.decode())), new Promise((done) => setTimeout(done, 250))]);
-    }) as { finished?: Promise<void> } | undefined;
-    const done = () => window.setTimeout(() => document.documentElement.removeAttribute("data-view-transition"), 50);
-    if (transition?.finished) transition.finished.then(done, done); else done();
+      settle: () => Promise.allSettled([...document.querySelectorAll<HTMLImageElement>('main img[alt="Lecture slide"]')].map((image) => image.decode())),
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantView.slides, wantView.split]);
   const slidePage = shownView.slides && slideNumber ? deck?.pages[slideNumber] : undefined;
@@ -123,6 +122,22 @@ export function Classroom({ code, review }: { code: string; review?: {
   }, [code, user?.id]);
   const topicNotes = useTopicNotes(studentNotesKey, syncedNotes);
   const [mobilePane, setMobilePane] = useState<"board" | "notes">("board");
+  // Students can hide their notebook on laptops to give the board the full width; the choice is remembered.
+  const [notesOpen, setNotesOpen] = useState(true);
+  useEffect(() => { try { setNotesOpen(localStorage.getItem("pacer:notes-open") !== "0"); } catch { /* keep open */ } }, []);
+  // Focus mode: hide everything but the board and its tools (button, F key; Esc or the pill to leave).
+  const [focusMode, setFocusMode] = useState(false);
+  useEffect(() => {
+    const keys = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest("input, textarea, select, [contenteditable=true], [contenteditable='']")) return;
+      if (event.key === "Escape" && focusMode) setFocusMode(false);
+      else if ((event.key === "f" || event.key === "F") && !event.metaKey && !event.ctrlKey && !event.altKey) setFocusMode((on) => !on);
+    };
+    window.addEventListener("keydown", keys);
+    return () => window.removeEventListener("keydown", keys);
+  }, [focusMode]);
+  const toggleNotes = () => setNotesOpen((open) => { try { localStorage.setItem("pacer:notes-open", open ? "0" : "1"); } catch { /* ignore */ } return !open; });
   const checkInKey = `pacer:check-in:${code}:${user?.id ?? "guest"}:${state?.question?.id}`;
   useEffect(() => { setAnchor(null); setSnip(false); setPlacement(undefined); setConnectorMode(false); }, [slidePage?.id, review?.surface]);
 
@@ -157,7 +172,15 @@ export function Classroom({ code, review }: { code: string; review?: {
       mutate((s) => ({ ...s, ...(privateSlidePages ? { privateSlidePages } : {}), showSlides: true, slides: {
         ...base, ink: !file && s.slides?.id === base.id ? s.slides.ink : base.ink,
         access, current: pageNumber, pages, presented: [...new Set([...base.presented, pageNumber])],
+        // Presenting a slide the teacher hid shows it again.
+        hidden: (!file && s.slides?.id === base.id ? s.slides.hidden : base.hidden)?.filter((n) => n !== pageNumber),
       } }));
+      // One AI read of the new deck for check-in ideas (saved per deck, so reopening is free).
+      if (imported && suggestionsEnabled()) {
+        setCheckinBusy(true);
+        void planCheckins(base.id, imported.map((page, i) => ({ number: i + 1, text: page.text })))
+          .then((plan) => setCheckinPlan(plan && { ...plan, deckId: base.id })).catch(() => {}).finally(() => setCheckinBusy(false));
+      }
       if (imported && teacherStorageEnabled && userId) {
         setTeacherStorageError("");
         void (async () => {
@@ -196,6 +219,9 @@ export function Classroom({ code, review }: { code: string; review?: {
   const [snip, setSnip] = useState(false);
   const [tool, setTool] = useState<BoardTool>("select");
   const [insertPanel, setInsertPanel] = useState<"shapes" | "templates">();
+  // Where the Shapes / Templates button was, so the panel opens beside it instead of at the top of the page.
+  const [insertAnchor, setInsertAnchor] = useState<{ top: number; left: number; right: number; bottom: number }>();
+  const anchorInsert = (event: React.MouseEvent<HTMLElement>) => { const box = event.currentTarget.getBoundingClientRect(); setInsertAnchor({ top: box.top, left: box.left, right: box.right, bottom: box.bottom }); };
   const uploadInput = useRef<HTMLInputElement>(null);
   const [browsedTopicId, setBrowsedTopicId] = useState<string | null>(null);
   const [studentView, setStudentView] = useState<{ zoom: number; position?: [number, number] }>({ zoom: 1 });
@@ -215,6 +241,9 @@ export function Classroom({ code, review }: { code: string; review?: {
   const inkHistory = useRef<{ undo: Partial<Pick<RoomState, "blocks" | "strokes">>[]; redo: Partial<Pick<RoomState, "blocks" | "strokes">>[] }>({ undo: [], redo: [] });
   const [placement, setPlacement] = useState<Exclude<BlockKind, "connector">>();
   const [showInsights, setShowInsights] = useState(false);
+  const [viewTransitions, setViewTransitions] = useState(false);
+  useEffect(() => { setViewTransitions("startViewTransition" in document); }, []);
+  const toggleInsights = (open: boolean) => runViewTransition(() => setShowInsights(open), { reduced: prefs.reduceMotion });
   const [showFinish, setShowFinish] = useState(false);
   const [showRecap, setShowRecap] = useState(false);
   const [savingLecture, setSavingLecture] = useState(false);
@@ -376,6 +405,49 @@ export function Classroom({ code, review }: { code: string; review?: {
   const topics = (state?.topics ?? []).filter((t) => !focus || t.id === live);
   const roleQ = isTeacher ? "?role=teacher" : "";
   const inkTool = tool === "highlight" ? "highlight" : "pen";
+  // Teacher-controlled AI pause: on by choice, and automatically while a check-in is open (unless turned off).
+  const aiOff = !!state?.aiPaused || (state?.aiAutoPause !== false && !!state?.question?.open);
+  const askRoomAI = (body: Parameters<typeof askAI>[0]) => askAI({ ...body, room: code });
+  const [aiNotice, setAiNotice] = useState("");
+  useEffect(() => { if (!aiNotice) return; const t = window.setTimeout(() => setAiNotice(""), 3200); return () => window.clearTimeout(t); }, [aiNotice]);
+  /** A student tried something that uses AI while it's paused: say so, and count it (anonymously) for the teacher. */
+  const blockedAI = () => { setAiNotice("Your teacher has paused AI help for now. Clip and your notes still work."); sendEvent("blocked", null, live); };
+  // The teacher's browser signs each pause change so the AI route can enforce it (lib/aiPause.ts).
+  const publishedAi = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (!isTeacher || review || !state || publishedAi.current === aiOff) return;
+    publishedAi.current = aiOff;
+    void publishAiState(code, aiOff).catch(() => {});
+  }, [isTeacher, review, aiOff, code, !!state]);
+  // Students: when AI pauses, close any open answer and leave snip (Clip keeps working).
+  useEffect(() => {
+    if (isTeacher || !aiOff) return;
+    setAnchor(null);
+    if (!clipModeRef.current) setSnip(false);
+  }, [aiOff, isTeacher]);
+  // Check-in suggestions from the uploaded deck (teacher only, kept in this browser: lib/checkins.ts).
+  const [checkinPlan, setCheckinPlan] = useState<(CheckinPlan & { deckId: string }) | null>(null);
+  const [checkinBusy, setCheckinBusy] = useState(false);
+  const [suggestOn, setSuggestOn] = useState(true);
+  useEffect(() => { setSuggestOn(suggestionsEnabled()); }, []);
+  useEffect(() => {
+    if (!isTeacher || !deck) { setCheckinPlan(null); return; }
+    const plan = savedPlan(deck.id);
+    setCheckinPlan(plan && { ...plan, deckId: deck.id });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTeacher, deck?.id]);
+  // A suggestion shows only while its own slide is on screen, and goes away once asked or skipped.
+  const offered = suggestOn && state?.showSlides && deck && checkinPlan && !checkinPlan.done.includes(deck.current)
+    ? checkinPlan.suggestions.find((item) => item.slide === deck.current) : undefined;
+  const finishCheckin = (slide: number) => {
+    setCheckinPlan((plan) => {
+      if (!plan) return plan;
+      const next = { ...plan, done: [...new Set([...plan.done, slide])] };
+      savePlan(plan.deckId, next);
+      return next;
+    });
+  };
+  const blockedEvents = events.filter((event) => event.kind === "blocked" && (!state?.question || event.ts >= (state.question.ts ?? 0))).length;
   const boardHasContent = !!(state?.blocks.some((block) => !block.surface) || state?.strokes.length);
   const layout: "slides" | "board" | "split" = !slidePage ? "board" : split ? "split" : "slides";
   // The switch moves at once; the board follows with its animation.
@@ -424,13 +496,16 @@ export function Classroom({ code, review }: { code: string; review?: {
       if (!s || s.ended || !current?.auto || s.blocks.some((block) => block.topicId === topic.id) || !s.slides) return;
       const texts = (current.slides?.pages ?? []).map((n) => (s.slides?.pages[n]?.text ?? s.privateSlidePages?.[n]?.text ?? "").trim().slice(0, 600)).filter(Boolean);
       if (!texts.length) return;
+      const sig = texts.join("\u0001");
+      if (autoDue(`slides:${topic.id}`, sig).skip) return;
+      markAuto(`slides:${topic.id}`, sig);
       try {
         const r = await askAI({ kind: "summarize", selected: texts, context: [], topicTitle: current.title, mode: "standard" });
         if (!r.title && !r.summary) return;
         mutate((st) => ({ ...st, topics: st.topics.map((t) => t.id === topic.id && t.auto && !st.blocks.some((block) => block.topicId === t.id)
           ? { ...t, title: r.title || t.title, summary: r.summary ?? t.summary } : t) }));
       } catch { /* keep the slide numbers as the description */ }
-    }, 1500);
+    }, 2500);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isTeacher, review, state?.showSlides, state?.ended, state?.currentTopicId, state?.topics, deck?.id, deck?.current, deck?.pages]);
   useEffect(() => () => clearTimeout(slideSummaryTimer.current), []);
@@ -460,7 +535,16 @@ export function Classroom({ code, review }: { code: string; review?: {
     setChooseBoard(false);
   };
 
-  const scheduleSummary = useCallback((topicId: string) => {
+  // Automatic AI calls cost credits on every note, so they wait for a pause, run at most every AUTO_COOLDOWN per
+  // topic, and skip when nothing they would read has changed.
+  const lastAuto = useRef<Record<string, { at: number; sig: string }>>({});
+  const autoDue = (slot: string, sig: string) => {
+    const last = lastAuto.current[slot];
+    if (last?.sig === sig) return { skip: true, wait: 0 };
+    return { skip: false, wait: last ? Math.max(0, last.at + AUTO_COOLDOWN - Date.now()) : 0 };
+  };
+  const markAuto = (slot: string, sig: string) => { lastAuto.current[slot] = { at: Date.now(), sig }; };
+  const scheduleSummary = useCallback((topicId: string, delay = 3000) => {
     clearTimeout(sumTimers.current[topicId]);
     sumTimers.current[topicId] = setTimeout(async () => {
       const s = getState(); const tp = s?.topics.find((t) => t.id === topicId);
@@ -468,6 +552,11 @@ export function Classroom({ code, review }: { code: string; review?: {
       const notes = s.blocks.filter((b) => b.topicId === topicId);
       const latest = notes.at(-1);
       if (!latest) return;
+      const sig = notes.slice(-12).map((b) => b.content.trim()).join("\u0001");
+      const due = autoDue(`notes:${topicId}`, sig);
+      if (due.skip) return;
+      if (due.wait) { scheduleSummary(topicId, due.wait); return; }
+      markAuto(`notes:${topicId}`, sig);
       try {
         const r = await askAI({ kind: "summarize", selected: notes.slice(-12).map((b) => b.content), context: notes.slice(-9, -1).map((b) => b.content), topicTitle: tp.title, mode: "standard" });
         const title = r.title;
@@ -485,7 +574,8 @@ export function Classroom({ code, review }: { code: string; review?: {
           return { ...st, topics: st.topics.map((t) => t.id === topicId ? { ...t, title, summary: r.summary ?? "" } : t) };
         });
       } catch { /* keep placeholder */ }
-    }, 1500);
+    }, delay);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getState, mutate]);
 
   const rememberBlocks = (current: RoomState) => {
@@ -556,13 +646,19 @@ export function Classroom({ code, review }: { code: string; review?: {
     if (drawing.opacity !== undefined) return;
     clearTimeout(inkTimer.current);
     const topicId = getState()?.currentTopicId;
-    inkTimer.current = setTimeout(async () => {
+    const readInk = async () => {
       const s = getState();
       if (!s || s.ended || s.currentTopicId !== topicId || s.strokes.filter((item) => item.opacity === undefined).at(-1)?.id !== stroke.id) return;
       const topic = s.topics.find((t) => t.id === topicId);
       const savedInk = new Set(s.topics.flatMap((item) => item.strokeIds ?? []));
       const prior = s.strokes.findLastIndex((item) => item.id === reviewedInk.current || savedInk.has(item.id));
       const ink = s.strokes.slice(prior + 1).filter((item) => item.opacity === undefined);
+      // A tick, an arrow or an underline isn't worth an image read: wait for enough new writing.
+      if (ink.length < 3 && ink.reduce((n, item) => n + item.pts.length, 0) < 60) return;
+      const due = autoDue(`ink:${topicId}`, ink.map((item) => item.id).join(","));
+      if (due.skip) return;
+      if (due.wait) { inkTimer.current = setTimeout(() => void readInk(), due.wait); return; }
+      markAuto(`ink:${topicId}`, ink.map((item) => item.id).join(","));
       const width = boardRef.current?.clientWidth ?? 0;
       const height = boardRef.current?.clientHeight ?? 0;
       const image = handwritingImage(ink, width, height);
@@ -590,7 +686,8 @@ export function Classroom({ code, review }: { code: string; review?: {
           } : t) };
         });
       } catch { /* Keep the ink on the board when the AI provider is unavailable. */ }
-    }, 4500);
+    };
+    inkTimer.current = setTimeout(() => void readInk(), 6000);
   };
 
   // ---- student: private learning profile (this device only) ----
@@ -651,17 +748,18 @@ export function Classroom({ code, review }: { code: string; review?: {
   // ---- student: AI ----
   const selectedBlocks = (a: Anchor | null) => (a ? blocks.filter((b) => a.ids.includes(b.id)) : []);
   const ask = async (a: Anchor, k: AIKind, question?: string, guided?: boolean) => {
-    track(a.source === "snip" ? "snip" : "ask", "student", code);
     if (!state) return;
+    if (aiOff) { blockedAI(); return; }
+    track(a.source === "snip" ? "snip" : "ask", "student", code);
     const sel = selectedBlocks(a); const tp = state.topics.find((t) => t.id === sel[0]?.topicId);
-    const label: Record<AIKind, string> = { explain: "Explain this", why: "Why this step?", simplify: "Simplify", example: "Give an example", snip: "Explain in depth", followup: question ?? "", another: "Try another explanation", deeper: "More depth", catchup: "", summarize: "", clarify: "", graph: "Graph it", visual: "Visualize it", quiz: "Quiz me", recap: "" };
+    const label: Record<AIKind, string> = { explain: "Explain this", why: "Why this step?", simplify: "Simplify", example: "Give an example", snip: "Explain in depth", followup: question ?? "", another: "Try another explanation", deeper: "More depth", catchup: "", summarize: "", clarify: "", graph: "Graph it", visual: "Visualize it", quiz: "Quiz me", recap: "", checkins: "" };
     const history = msgs.slice(-6).filter((m) => m.text.trim()).map((m) => ({ role: m.role, text: m.text })).filter((m, i, arr) => !(i === 0 && m.role === "assistant" && arr.length > 0));
     setMsgs((m) => [...m, { role: "user", text: guided ? "Step by step" : label[k] }]); setLoading(true); setError(""); setFed("");
     sendEvent("ask", sel[0]?.id ?? null, sel[0]?.topicId ?? null); rec("asks");
     recordStudy({ id: uid(), lecture: state.title, topic: tp?.title ?? state.topics.find((t) => t.id === live)?.title ?? state.title,
       question: question?.trim() || (guided ? "Step by step" : label[k]), ts: Date.now() });
     try {
-      const r = await askAI({ kind: k, selected: a.slideText ? a.slideText.match(/[\s\S]{1,550}/g) ?? [] : sel.map((b) => b.content),
+      const r = await askRoomAI({ kind: k, selected: a.slideText ? a.slideText.match(/[\s\S]{1,550}/g) ?? [] : sel.map((b) => b.content),
         context: a.slideTitle ? [] : state.blocks.map((b) => b.content), topicTitle: a.slideTitle ?? tp?.title ?? a.topicTitle, mode: guided ? "guided" : prefs.mode, question, history, image: a.image, slide: !!a.slideTitle });
       const view = (k === "graph" || k === "visual" || k === "quiz") && r.data ? { type: k, data: r.data } : undefined;
       setMsgs((m) => [...m, { role: "assistant", text: r.text, source: r.source, view }]);
@@ -673,7 +771,8 @@ export function Classroom({ code, review }: { code: string; review?: {
     const first = blocks.find((b) => b.id === a.ids[0]); if (first) setLastViewed(first.topicId);
     if (auto && (a.ids.length || a.image)) void ask(a, auto);
   };
-  const askAboutSlide = (selection?: Anchor) => {
+  /** A picture of the slide (or the boxed part of it) with the teacher's ink and the student's own notes on it. */
+  const captureSlideArea = (selection?: Anchor) => {
     const element = (split ? slideRef : boardRef).current;
     const image = element?.querySelector<HTMLImageElement>('img[alt="Lecture slide"]');
     if (!element || !image || !slidePage) return;
@@ -683,8 +782,37 @@ export function Classroom({ code, review }: { code: string; review?: {
       left: (bounds.left + rect.left - media.left) / media.width, top: (bounds.top + rect.top - media.top) / media.height,
       right: (bounds.left + rect.right - media.left) / media.width, bottom: (bounds.top + rect.bottom - media.top) / media.height,
     };
-    const capture = captureSlide(image, slideInk, crop);
-    if (!capture) return;
+    const ownInk = !isTeacher ? privateNotes.data.strokes.filter((stroke) => stroke.surface === slidePage.id) : [];
+    return captureSlide(image, [...slideInk, ...ownInk], crop);
+  };
+  // Clip: copy part of the slide or board into the notebook, no AI involved (so it works even when AI is paused).
+  const [clipMode, setClipMode] = useState(false);
+  const clipModeRef = useRef(false);
+  clipModeRef.current = clipMode;
+  const [clipToast, setClipToast] = useState("");
+  useEffect(() => { if (!clipToast) return; const t = window.setTimeout(() => setClipToast(""), 2600); return () => window.clearTimeout(t); }, [clipToast]);
+  const saveClip = (selection: Anchor, onSlide: boolean) => {
+    setSnip(false); setClipMode(false);
+    if (onSlide && slidePage) {
+      const image = captureSlideArea(selection);
+      if (!image) { setClipToast("Couldn't copy that part of the slide."); return; }
+      const topicId = live ?? GENERAL_NOTES, label = `${deck?.name ?? "Slide"} · Slide ${slideNumber}`;
+      // Trim the empty margin so the clip is just what was boxed (no AI).
+      void cleanClip(image).then((clean) => topicNotes.addClip({ topicId, image: clean, label }));
+    } else {
+      const picked = state?.blocks.filter((block) => selection.ids.includes(block.id)) ?? [];
+      const text = picked.map((block) => block.content).join("\n");
+      if (!text && !selection.image) { setClipToast("Nothing to copy there. Draw the box around writing or a drawing."); return; }
+      const topicId = picked[0]?.topicId ?? live ?? GENERAL_NOTES;
+      if (selection.image) void cleanClip(selection.image).then((image) => topicNotes.addClip({ topicId, image, text, label: "From the board" }));
+      else topicNotes.addClip({ topicId, text, label: "From the board" });
+    }
+    setClipToast(notesOpen || mobilePane === "notes" ? "Copied to your notes" : "Copied to your notes. Show notes to see it.");
+  };
+  const askAboutSlide = (selection?: Anchor) => {
+    const capture = captureSlideArea(selection);
+    const rect = selection?.rect;
+    if (!capture || !slidePage) return;
     openAnchor({ ids: [], source: "snip", rect: rect ?? { left: 12, top: 12, right: 12, bottom: 12 },
       image: capture, slideText: slidePage.text, slideTitle: `${deck?.name} · Slide ${slideNumber}` });
   };
@@ -696,7 +824,7 @@ export function Classroom({ code, review }: { code: string; review?: {
       const topic = state.topics.find((t) => t.id === (sel?.topicId ?? live))?.title ?? state.title;
       const entry = { id: uid(), lecture: state.title, topic, ts: Date.now() };
       recordStudy(entry);
-      void askAI({ kind: "followup", topicTitle: topic, selected: selectedBlocks(anchor).map((b) => b.content),
+      if (!aiOff) void askRoomAI({ kind: "followup", topicTitle: topic, selected: selectedBlocks(anchor).map((b) => b.content),
         context: [], image: anchor.image, mode: "standard",
         question: "I marked this material as confusing. Based only on the selected content, suggest one specific concept and one short practice step to review. Do not assume what I misunderstood." })
         .then((r) => { if (r.source === "ai" && r.text.trim()) recordStudy({ ...entry, suggestion: r.text.trim() }); })
@@ -708,7 +836,8 @@ export function Classroom({ code, review }: { code: string; review?: {
   const notebookHelp = (kind: "lost" | "ask" | "catchup", topic: { id: string; title: string } | null) => {
     if (!state) return;
     const topicId = topic?.id ?? live;
-    if (kind === "catchup") { void openCatchup("short", topic?.id ?? null); return; }
+    if (kind === "catchup") { openCatchup(topic?.id ?? null); return; }
+    if (kind === "ask" && aiOff) { blockedAI(); return; }
     if (kind === "lost") {
       sendEvent("confused", null, topicId); rec("confused");
       recordStudy({ id: uid(), lecture: state.title, topic: topic?.title ?? state.title, ts: Date.now() });
@@ -725,23 +854,31 @@ export function Classroom({ code, review }: { code: string; review?: {
     return best && best[1] > 0 && best[0] !== prefs.mode ? `Based on your taps, ${best[0]} mode may suit you. (This is a preference score, not a measure of understanding.)` : "";
   })();
 
-  /** topicId: catch up on one topic; null: everything since the student last looked; undefined: same as the open catch-up. */
-  const openCatchup = async (detail: "short" | "long" = "short", topicId?: string | null) => {
-    if (!state) return; setCatchupLoading(true); setCatchupSaved(false);
-    const target = topicId === undefined ? catchupTopic : topicId;
-    setCatchupTopic(target);
+  /** Topics a catch-up covers. topicId: just that topic; null: everything since the student last looked. */
+  const catchupTopics = (topicId: string | null) => {
+    if (!state) return [];
+    const focused = topicId ? state.topics.filter((x) => x.id === topicId) : [];
     const idx = state.topics.findIndex((t) => t.id === lastViewed);
-    const focused = target ? state.topics.filter((x) => x.id === target) : [];
-    const t = (focused.length ? focused : state.topics.slice(idx + 1 || 0)).map((x) => ({ title: x.title, summary: x.summary }));
-    setCatchup((c) => c ?? { text: "", source: "demo" });
-    try { const r = await askAI({ kind: "catchup", selected: [], context: state.blocks.map((b) => b.content), topics: t.length ? t : state.topics.map((x) => ({ title: x.title, summary: x.summary })), mode: prefs.mode, detail }); setCatchup({ text: r.text, source: r.source }); }
+    const since = focused.length ? focused : state.topics.slice(idx + 1 || 0);
+    return since.length ? since : state.topics;
+  };
+  /** Opens the catch-up sheet with the topic list (free). The AI only runs from explainCatchup, when the student asks. */
+  const openCatchup = (topicId: string | null = null) => {
+    setCatchupTopic(topicId); setCatchupSaved(false); setCatchupLoading(false);
+    setCatchup({ text: "", source: "none" });
+  };
+  const explainCatchup = async (detail: "short" | "long" = "short") => {
+    if (!state) return; setCatchupLoading(true); setCatchupSaved(false);
+    const t = catchupTopics(catchupTopic).map((x) => ({ title: x.title, summary: x.summary }));
+    if (aiOff) { setCatchupLoading(false); blockedAI(); return; }
+    try { const r = await askRoomAI({ kind: "catchup", selected: [], context: state.blocks.map((b) => b.content), topics: t.length ? t : state.topics.map((x) => ({ title: x.title, summary: x.summary })), mode: prefs.mode, detail }); setCatchup({ text: r.text, source: r.source }); }
     catch { setCatchup({ text: "Couldn't load the catch-up. Try again.", source: "demo" }); }
     finally { setCatchupLoading(false); }
   };
 
   // ---- AI pop-ups (one at a time, cooldown, never over the board centre) ----
   const offer = useCallback((p: PopupData) => {
-    if (!prefs.popups || popup || anchor || snip || state?.question?.open) return;
+    if (!prefs.popups || popup || anchor || snip || state?.question?.open || state?.aiPaused) return;
     const gap = prefs.mode === "focus" ? 75000 : 25000;
     if (Date.now() - lastPopup.current < gap) return;
     lastPopup.current = Date.now(); setPopup(p);
@@ -758,7 +895,7 @@ export function Classroom({ code, review }: { code: string; review?: {
     if (!state || isTeacher) return;
     const n = state.topics.length;
     if (prevTopics.current !== null && n > prevTopics.current) {
-      const t = state.topics[n - 1]; offer({ id: uid(), text: `New topic: "${t.title}". Want a quick catch-up?`, action: "Catch me up", run: () => void openCatchup("short", null) });
+      const t = state.topics[n - 1]; offer({ id: uid(), text: `New topic: "${t.title}". Want a quick catch-up?`, action: "Catch me up", run: () => openCatchup(null) });
     }
     prevTopics.current = n;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -768,11 +905,15 @@ export function Classroom({ code, review }: { code: string; review?: {
   const roomLoaded = !!state;
   useEffect(() => { if (roomLoaded) trackOnce(isTeacher ? "room_open" : "room_join", isTeacher ? "teacher" : "student", code); }, [roomLoaded, isTeacher, code]);
   const toggleDemo = () => setDemoMode((v) => { const n = !v; try { localStorage.setItem("pacer:demo", n ? "1" : "0"); } catch { /* ignore */ } return n; });
-  const postQuestion = () => {
-    if (!qText.trim() || !qAnswer.trim()) return;
+  /** The answer key for the open question, kept only in the teacher's browser. */
+  const teacherAnswerKey = (id: string): string | undefined => {
+    try { const saved = JSON.parse(localStorage.getItem(`pacer:key:${code}`) ?? "null"); return saved?.id === id ? saved.answer : undefined; } catch { return undefined; }
+  };
+  const postQuestion = (text = qText, answer = qAnswer) => {
+    if (!text.trim() || !answer.trim()) return;
     const id = uid();
-    try { localStorage.setItem(`pacer:key:${code}`, JSON.stringify({ id, answer: qAnswer.trim() })); } catch { /* ignore */ }
-    mutate((s) => ({ ...s, question: { id, text: qText.trim(), ts: Date.now(), open: true } }));
+    try { localStorage.setItem(`pacer:key:${code}`, JSON.stringify({ id, answer: answer.trim() })); } catch { /* ignore */ }
+    mutate((s) => ({ ...s, question: { id, text: text.trim(), ts: Date.now(), open: true } }));
     track("checkin_post", "teacher", code);
     setQText(""); setQAnswer("");
   };
@@ -851,7 +992,7 @@ export function Classroom({ code, review }: { code: string; review?: {
   };
   const spot = state.spotlight && Date.now() - state.spotlight.ts < 180000 ? state.spotlight : null;
   const spotBlock = spot ? state.blocks.find((b) => b.id === spot.blockId) : undefined;
-  const renderBoard = (sp: typeof slidePage, surface: string | undefined, ref: RefObject<HTMLDivElement | null>, showAsk: boolean) => {
+  const renderBoard = (sp: typeof slidePage, surface: string | undefined, ref: RefObject<HTMLDivElement | null>, showAsk: boolean, slideMaxHeight?: string) => {
     const rect = ref.current?.getBoundingClientRect();
     const addPrivate = (items: Partial<Block>[]) => addPrivateBlocks(items, surface);
     return (
@@ -898,7 +1039,7 @@ export function Classroom({ code, review }: { code: string; review?: {
         if (privateEditing) editPrivateBlock(id, { position });
         else editBoardBlock(id, { position });
       } : undefined}
-      slide={sp ? { url: review?.slideSrc ?? slideUrl(sp), aspect: sp.width / sp.height } : undefined}
+      slide={sp ? { url: review?.slideSrc ?? slideUrl(sp), aspect: sp.width / sp.height, maxHeight: slideMaxHeight } : undefined}
       zoom={sp ? 1 : browseTopic || privateEditing ? studentView.zoom : boardZoom}
       position={sp ? undefined : browseTopic || privateEditing ? studentView.position : state.boardPosition}
       onZoom={sp ? undefined : browseTopic || privateEditing ? (zoom, position) => setStudentView({ zoom, position }) : isTeacher && !state.ended ? setBoardZoom : undefined}
@@ -908,9 +1049,9 @@ export function Classroom({ code, review }: { code: string; review?: {
             setAttachTo({ id: a.ids[0], position: a.boardPosition }); setTool("select"); setPlacement("text");
           }
         } else if (!isTeacher) openAnchor(a);
-      }} snipActive={snip && !isTeacher && !privateEditing} tool={privateEditing || !state.ended ? tool : "select"}
+      }} snipActive={snip && !isTeacher} tool={privateEditing || !state.ended ? tool : "select"}
       ink={tool === "highlight" ? { color: highlightColor, width: highlightWidth, opacity: 0.35 } : { color: penColor, width: penWidth }}
-      onSnip={(a) => { if (!a) { setSnip(false); return; } if (sp) askAboutSlide(a); else openAnchor(a); }}
+      onSnip={(a) => { if (!a) { setSnip(false); setClipMode(false); return; } if (clipMode) saveClip(a, !!sp); else if (sp) askAboutSlide(a); else openAnchor(a); }}
       onStroke={(stroke) => privateEditing
         ? privateNotes.update((data) => ({ ...data, strokes: [...data.strokes, { ...stroke, id: uid(), surface: surface }] }))
         : sp ? editSlideInk((ink) => [...ink, { ...stroke, id: uid() }]) : addStroke(stroke)}
@@ -947,7 +1088,7 @@ export function Classroom({ code, review }: { code: string; review?: {
         mutate((room) => ({ ...room, removedBlockPositions: origin ? { ...room.removedBlockPositions, [id]: origin } : room.removedBlockPositions, blocks: room.blocks.filter((block) => block.id !== id)
           .map((block) => detached?.[block.id] ? { ...block, connector: detached[block.id] } : block) }));
       }}>
-      {anchor && !isTeacher && rect && showAsk && (
+      {anchor && !isTeacher && !aiOff && rect && showAsk && (
         <AskPanel key={`${anchor.rect.left}:${anchor.rect.top}:${anchor.ids.join()}:${anchor.image?.length ?? 0}`} rect={anchor.rect} boardW={rect.width} boardH={rect.height} empty={anchor.ids.length === 0 && !anchor.image && !anchor.topicTitle}
           excerpt={[...(anchor.image ? ["✎ handwriting"] : []), ...sel.map((b) => b.content)].join("  ·  ") || `Topic: ${anchor.topicTitle}`} basedOn={`${state.topics.find((t) => t.id === sel[0]?.topicId)?.title ?? anchor.topicTitle ?? "lecture"} · ${sel.length} note${sel.length === 1 ? "" : "s"}, plus nearby lecture context`}
           msgs={msgs} loading={loading} error={error} suggestion={suggestion} fed={fed}
@@ -964,7 +1105,10 @@ export function Classroom({ code, review }: { code: string; review?: {
   const pill = status === "live" ? "Connected" : status === "waiting" ? "Waiting for teacher…" : "Connecting…";
 
   return (
-    <div className="notebook relative flex min-h-dvh flex-col lg:h-dvh lg:overflow-clip" data-reduce-motion={prefs.reduceMotion}>
+    <div className="notebook relative flex min-h-dvh flex-col lg:h-dvh lg:overflow-clip" data-reduce-motion={prefs.reduceMotion} data-focus={focusMode || undefined} data-snipping={snip || undefined}>
+      {focusMode && <button type="button" className="focus-exit" onClick={() => setFocusMode(false)}>
+        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M6 2.5H2.5V6M10 2.5h3.5V6M6 13.5H2.5V10M10 13.5h3.5V10" /></svg>Exit focus <kbd>Esc</kbd>
+      </button>}
       <header className="notebook-header flex flex-wrap items-center gap-2 border-b px-3 py-2 md:gap-3 md:px-6 md:py-3">
         <Link href={isTeacher ? "/?view=teaching" : "/"} aria-label="Pacer home"
           onClick={(event) => { if (isTeacher && !state.ended) { event.preventDefault(); setShowFinish(true); } }}><Logo height={24} /></Link>
@@ -1015,40 +1159,67 @@ export function Classroom({ code, review }: { code: string; review?: {
           </>
         ) : (
           <div role="group" aria-label="Study tools" className="flex flex-wrap items-center gap-2">
-            {!wantTeacher && authReady && <div role="group" aria-label="Show" className="flex rounded-xl border border-stone bg-white p-0.5 lg:hidden">
-              {(["board", "notes"] as const).map((pane) => <button key={pane} type="button" aria-pressed={mobilePane === pane}
-                className={`rounded-[10px] px-3 py-1.5 text-[.8125rem] font-medium capitalize ${mobilePane === pane ? "bg-[#2454e8] text-white" : "text-[#242c49]"}`}
-                onClick={() => setMobilePane(pane)}>{pane}</button>)}
+            {!wantTeacher && authReady && <div className="pane-switch lg:hidden">
+              <SegmentedControl label="Show" value={mobilePane} onChange={setMobilePane}
+                options={[{ value: "board", label: "Board" }, { value: "notes", label: "Notes" }] as const} />
             </div>}
-            {(browseTopic || offTeacherSlide) && <button className="btn btn-primary btn-sm" onClick={() => {
-              setBrowsedTopicId(null); setStudentSelection(undefined); setAnchor(null); setSnip(false);
-            }}>Return to live</button>}
-            {!review && <ChoiceMenu label="Board view" value={browseTopic ? "browse" : "follow"}
+            {/* No separate "Return to live" here: Follow teacher does that, and the slide notice offers "Go to slide N".
+                An extra button made this row wrap and pushed the whole header down. */}
+            {!review && <SegmentedControl label="Board view" value={browseTopic ? "browse" : "follow"} disabled={!live}
               onChange={(value) => {
                 const current = getState();
                 setBrowsedTopicId(value === "browse" ? current?.currentTopicId ?? current?.topics.at(-1)?.id ?? null : null);
                 setStudentView({ zoom: 1 });
                 setAnchor(null);
                 setSnip(false);
-              }}>
-              <option value="follow">Follow teacher</option>
-              <option value="browse" disabled={!live}>Browse topic notes</option>
-            </ChoiceMenu>}
-            <button className={`btn btn-sm ${snip ? "btn-primary" : "btn-outline"}`} aria-pressed={snip}
+              }}
+              options={[{ value: "follow", label: "Follow teacher" }, { value: "browse", label: "Browse notes" }] as const} />}
+            <button className={`btn btn-sm ${snip && !clipMode ? "btn-primary" : "btn-outline"} ${aiOff ? "ai-locked" : ""}`} aria-pressed={snip && !clipMode}
+              title={aiOff ? "AI help is paused by your teacher" : "Draw a box to get an explanation"}
               onClick={() => {
-                if (!snip) leaveAnnotationMode();
-                setSnip(!snip);
+                if (aiOff) { blockedAI(); return; }
+                // Snipping keeps annotation mode (and the view the student panned or zoomed to); it only puts the tools down.
+                if (!snip) { setTool("select"); setPlacement(undefined); setConnectorMode(false); setInsertPanel(undefined); setAttachTo(undefined); }
+                setSnip(!(snip && !clipMode)); setClipMode(false);
                 setAnchor(null);
               }}>Snip</button>
-            {!review && <button className={`btn btn-outline btn-sm ${!wantTeacher && authReady ? "max-sm:!hidden" : ""}`} onClick={() => void openCatchup("short", null)}>Catch me up</button>}
+            {!wantTeacher && authReady && <button className={`btn btn-sm ${snip && clipMode ? "btn-primary" : "btn-outline"}`} aria-pressed={snip && clipMode}
+              title="Copy part of the slide or board into your notes"
+              onClick={() => {
+                if (!(snip && clipMode)) { setTool("select"); setPlacement(undefined); setConnectorMode(false); setInsertPanel(undefined); setAttachTo(undefined); }
+                setSnip(!(snip && clipMode)); setClipMode(!(snip && clipMode));
+                setAnchor(null);
+              }}>Clip</button>}
+            {snip && <span role="status" className="snip-hint">{clipMode ? "Drag a box to copy it into your notes" : "Drag a box around what you want explained"} <kbd>Esc</kbd> to cancel</span>}
+            {!snip && clipToast && <span role="status" className="snip-hint">{clipToast}</span>}
+            {!snip && !clipToast && aiNotice && <span role="status" className="snip-hint ai-hint">{aiNotice}</span>}
+            {!review && <button className={`btn btn-outline btn-sm ${!wantTeacher && authReady ? "max-sm:!hidden" : ""}`} onClick={() => openCatchup(null)}>Catch me up</button>}
           </div>
         )}
         <span aria-hidden="true" className="hidden h-6 w-px bg-stone md:block" />
         <div id="classroom-more" role="group" aria-label="Class tools" className={`${showClassTools ? "flex" : "hidden"} w-full flex-wrap items-center gap-2 rounded-xl bg-white/70 p-2 md:flex md:w-auto md:bg-transparent md:p-0`}>
-          {isTeacher && <button className="btn btn-outline btn-sm" onClick={() => { setShowClassTools(false); setShowInsights((v) => !v); }} aria-pressed={showInsights}>Insights{alerts.length ? ` (${alerts.length})` : ""}</button>}
+          {isTeacher && !state.ended && <button className={`btn btn-sm ai-toggle ${aiOff ? "is-off" : ""}`} aria-pressed={!!state.aiPaused}
+            aria-label={`Student AI: ${state.aiPaused ? "paused" : aiOff ? "paused while your question is open" : "on"}${aiOff && blockedEvents ? `, ${blockedEvents} blocked` : ""}`}
+            title={state.aiPaused ? "Students can't use AI help. Click to turn it back on."
+              : aiOff ? "Paused while your check-in question is open. Click to keep it paused after the question closes."
+              : "Pause AI help for students (snip, explanations, catch-up)"}
+            onClick={() => mutate((room) => ({ ...room, aiPaused: !room.aiPaused }))}>
+            <span className="ai-toggle-dot" aria-hidden="true" />
+            {/* Both words share one spot, so the button never changes width (and never pushes the header onto two lines). */}
+            <span aria-hidden="true">Student AI:</span>
+            <span className="ai-toggle-state" aria-hidden="true" data-state={aiOff ? "paused" : "on"}><span>on</span><span>paused</span></span>
+            {aiOff && blockedEvents > 0 && <span key={blockedEvents} className="ai-toggle-count" aria-hidden="true" title="Times students tried AI while it was paused (anonymous)">{blockedEvents}</span>}
+          </button>}
+          {isTeacher && <button className="btn btn-outline btn-sm" onClick={() => { setShowClassTools(false); toggleInsights(!showInsights); }} aria-pressed={showInsights}>Insights{alerts.length ? ` (${alerts.length})` : ""}</button>}
           {isTeacher && <button className="btn btn-outline btn-sm" onClick={() => { setShowClassTools(false); setShowRecap(true); }}>Post-class package</button>}
+          <button className="btn btn-outline btn-sm focus-btn" title="Focus mode (F)" onClick={() => { setShowClassTools(false); setFocusMode(true); }}>
+            <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M2.5 6V2.5H6M13.5 6V2.5H10M2.5 10v3.5H6M13.5 10v3.5H10" /></svg>Focus
+          </button>
           {!review && <button className="btn btn-outline btn-sm" onClick={() => { setShowClassTools(false); setShowArchive(true); }}>Board archive{state.archive?.length ? ` (${state.archive.length})` : ""}</button>}
           {isTeacher ? <button className="btn btn-outline btn-sm" onClick={toggleDemo} aria-pressed={demoMode} title="Show insights in classes with only one or two students">Small class: {demoMode ? "on" : "off"}</button> : <>
+            {!wantTeacher && authReady && <button className="btn btn-outline btn-sm max-lg:!hidden notes-toggle" aria-pressed={notesOpen} aria-controls="student-notebook" onClick={toggleNotes}>
+              <svg aria-hidden="true" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2" /><path d="M10 2.5v11" /></svg>{notesOpen ? "Hide notes" : "Show notes"}
+            </button>}
             <button className="btn btn-outline btn-sm" onClick={() => { setShowClassTools(false); setShowProfile(true); }}>My profile</button>
             <button className="btn btn-outline btn-sm" title={`Reading mode: ${prefs.mode}`} onClick={() => { setShowClassTools(false); setShowSettings(true); }}>Settings</button>
           </>}
@@ -1113,7 +1284,7 @@ export function Classroom({ code, review }: { code: string; review?: {
           <ToolGroup>
             {BOARD_TOOLS.map(([value, label]) => <button key={value} type="button" className="notebook-tool" data-tool={value}
               aria-label={label} title={label} disabled={!privateNotes.ready}
-              aria-pressed={privateEditing && !placement && tool === value} onClick={() => chooseAnnotationTool(value)}>
+              aria-pressed={privateEditing && !snip && !placement && tool === value} onClick={() => chooseAnnotationTool(value)}>
               <BoardToolIcon tool={value} />{value === "highlight" ? "Highlight" : label}
             </button>)}
           </ToolGroup>
@@ -1125,7 +1296,7 @@ export function Classroom({ code, review }: { code: string; review?: {
             </button>)}
             {(["shapes", "templates"] as const).map((value) => <button key={value} type="button" className="notebook-tool capitalize"
               data-tool={value} aria-expanded={privateEditing && insertPanel === value} disabled={!privateNotes.ready}
-              onClick={() => chooseAnnotationTool(value)}>
+              onClickCapture={anchorInsert} onClick={() => chooseAnnotationTool(value)}>
               <BoardToolIcon tool={value} />{value}
             </button>)}
             <button type="button" className="notebook-tool" aria-pressed={privateEditing && connectorMode}
@@ -1156,7 +1327,7 @@ export function Classroom({ code, review }: { code: string; review?: {
                 </button>)}
                 {([["shapes", "Shapes"], ["templates", "Templates"]] as const).map(([value, label]) => (
                   <button key={value} type="button" className="notebook-tool" data-tool={value} aria-expanded={insertPanel === value}
-                    onClick={() => { setConnectorMode(false); setTool("select"); setPlacement(undefined); setInsertPanel((open) => open === value ? undefined : value); }}>
+                    onClickCapture={anchorInsert} onClick={() => { setConnectorMode(false); setTool("select"); setPlacement(undefined); setInsertPanel((open) => open === value ? undefined : value); }}>
                     <BoardToolIcon tool={value} />{label}
                   </button>
                 ))}
@@ -1194,8 +1365,12 @@ export function Classroom({ code, review }: { code: string; review?: {
           )}
         </aside>}
 
-        <main ref={stageRef} className={`${slidePage && !split ? "bg-slate-100" : "notebook-stage"} flex min-w-0 flex-1 flex-col gap-3 p-3 md:p-5 lg:overflow-y-auto lg:overscroll-contain ${!isTeacher && mobilePane === "notes" ? "max-lg:hidden" : ""}`}>
+        <main ref={stageRef} className={`classroom-stage ${slidePage && !split ? "bg-slate-100" : "notebook-stage"} flex min-w-0 flex-1 flex-col gap-3 p-3 md:p-5 lg:overflow-y-auto lg:overscroll-contain ${!isTeacher && mobilePane === "notes" ? "max-lg:hidden" : ""}`}>
           {review?.controls}
+          {!isTeacher && !review && aiOff && <div role="status" className="ai-paused-banner">
+            <svg aria-hidden="true" viewBox="0 0 16 16"><rect x="3.5" y="7" width="9" height="6.5" rx="1.5" /><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /></svg>
+            <span>{state.question?.open && !state.aiPaused ? "AI help is paused while your teacher's question is open." : "Your teacher has paused AI help for now."} Clip and your notes still work.</span>
+          </div>}
           {!review && (isTeacher || (collaborationId && user && collaboration.ready)) && (
             <div ref={topbarRef} className="board-topbar">
               {isTeacher && <TopicStrip topics={topics} currentId={live} canEdit={!state.ended} hrefFor={(id) => `/room/${code}/topic/${id}${roleQ}`}
@@ -1257,15 +1432,10 @@ export function Classroom({ code, review }: { code: string; review?: {
           <Collapse open={((isTeacher && !state.ended) || privateEditing) && (tool === "pen" || tool === "highlight")} reduced={prefs.reduceMotion}
             className="ink-collapse" innerClassName="flex justify-center">
             <div role="group" aria-label="Ink settings" className="ink-tray notebook-tray flex flex-wrap items-center gap-x-4 gap-y-2 p-2 [@media(pointer:coarse)]:[&_button]:min-h-11 [@media(pointer:coarse)]:[&_button]:min-w-11 [@media(pointer:coarse)]:[&_select]:min-h-11">
-                <div key={inkTool} role="group" aria-label="Ink color" className="ink-swatches flex gap-1">
-                  {(inkTool === "pen" ? INK_COLORS : HIGHLIGHT_COLORS).map(([name, color], index) => (
-                    <button type="button" key={name} aria-label={name} title={name} aria-pressed={(inkTool === "pen" ? penColor : highlightColor) === color}
-                      style={{ "--swatch-i": index } as React.CSSProperties}
-                      onClick={() => inkTool === "pen" ? setPenColor(color) : setHighlightColor(color)}
-                      className="notebook-swatch grid size-9 place-items-center rounded-full border border-transparent">
-                      <span aria-hidden="true" className="size-5 rounded-full border border-black/15" style={{ backgroundColor: color }} />
-                    </button>
-                  ))}
+                <div key={inkTool} className="ink-swatches">
+                  <LiquidSwatches label="Ink color" colors={inkTool === "pen" ? INK_COLORS : HIGHLIGHT_COLORS}
+                    value={inkTool === "pen" ? penColor : highlightColor}
+                    onChange={(color) => inkTool === "pen" ? setPenColor(color) : setHighlightColor(color)} />
                 </div>
                 <div className="flex items-center gap-2 text-sm">
                   Width
@@ -1296,7 +1466,7 @@ export function Classroom({ code, review }: { code: string; review?: {
             </div>
           )}
           {isTeacher && !state.ended && (
-            <div className={(!uploadEnabled && teacherStorageEnabled && authReady && signInEnabled && !user) || slideBusy || slideError || teacherStorageError
+            <div className={(!uploadEnabled && teacherStorageEnabled && authReady && signInEnabled && !user) || slideBusy || checkinBusy || slideError || teacherStorageError
               ? "flex flex-wrap items-center gap-2" : "contents"}>
                 <input ref={uploadInput} hidden type="file" accept={lectureFormats} disabled={slideBusy || !uploadEnabled}
                   onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void changeSlide(1, "presented", file); }} />
@@ -1307,13 +1477,14 @@ export function Classroom({ code, review }: { code: string; review?: {
               {!uploadEnabled && teacherStorageEnabled && authReady && signInEnabled && !user &&
                 <button type="button" className="btn btn-sm btn-outline" onClick={() => void signIn()}>Sign in to upload</button>}
               {slideBusy && <p role="status" className="text-sm">Preparing pages…</p>}
+              {checkinBusy && !slideBusy && <p role="status" className="checkin-status"><span aria-hidden="true" />Reading your slides for check-in ideas…</p>}
               {slideError && <p role="alert" className="text-sm">{slideError}</p>}
               {teacherStorageError && <p role="status" className="text-sm">{teacherStorageError}</p>}
             </div>
           )}
           <div className="relative z-30">
           <AnimatedPanel open={((isTeacher && !state.ended) || privateEditing) && !!insertPanel} reduced={prefs.reduceMotion}>
-            {insertPanel && <BoardObjects panel={insertPanel} onClose={() => setInsertPanel(undefined)}
+            {insertPanel && <BoardObjects panel={insertPanel} anchor={insertAnchor} onClose={() => setInsertPanel(undefined)}
               onChooseShape={(shape) => {
                 if (shape === "arrow") setConnectorMode(true);
                 else setPlacement(shape);
@@ -1376,27 +1547,15 @@ export function Classroom({ code, review }: { code: string; review?: {
                     {Object.keys(deck.pages).map((number) => <option key={number} value={number}>Slide {number}</option>)}
                   </ChoiceMenu>
                 </div>
-                <button className="btn btn-sm btn-outline" onClick={() => askAboutSlide()}>Ask about this slide</button>
+                <button className="btn btn-sm btn-outline" onClick={() => aiOff ? blockedAI() : askAboutSlide()}>Ask about this slide</button>
               </>}
             </div>
           )}
           {!review && collaborationId && user && collaboration.error && <p role="status" className="text-sm">{collaboration.error}</p>}
           {split && slidePage ? (
-            <div className="board-split">
-              <div role="tablist" aria-label="Split view side" className="board-split-tabs">
-                {([["slide", "Slide"], ["board", "Whiteboard"]] as const).map(([side, label]) => (
-                  <button key={side} type="button" role="tab" aria-selected={activeSide === side} onClick={() => setActiveSide(side)}>{label}</button>
-                ))}
-              </div>
-              <section aria-label="Slide" className="board-split-pane" style={{ viewTransitionName: "pacer-slide" }} data-active={activeSide === "slide"}
-                onPointerDownCapture={() => setActiveSide("slide")} onFocusCapture={() => setActiveSide("slide")}>
-                {renderBoard(slidePage, slidePage.id, slideRef, activeSide === "slide")}
-              </section>
-              <section aria-label="Whiteboard" className="board-split-pane" style={{ viewTransitionName: "pacer-board" }} data-active={activeSide === "board"}
-                onPointerDownCapture={() => setActiveSide("board")} onFocusCapture={() => setActiveSide("board")}>
-                {renderBoard(undefined, undefined, boardRef, activeSide === "board")}
-              </section>
-            </div>
+            <SplitBoards activeSide={activeSide} onSide={setActiveSide} preferStacked={!isTeacher && notesOpen && !focusMode && !wantTeacher && authReady}
+              slide={(maxHeight) => renderBoard(slidePage, slidePage.id, slideRef, activeSide === "slide", maxHeight)}
+              board={renderBoard(undefined, undefined, boardRef, activeSide === "board")} />
           ) : <div className={`board-view flex flex-col ${slidePage ? "" : "min-h-0 flex-1"}`} style={{ viewTransitionName: slidePage ? "pacer-slide" : "pacer-board" }}>
             {renderBoard(slidePage, slidePage?.id ?? review?.surface, boardRef, true)}
           </div>}
@@ -1411,10 +1570,36 @@ export function Classroom({ code, review }: { code: string; review?: {
               </div>
           )}
 
+          {isTeacher && !state.ended && !state.question?.open && offered && (() => {
+            // Only matters when students can open the whole deck; with "presented only" they can't look ahead.
+            const ahead = (n: number) => deck?.access === "all" && n > (deck?.current ?? 0) && !deck?.hidden?.includes(n);
+            const giveaway = offered.answerSlide && checkinPlan?.answerSlides.includes(offered.answerSlide) && ahead(offered.answerSlide)
+              ? offered.answerSlide : checkinPlan?.answerSlides.find(ahead);
+            return <section aria-label="Suggested check-in" className="checkin-card">
+              <div className="checkin-card-head"><span className="checkin-card-tag">Suggested check-in · slide {offered.slide}</span>
+                <button type="button" className="nb-link" onClick={() => { setSuggestionsEnabled(false); setSuggestOn(false); }}>Turn off suggestions</button></div>
+              <p className="checkin-card-q">{offered.question}</p>
+              <p className="checkin-card-a">{offered.answer
+                ? <>Answer key: <b>{offered.answer}</b>{offered.answerSlide ? <> · from slide {offered.answerSlide}</> : null} · hidden from students</>
+                : "No answer key in your slides. Add one before asking."}</p>
+              {giveaway && <p className="checkin-card-warn">Slide {giveaway} may show the answer.
+                <button type="button" className="nb-link" onClick={() => mutate((room) => room.slides ? { ...room, slides: { ...room.slides, hidden: [...new Set([...(room.slides.hidden ?? []), giveaway])] } } : room)}>Hide it from students until you present it</button></p>}
+              <div className="flex flex-wrap gap-2">
+                {offered.answer ? <button type="button" className="btn btn-primary btn-sm" onClick={() => { postQuestion(offered.question, offered.answer); finishCheckin(offered.slide); }}>Ask class</button> : null}
+                <button type="button" className={`btn btn-sm ${offered.answer ? "btn-outline" : "btn-primary"}`} onClick={() => {
+                  setQText(offered.question); setQAnswer(offered.answer); finishCheckin(offered.slide);
+                  window.setTimeout(() => document.getElementById(offered.answer ? "q-text" : "q-ans")?.focus(), 50);
+                }}>{offered.answer ? "Edit first" : "Add an answer"}</button>
+                <button type="button" className="btn btn-outline btn-sm" onClick={() => finishCheckin(offered.slide)}>Skip</button>
+              </div>
+            </section>;
+          })()}
           {isTeacher && !state.ended && (
             state.question?.open ? (
               <div className="flex flex-wrap items-center gap-3 rounded-[20px] border-2 border-sky bg-sky-soft p-3 text-sm">
-                <span className="min-w-0 flex-1">Question open: <b>{state.question.text}</b> · {new Set(events.filter((e) => e.kind === "answer" && e.questionId === state.question!.id).map((e) => e.sid)).size} answered</span>
+                <span className="min-w-0 flex-1">Question open: <b>{state.question.text}</b>
+                  {teacherAnswerKey(state.question.id) && <span className="question-key"> · Answer key: <b>{teacherAnswerKey(state.question.id)}</b> <small>(only you see this)</small></span>}
+                  {" · "}{new Set(events.filter((e) => e.kind === "answer" && e.questionId === state.question!.id).map((e) => e.sid)).size} answered{state.aiAutoPause !== false && " · student AI paused"}</span>
                 <button className="btn btn-dark btn-sm" onClick={closeQuestion}>Close question</button>
               </div>
             ) : (
@@ -1423,16 +1608,19 @@ export function Classroom({ code, review }: { code: string; review?: {
                 <input id="q-text" className="input !min-h-10 min-w-[180px] flex-[2]" placeholder="Ask the class a question, e.g. What is x?" value={qText} onChange={(e) => setQText(e.target.value)} />
                 <label className="sr-only" htmlFor="q-ans">Correct answer (only you see this)</label>
                 <input id="q-ans" className="input !min-h-10 min-w-[120px] flex-1" placeholder="Answer key (hidden)" value={qAnswer} onChange={(e) => setQAnswer(e.target.value)} />
+                <label className="ai-auto"><input type="checkbox" checked={state.aiAutoPause !== false}
+                  onChange={(e) => { const on = e.target.checked; mutate((room) => ({ ...room, aiAutoPause: on })); }} />Pause student AI while it&apos;s open</label>
                 <button className="btn btn-primary btn-sm" disabled={!qText.trim() || !qAnswer.trim()}>Ask class</button>
               </form>
             )
           )}
         </main>
 
-        {!isTeacher && !wantTeacher && authReady && <aside aria-label="Notebook"
-          className={`flex min-h-0 flex-col p-3 lg:w-[clamp(320px,30vw,440px)] lg:shrink-0 lg:border-l lg:border-[var(--notebook-border)] lg:p-0 ${mobilePane === "board" ? "max-lg:hidden" : ""}`}>
+        {!isTeacher && !wantTeacher && authReady && <aside id="student-notebook" aria-label="Notebook" data-open={notesOpen} inert={!notesOpen ? true : undefined}
+          className={`student-notebook flex min-h-0 flex-col p-3 lg:w-[clamp(320px,30vw,440px)] lg:shrink-0 lg:border-l lg:border-[var(--notebook-border)] lg:p-0 ${mobilePane === "board" ? "max-lg:hidden" : ""}`}>
           <Notebook lessonTitle={state.title} topics={state.topics.map((topic) => ({ id: topic.id, title: topic.title }))} liveId={live} review={!!review}
             notes={topicNotes.notes} clips={topicNotes.clips} status={topicNotes.status} ready={topicNotes.ready} onChange={topicNotes.update} onRemoveClip={topicNotes.removeClip}
+            ink={topicNotes.ink} onInk={topicNotes.setInk}
             onHelp={notebookHelp}
             onBackOnTrack={(topic) => { sendEvent("helped", null, topic?.id ?? live); rec("helped"); }}
             onViewBoard={review ? undefined : (id) => { setBrowsedTopicId(id); setStudentView({ zoom: 1 }); setAnchor(null); setSnip(false); setMobilePane("board"); }}
@@ -1445,7 +1633,8 @@ export function Classroom({ code, review }: { code: string; review?: {
             </> : undefined} />
         </aside>}
 
-        <AnimatedPanel open={isTeacher && showInsights} motion="side" reduced={prefs.reduceMotion}>
+        {/* Opening Insights runs a view transition, so the panel slides in and the board glides narrower together. */}
+        <AnimatedPanel open={isTeacher && showInsights} motion="side" reduced={prefs.reduceMotion || viewTransitions}>
           <Insights state={state} events={events} connected={connected} demo={demoMode} />
         </AnimatedPanel>
       </div>
@@ -1474,22 +1663,34 @@ export function Classroom({ code, review }: { code: string; review?: {
       <AnimatedPanel open={showSettings} motion="drawer" reduced={prefs.reduceMotion}>
         <SettingsSheet prefs={prefs} update={update} reset={reset} onClose={() => setShowSettings(false)} />
       </AnimatedPanel>
-      {catchup && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/20" onClick={() => setCatchup(null)}>
-          <aside role="dialog" aria-label="Catch me up" className="h-full w-[min(380px,100vw)] overflow-y-auto bg-eggshell p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h2 className="display text-3xl">Catch me up</h2>
-            {catchupTopic && <p className="mt-1 text-sm font-medium">{state.topics.find((topic) => topic.id === catchupTopic)?.title}</p>}
-            <p className="mt-1 text-xs text-smoke">{catchup.source === "demo" ? "Demo response (no AI key set)" : "AI summary of what changed"}</p>
-            <p className="mt-4 whitespace-pre-wrap" aria-live="polite">{catchupLoading ? "Thinking…" : <RichText text={catchup.text} />}</p>
-            <div className="mt-6 flex flex-wrap gap-2">
-              <button className="btn btn-outline" disabled={catchupLoading} onClick={() => void openCatchup("long")}>Explain more</button>
-              {!wantTeacher && authReady && <button className="btn btn-outline" disabled={catchupLoading || !catchup.text.trim() || catchupSaved}
-                onClick={() => { topicNotes.append(catchupTopic ?? live ?? GENERAL_NOTES, `Catch-up\n${plainNote(catchup.text)}`); setCatchupSaved(true); }}>{catchupSaved ? "Added to notes" : "Add to my notes"}</button>}
-              <button className="btn btn-primary" onClick={() => { setCatchup(null); setLastViewed(live); setAnchor(null); boardRef.current?.querySelector("[role=region]")?.scrollTo({ top: 1e6 }); }}>Return to live</button>
-            </div>
-          </aside>
-        </div>
-      )}
+      <AnimatedPanel open={!!catchup} motion="drawer" reduced={prefs.reduceMotion}>
+        {catchup && <Sheet title="Catch me up" label="Catch me up" onClose={() => setCatchup(null)}
+          subtitle={catchupTopic ? state.topics.find((topic) => topic.id === catchupTopic)?.title : "What happened since you last looked."}
+          footer={<>
+            <button className="btn btn-primary btn-sm" onClick={() => { setCatchup(null); setLastViewed(live); setAnchor(null); boardRef.current?.querySelector("[role=region]")?.scrollTo({ top: 1e6 }); }}>Return to live</button>
+            {catchup.text && !catchupLoading && <button className="btn btn-outline btn-sm" onClick={() => void explainCatchup("long")}>Explain more</button>}
+            {catchup.text && !catchupLoading && !wantTeacher && authReady && <button className="btn btn-outline btn-sm ml-auto" disabled={catchupSaved}
+              onClick={() => { topicNotes.append(catchupTopic ?? live ?? GENERAL_NOTES, `Catch-up\n${plainNote(catchup.text)}`); setCatchupSaved(true); }}>{catchupSaved ? "Added to notes" : "Add to my notes"}</button>}
+          </>}>
+          <ol className="grid gap-2">
+            {catchupTopics(catchupTopic).map((topic, i) => <li key={topic.id} className="sheet-card pop-in !p-3" style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}>
+              <div className="flex items-center gap-2"><span className="recap-num">{state.topics.indexOf(topic) + 1}</span><p className="font-semibold text-[#171d38]">{topic.title}</p>{topic.id === live && <span className="topic-card-live">Live</span>}</div>
+              <p className="mt-1 pl-8 text-sm text-smoke">{topic.summary || "No summary yet."}</p>
+            </li>)}
+          </ol>
+          {!catchup.text && !catchupLoading && <div className="sheet-card recap-start mt-3 !py-5">
+            {aiOff ? <p className="text-sm text-smoke">Your teacher has paused AI help, so explanations are off for now. The topic summaries above still work.</p> : <>
+              <p className="text-sm text-smoke">Want it explained? Pacer can turn these topics into a short walkthrough.</p>
+              <button className="btn btn-primary mt-3 w-full" onClick={() => void explainCatchup("short")}>Explain what I missed</button>
+            </>}
+          </div>}
+          {catchupLoading && <div className="sheet-card recap-skeleton mt-3" role="status" aria-label="Writing the catch-up"><span /><span /><span /></div>}
+          {catchup.text && !catchupLoading && <section className="sheet-card pop-in mt-3">
+            <h3 className="sheet-card-title">{catchup.source === "demo" ? "Demo catch-up (no AI key set)" : "Explained by AI"}</h3>
+            <div className="mt-1.5 whitespace-pre-wrap leading-relaxed" aria-live="polite"><RichText text={catchup.text} /></div>
+          </section>}
+        </Sheet>}
+      </AnimatedPanel>
     </div>
   );
 }
