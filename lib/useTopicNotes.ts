@@ -87,7 +87,8 @@ export function useTopicNotes(key: string, fallback?: { notes?: TopicNotes; clip
     clearTimeout(inkTimer.current);
     inkTimer.current = undefined;
     try {
-      const kept = Object.fromEntries(Object.entries(latestInk.current).filter(([, page]) => hasInk(page)));
+      // A page with only clip positions (no strokes yet) is kept too, so placed clips stay where they were put.
+      const kept = Object.fromEntries(Object.entries(latestInk.current).filter(([, page]) => hasInk(page) || Object.keys(page.c ?? {}).length > 0));
       if (Object.keys(kept).length) localStorage.setItem(inkKey, JSON.stringify(kept)); else localStorage.removeItem(inkKey);
       setStatus("saved");
     } catch { setStatus("error"); }

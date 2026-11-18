@@ -6,7 +6,7 @@ export type InkStroke = { c: string; w: number; a?: number; p: number[] };
 /** One page of handwriting. `h` is its height in page units (topic pages grow as you write). */
 /** A page of handwriting: strokes, height, and (on a topic's page) where clips sit, all in units of INK_WIDTH. */
 export type InkPage = { h?: number; s: InkStroke[]; c?: Record<string, ClipPlace> };
-export type ClipPlace = { x: number; y: number; w: number };
+export type ClipPlace = { x: number; y: number; w: number; h?: number };
 export type InkTool = { kind: "pen" | "highlighter" | "eraser"; color: string };
 
 export const INK_WIDTH = 1000;

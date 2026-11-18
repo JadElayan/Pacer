@@ -52,7 +52,7 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
   const [mode, setModeState] = useState<"type" | "write">("type");
   useEffect(() => { setModeState(readMode()); }, []);
   const setMode = (next: "type" | "write") => { setModeState(next); try { localStorage.setItem("pacer:notes-input", next); } catch { /* not saved */ } };
-  const writing = mode === "write" && !review && !!onInk;
+  const writing = mode === "write" && !!onInk;
   const [tool, setTool] = useState<InkTool>({ kind: "pen", color: INK_COLORS[0][1] });
   const history = useRef<{ id: string; page?: InkPage }[]>([]);
   const [canUndo, setCanUndo] = useState(false);
@@ -176,51 +176,99 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
     setTimeout(() => page.print(), 300);
   };
 
-  // ---- Write mode: clips sit on the lined page. Drag the top bar to move, the corner to resize (positions in INK_WIDTH units). ----
-  type PageDrag = { topic: string; id: string; mode: "move" | "resize"; pointer: number; x0: number; y0: number; from: ClipPlace; now: ClipPlace; scale: number };
-  // The ref is read by the pointer handlers (a quick drag can end before React re-renders); the state draws the clip while it moves.
-  const [pageDrag, setPageDragState] = useState<PageDrag | null>(null);
-  const pageDragRef = useRef<PageDrag | null>(null);
-  const setPageDrag = (next: PageDrag | null) => { pageDragRef.current = next; setPageDragState(next); };
-  const placeOf = (topic: string, id: string, index: number): ClipPlace => ink[topic]?.c?.[id] ?? { x: 24, y: 24 + index * 380, w: 460 };
-  /** The page grows to fit its clips, so a clip never hangs off the bottom. */
+  // ---- Clips are pictures placed anywhere on a topic's notes, in Type and Write mode. ----
+  // Place and size are in INK_WIDTH units of the topic's note area (1000 = full width), stored on the topic's ink record.
+  // Drag the picture (Type) or its grip (Write) to move; the corner resizes freely (Shift keeps the shape), edges one way.
+  type FreeMode = "move" | "corner" | "right" | "bottom";
+  type FreeDrag = { topic: string; id: string; mode: FreeMode; pointer: number; x0: number; y0: number; from: Required<ClipPlace>; now: Required<ClipPlace>; scale: number; moved: boolean };
+  // Handlers read the ref (a quick drag can end before React re-renders); the state draws the clip while it moves.
+  const [free, setFreeState] = useState<FreeDrag | null>(null);
+  const freeRef = useRef<FreeDrag | null>(null);
+  const setFree = (next: FreeDrag | null) => { freeRef.current = next; setFreeState(next); };
+  const [selectedClip, setSelectedClip] = useState<string | null>(null);
+  // Height of each topic's typed notes (in units), so clips not placed yet sit just below the text.
+  const [textHeight, setTextHeight] = useState<Record<string, number>>({});
+  const [aspects, setAspects] = useState<Record<string, number>>({});
+  useEffect(() => {
+    const root = scroller.current;
+    if (!root || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const next: Record<string, number> = {};
+      root.querySelectorAll<HTMLElement>(".nb-canvas").forEach((canvas) => {
+        const topic = canvas.closest<HTMLElement>("[data-topic]")?.dataset.topic;
+        const blocks = canvas.querySelector<HTMLElement>(".nb-blocks");
+        if (topic && blocks && canvas.offsetWidth) next[topic] = Math.round((blocks.offsetHeight * 1000) / canvas.offsetWidth);
+      });
+      setTextHeight((old) => JSON.stringify(old) === JSON.stringify(next) ? old : next);
+    });
+    root.querySelectorAll(".nb-canvas, .nb-blocks").forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  });
+  const placeOf = (topic: string, id: string, index: number): Required<ClipPlace> => {
+    const saved = ink[topic]?.c?.[id];
+    const w = saved?.w ?? 560;
+    const h = saved?.h ?? Math.round(w * (aspects[id] ?? 0.5));
+    return { x: saved?.x ?? 0, y: saved?.y ?? (textHeight[topic] ?? 0) + 24 + index * 420, w, h };
+  };
+  const clipBottom = (topic: string) => clipsFor(topic).reduce((max, clip, i) => { const p = free?.topic === topic && free.id === clip.id ? free.now : placeOf(topic, clip.id, i); return Math.max(max, p.y + p.h); }, 0);
+  /** The writing page reaches down past the lowest clip, so you can write around every clip. */
   const pageWithClips = (topic: string): InkPage => {
     const page = pageFor(topic);
-    const lowest = clipsFor(topic).reduce((max, clip, i) => Math.max(max, placeOf(topic, clip.id, i).y + 400), 0);
-    return writing && lowest > (page.h ?? PAGE_START) ? { ...page, h: lowest + 80 } : page;
+    const need = clipBottom(topic) - (textHeight[topic] ?? 0) + 60;
+    return writing && need > (page.h ?? PAGE_START) ? { ...page, h: need } : page;
   };
-  const commitPlace = (topic: string, id: string, place: ClipPlace, el?: Element | null) => {
-    const page = pageWithClips(topic);
-    const box = el?.closest(".nb-ink-page")?.getBoundingClientRect();
-    const tall = el && box?.width ? ((el as HTMLElement).offsetHeight * 1000) / box.width : 320;
-    const h = Math.max(page.h ?? PAGE_START, place.y + tall + 60);
-    changeInk(topic, { ...page, h, c: { ...page.c, [id]: { x: Math.round(place.x), y: Math.round(place.y), w: Math.round(place.w) } } });
+  const commitPlace = (topic: string, id: string, place: Required<ClipPlace>) => {
+    const page = pageFor(topic);
+    changeInk(topic, { ...page, c: { ...page.c, [id]: { x: Math.round(place.x), y: Math.round(place.y), w: Math.round(place.w), h: Math.round(place.h) } } });
   };
-  const startPageDrag = (e: React.PointerEvent<HTMLElement>, topic: string, id: string, index: number, mode: "move" | "resize") => {
+  const startFree = (e: React.PointerEvent<HTMLElement>, topic: string, id: string, index: number, mode: FreeMode) => {
     if (e.button !== 0) return;
-    e.preventDefault(); e.stopPropagation();
+    e.stopPropagation();
+    if (mode !== "move") e.preventDefault();
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* capture is a nicety */ }
-    const width = e.currentTarget.closest(".nb-ink-page")?.getBoundingClientRect().width || 1000;
+    const width = e.currentTarget.closest(".nb-canvas")?.getBoundingClientRect().width || 1000;
     const from = placeOf(topic, id, index);
-    setPageDrag({ topic, id, mode, pointer: e.pointerId, x0: e.clientX, y0: e.clientY, from, now: from, scale: 1000 / width });
+    setSelectedClip(id);
+    setFree({ topic, id, mode, pointer: e.pointerId, x0: e.clientX, y0: e.clientY, from, now: from, scale: 1000 / width, moved: false });
   };
-  const movePageDrag = (e: React.PointerEvent<HTMLElement>) => {
-    const pageDrag = pageDragRef.current;
-    if (pageDrag?.pointer !== e.pointerId) return;
-    const dx = (e.clientX - pageDrag.x0) * pageDrag.scale, dy = (e.clientY - pageDrag.y0) * pageDrag.scale;
-    const f = pageDrag.from;
-    const now = pageDrag.mode === "move"
-      ? { ...f, x: Math.min(1000 - f.w, Math.max(0, f.x + dx)), y: Math.max(0, f.y + dy) }
-      : { ...f, w: Math.min(1000 - f.x, Math.max(200, f.w + dx)) };
-    setPageDrag({ ...pageDrag, now });
+  const moveFree = (e: React.PointerEvent<HTMLElement>) => {
+    const d = freeRef.current;
+    if (d?.pointer !== e.pointerId) return;
+    const dx = (e.clientX - d.x0) * d.scale, dy = (e.clientY - d.y0) * d.scale;
+    if (!d.moved && Math.hypot(dx, dy) < 6) return;
+    const f = d.from;
+    let now = f;
+    if (d.mode === "move") now = { ...f, x: Math.min(1000 - f.w, Math.max(0, f.x + dx)), y: Math.max(0, f.y + dy) };
+    else {
+      let w = d.mode === "bottom" ? f.w : Math.min(1000 - f.x, Math.max(120, f.w + dx));
+      let h = d.mode === "right" ? f.h : Math.max(60, f.h + dy);
+      if (d.mode === "corner" && e.shiftKey) { const ratio = f.h / f.w; if (Math.abs(dx) > Math.abs(dy)) h = Math.max(60, w * ratio); else w = Math.min(1000 - f.x, Math.max(120, h / ratio)); }
+      now = { ...f, w, h };
+    }
+    setFree({ ...d, now, moved: true });
   };
-  const endPageDrag = (e: React.PointerEvent<HTMLElement>) => {
-    movePageDrag(e);
-    const pageDrag = pageDragRef.current;
-    if (pageDrag?.pointer !== e.pointerId) return;
-    const { topic, id, now, from } = pageDrag;
-    setPageDrag(null);
-    if (now.x !== from.x || now.y !== from.y || now.w !== from.w) commitPlace(topic, id, now, e.currentTarget.closest("figure"));
+  const endFree = (e: React.PointerEvent<HTMLElement>) => {
+    moveFree(e);
+    const d = freeRef.current;
+    if (d?.pointer !== e.pointerId) return;
+    setFree(null);
+    if (d.moved) commitPlace(d.topic, d.id, d.now);
+  };
+  const removeClip = (topic: string, id: string) => {
+    const at = blocksOf(topic).findIndex((b) => b.kind === "clip" && b.id === id);
+    if (at >= 0) setBlocks(topic, removeBlock(blocksOf(topic), at));
+    setSelectedClip(null);
+    onRemoveClip(id);
+  };
+  const keyNudge = (e: React.KeyboardEvent, topic: string, id: string, place: Required<ClipPlace>, resizing: boolean) => {
+    const step = e.shiftKey ? 60 : 20;
+    const d = ({ ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] } as Record<string, number[]>)[e.key];
+    if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeClip(topic, id); return; }
+    if (!d) return;
+    e.preventDefault();
+    commitPlace(topic, id, resizing
+      ? { ...place, w: Math.min(1000 - place.x, Math.max(120, place.w + d[0])), h: Math.max(60, place.h + d[1]) }
+      : { ...place, x: Math.min(1000 - place.w, Math.max(0, place.x + d[0])), y: Math.max(0, place.y + d[1]) });
   };
 
   // ---- Moving clips and cards: drag the ⋮⋮ handle, use Alt+↑ / Alt+↓, or the block menu. ----
@@ -364,7 +412,7 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
       </span>
     </header>
     <div className="nb-tools" data-mode={writing ? "write" : "type"}>
-      {onInk && !review && <SegmentedControl label="Note style" value={mode} onChange={setMode}
+      {onInk && <SegmentedControl label="Note style" value={mode} onChange={setMode}
         options={[{ value: "type", label: "Type" }, { value: "write", label: "Write" }] as const} />}
       {writing ? <div role="toolbar" aria-label="Pen" className="nb-ink-bar">
         <LiquidSwatches label="Pen color" colors={INK_COLORS} value={tool.color} dot={16} onChange={(color) => setTool({ kind: "pen", color })} />
@@ -398,6 +446,8 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
             {isLive && <span className="nb-now">Now</span>}
             {onViewBoard && index >= 0 && !isLive && <button type="button" className="nb-link" onClick={() => onViewBoard(section.id)}>View board</button>}
           </div>
+          <div className="nb-canvas" style={{ minHeight: `${clipBottom(section.id) / 10 + 2}cqw` }}
+            onPointerDown={(e) => { if (!(e.target as Element).closest(".nb-free")) setSelectedClip(null); }}>
           <div className="nb-blocks">{(() => {
             const blocks = blocksOf(section.id);
             return blocks.map((b, i) => {
@@ -427,50 +477,8 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
                   {blockMenu(section.id, i, b)}
                 </div>;
               }
-              const clip = clipById.get(b.id);
-              if (!clip || writing) return null;
-              const width = resize?.topic === section.id && resize.index === i ? resize.w : b.w;
-              return <div key={key} data-key={key} className="nb-block" data-kind="clip" data-block-index={i}
-                data-dragging={drag?.moved && drag.topic === section.id && drag.index === i ? true : undefined}>
-                {handle(section.id, i, clipLabel(clip))}
-                <figure className="nb-clip" data-clip={clip.id} data-writing={writing || undefined} style={width ? { width: `${width}%` } : undefined}>
-                  {clip.image && <div className="nb-clip-media">
-                    <img src={clip.image} alt={clip.text ? "" : "Saved from the board"} draggable={false} />
-                    {(writing || hasInk(ink[clipInkKey(clip.id)])) && <InkCanvas fill page={ink[clipInkKey(clip.id)] ?? EMPTY} editable={writing} tool={tool}
-                      label={`Your writing on ${clipLabel(clip)}`} onChange={(page) => changeInk(clipInkKey(clip.id), page)} />}
-                  </div>}
-                  {clip.text && <p>{clip.text}</p>}
-                  <figcaption>
-                    <span className="min-w-0 flex-1 truncate">{clipLabel(clip)}</span>
-                    <button type="button" className="nb-clip-remove" aria-label="Remove this clip from your notes" onClick={() => remove(section.id, i)}>×</button>
-                  </figcaption>
-                  {!writing && <span className="nb-clip-resize" role="slider" tabIndex={0} aria-label={`Width of ${clipLabel(clip)}`} aria-valuemin={30} aria-valuemax={100} aria-valuenow={Math.round(width ?? 100)}
-                    onKeyDown={(e) => {
-                      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-                      e.preventDefault();
-                      const w = Math.min(100, Math.max(30, (b.w ?? 100) + (e.key === "ArrowLeft" ? -10 : 10)));
-                      setBlocks(section.id, blocks.map((x, j) => j === i ? { ...b, w: w >= 100 ? undefined : w } : x));
-                    }}
-                    onPointerDown={(e) => { e.preventDefault(); try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* capture is a nicety */ } setResize({ topic: section.id, index: i, w: width ?? 100, pointer: e.pointerId }); }}
-                    onPointerMove={(e) => {
-                      const resize = resizeRef.current;
-                      if (resize?.pointer !== e.pointerId) return;
-                      const figure = e.currentTarget.closest("figure")!.getBoundingClientRect();
-                      const box = e.currentTarget.closest(".nb-blocks")!.getBoundingClientRect();
-                      setResize({ ...resize, w: Math.min(100, Math.max(30, ((e.clientX - figure.left) / box.width) * 100)) });
-                    }}
-                    onPointerUp={(e) => {
-                      const resize = resizeRef.current;
-                      if (resize?.pointer !== e.pointerId) return;
-                      const figure = e.currentTarget.closest("figure")!.getBoundingClientRect();
-                      const box = e.currentTarget.closest(".nb-blocks")!.getBoundingClientRect();
-                      const w = Math.min(100, Math.max(30, ((e.clientX - figure.left) / box.width) * 100));
-                      setBlocks(section.id, blocks.map((x, j) => j === i ? { ...b, w: w >= 98 ? undefined : w } : x));
-                      setResize(null);
-                    }} />}
-                </figure>
-                {blockMenu(section.id, i, b)}
-              </div>;
+              // Clips aren't rows in the text: they float on the topic's notes (rendered below).
+              return null;
             });
           })()}</div>
           {(writing || hasInk(ink[section.id])) && <div className="nb-ink-page" data-writing={writing || undefined}
@@ -481,42 +489,36 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
                 const h = page.h ?? PAGE_START;
                 changeInk(section.id, inkBottom(page.s) > h - 140 ? { ...page, h: h + GROW } : page);
               }} />
-            {writing && clipsFor(section.id).map((clip, i) => {
-              const live = pageDrag?.topic === section.id && pageDrag.id === clip.id ? pageDrag.now : undefined;
-              const place = live ?? placeOf(section.id, clip.id, i);
-              return <figure key={clip.id} className="nb-page-clip" data-clip={clip.id} data-moving={live ? true : undefined}
-                style={{ left: `${place.x / 10}cqw`, top: `${place.y / 10}cqw`, width: `${place.w / 10}cqw` }}>
-                <div className="nb-page-clip-bar" role="button" tabIndex={0} aria-label={`Move ${clipLabel(clip)} on the page. Arrow keys move it.`}
-                  onPointerDown={(e) => startPageDrag(e, section.id, clip.id, i, "move")}
-                  onPointerMove={movePageDrag} onPointerUp={endPageDrag} onPointerCancel={() => setPageDrag(null)}
-                  onKeyDown={(e) => {
-                    const step = e.shiftKey ? 60 : 20;
-                    const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
-                    if (!d) return;
-                    e.preventDefault();
-                    commitPlace(section.id, clip.id, { ...place, x: Math.min(1000 - place.w, Math.max(0, place.x + d[0])), y: Math.max(0, place.y + d[1]) }, e.currentTarget.parentElement);
-                  }}>
-                  <svg viewBox="0 0 12 18" aria-hidden="true"><circle cx="3.5" cy="4" r="1.4" /><circle cx="8.5" cy="4" r="1.4" /><circle cx="3.5" cy="9" r="1.4" /><circle cx="8.5" cy="9" r="1.4" /><circle cx="3.5" cy="14" r="1.4" /><circle cx="8.5" cy="14" r="1.4" /></svg>
-                  <span className="min-w-0 flex-1 truncate">{clipLabel(clip)}</span>
-                  <button type="button" className="nb-clip-remove" aria-label="Remove this clip from your notes" onPointerDown={(e) => e.stopPropagation()}
-                    onClick={() => { const at = blocksOf(section.id).findIndex((b) => b.kind === "clip" && b.id === clip.id); if (at >= 0) remove(section.id, at); else onRemoveClip(clip.id); }}>×</button>
-                </div>
-                {clip.image ? <div className="nb-clip-media">
-                  <img src={clip.image} alt={clip.text ? "" : "Saved from the board"} draggable={false} />
-                  <InkCanvas fill page={ink[clipInkKey(clip.id)] ?? EMPTY} editable tool={tool}
-                    label={`Your writing on ${clipLabel(clip)}`} onChange={(page) => changeInk(clipInkKey(clip.id), page)} />
-                </div> : clip.text && <p>{clip.text}</p>}
-                <span className="nb-clip-resize" role="slider" tabIndex={0} aria-label={`Width of ${clipLabel(clip)}`} aria-valuemin={20} aria-valuemax={100} aria-valuenow={Math.round(place.w / 10)}
-                  onPointerDown={(e) => startPageDrag(e, section.id, clip.id, i, "resize")} onPointerMove={movePageDrag} onPointerUp={endPageDrag} onPointerCancel={() => setPageDrag(null)}
-                  onKeyDown={(e) => {
-                    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-                    e.preventDefault();
-                    const w = Math.min(1000 - place.x, Math.max(200, place.w + (e.key === "ArrowLeft" ? -50 : 50)));
-                    commitPlace(section.id, clip.id, { ...place, w }, e.currentTarget.parentElement);
-                  }} />
-              </figure>;
-            })}
           </div>}
+          {clipsFor(section.id).map((clip, i) => {
+            const live = free?.topic === section.id && free.id === clip.id ? free.now : undefined;
+            const place = live ?? placeOf(section.id, clip.id, i);
+            const picked = selectedClip === clip.id;
+            const handlers = (mode: FreeMode) => ({ onPointerDown: (e: React.PointerEvent<HTMLElement>) => startFree(e, section.id, clip.id, i, mode), onPointerMove: moveFree, onPointerUp: endFree, onPointerCancel: () => setFree(null) });
+            return <figure key={clip.id} className="nb-free" data-clip={clip.id} data-picked={picked || undefined} data-moving={live ? true : undefined} data-writing={writing || undefined}
+              title={clipLabel(clip)} tabIndex={0} aria-label={`${clipLabel(clip)}. Arrow keys move it, Delete removes it.`}
+              onKeyDown={(e) => { if (e.target === e.currentTarget) keyNudge(e, section.id, clip.id, place, false); }}
+              onFocus={() => setSelectedClip(clip.id)}
+              style={{ left: `${place.x / 10}cqw`, top: `${place.y / 10}cqw`, width: `${place.w / 10}cqw`, height: clip.image ? `${place.h / 10}cqw` : undefined, minHeight: clip.image ? undefined : `${Math.min(place.h, 200) / 10}cqw` }}
+              {...(!writing ? handlers("move") : {})}>
+              {clip.image ? <>
+                <img src={clip.image} alt={clip.text ? "" : "Saved from the board"} draggable={false}
+                  onLoad={(e) => { const img = e.currentTarget; if (img.naturalWidth && !aspects[clip.id]) setAspects((a) => ({ ...a, [clip.id]: img.naturalHeight / img.naturalWidth })); }} />
+                {(writing || hasInk(ink[clipInkKey(clip.id)])) && <InkCanvas fill page={ink[clipInkKey(clip.id)] ?? EMPTY} editable={writing} tool={tool}
+                  label={`Your writing on ${clipLabel(clip)}`} onChange={(page) => changeInk(clipInkKey(clip.id), page)} />}
+              </> : <p>{clip.text}</p>}
+              {writing && <span className="nb-free-grip" role="button" tabIndex={0} aria-label={`Move ${clipLabel(clip)}`} {...handlers("move")}
+                onKeyDown={(e) => keyNudge(e, section.id, clip.id, place, false)}>
+                <svg viewBox="0 0 12 18" aria-hidden="true"><circle cx="3.5" cy="4" r="1.4" /><circle cx="8.5" cy="4" r="1.4" /><circle cx="3.5" cy="9" r="1.4" /><circle cx="8.5" cy="9" r="1.4" /><circle cx="3.5" cy="14" r="1.4" /><circle cx="8.5" cy="14" r="1.4" /></svg>
+              </span>}
+              <button type="button" className="nb-free-remove" aria-label={`Remove ${clipLabel(clip)} from your notes`} onPointerDown={(e) => e.stopPropagation()} onClick={() => removeClip(section.id, clip.id)}>×</button>
+              <span className="nb-free-edge nb-free-right" aria-hidden="true" {...handlers("right")} />
+              <span className="nb-free-edge nb-free-bottom" aria-hidden="true" {...handlers("bottom")} />
+              <span className="nb-free-corner" role="slider" tabIndex={0} aria-label={`Size of ${clipLabel(clip)}. Arrow keys resize it.`} aria-valuenow={Math.round(place.w / 10)} {...handlers("corner")}
+                onKeyDown={(e) => keyNudge(e, section.id, clip.id, place, true)} />
+            </figure>;
+          })}
+          </div>
           {writing && <button type="button" className="nb-link nb-more-space" onClick={() => { const page = pageFor(section.id); changeInk(section.id, { ...page, h: (page.h ?? PAGE_START) + GROW }); }}>
             More space
           </button>}
