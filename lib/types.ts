@@ -34,11 +34,19 @@ export interface RoomState {
   /** Pause student AI while a check-in question is open (on unless the teacher turns it off). */
   aiAutoPause?: boolean;
   boardPosition?: [number, number];
+  /** The teacher's display name, so students can group lessons by teacher. */
+  teacherName?: string;
+  /** The class this meeting was started for (teacher-made classes, supabase/classes.sql). */
+  classRef?: ClassRef;
+  /** The post-class package the teacher shared with students (never the teacher note). */
+  sharedRecap?: SharedRecap;
 }
+export interface SharedRecap { recap: string; keyPoints: string[]; practice: { question: string; answer: string }[]; catchup: string; ts: number }
+export interface ClassRef { id: string; name: string; color?: string; /** Lets a signed-in student join the class from a meeting. */ joinCode?: string }
 export interface FeedbackEvent { id: string; sid: string; kind: "ask" | "confused" | "helped" | "answer" | "blocked"; blockId: string | null; topicId: string | null; ts: number; correct?: boolean; questionId?: string }
 export type Mode = "standard" | "focus" | "guided" | "example";
-export interface Prefs { mode: Mode; textSize: number; reduceMotion: boolean; popups: boolean; scores: Record<Mode, number> }
-export const DEFAULT_PREFS: Prefs = { mode: "standard", textSize: 100, reduceMotion: false, popups: true, scores: { standard: 0, focus: 0, guided: 0, example: 0 } };
+export interface Prefs { mode: Mode; textSize: number; reduceMotion: boolean; popups: boolean; /** Guided review on saved lessons. */ guide: boolean; scores: Record<Mode, number> }
+export const DEFAULT_PREFS: Prefs = { mode: "standard", textSize: 100, reduceMotion: false, popups: true, guide: true, scores: { standard: 0, focus: 0, guided: 0, example: 0 } };
 export type AIKind = "explain" | "why" | "simplify" | "example" | "snip" | "followup" | "another" | "summarize" | "catchup" | "deeper" | "clarify" | "graph" | "visual" | "quiz" | "recap" | "checkins";
 export interface AIRequest {
   kind: AIKind; selected: string[]; context: string[]; topicTitle?: string; topics?: { title: string; summary: string }[];

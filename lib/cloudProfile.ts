@@ -1,4 +1,5 @@
 import type { Profile, Stats, StudyEntry } from "./profile";
+import { emptyLog, type ProgressLog } from "./progress";
 import { getSupabase } from "./supabase";
 
 /** Per-subject max of each counter: merging a device profile with the saved account profile never loses activity. */
@@ -10,14 +11,15 @@ export function mergeProfiles(a: Profile, b: Profile): Profile {
   }
   return out;
 }
-export async function pullLearning(userId: string): Promise<{ profile: Profile; study: StudyEntry[] }> {
+export async function pullLearning(userId: string): Promise<{ profile: Profile; study: StudyEntry[]; log: ProgressLog }> {
   const result = await getSupabase()?.from("learning_profiles").select("data").eq("user_id", userId).maybeSingle();
   if (result?.error) throw result.error;
   const saved = result?.data?.data;
-  return saved?.version === 2 ? { profile: saved.profile, study: saved.study } : { profile: saved ?? {}, study: [] };
+  // The progress log rides in the same row (no new table); older rows simply have none.
+  return saved?.version === 2 ? { profile: saved.profile, study: saved.study, log: saved.log ?? emptyLog() } : { profile: saved ?? {}, study: [], log: emptyLog() };
 }
-export async function pushProfile(userId: string, profile: Profile, study: StudyEntry[]) {
-  const result = await getSupabase()?.from("learning_profiles").upsert({ user_id: userId, data: { version: 2, profile, study }, updated_at: new Date().toISOString() });
+export async function pushProfile(userId: string, profile: Profile, study: StudyEntry[], log?: ProgressLog) {
+  const result = await getSupabase()?.from("learning_profiles").upsert({ user_id: userId, data: { version: 2, profile, study, ...(log ? { log } : {}) }, updated_at: new Date().toISOString() });
   if (result?.error) throw result.error;
 }
 export async function recordLecture(userId: string, row: { code: string; title: string; subject?: string }) {

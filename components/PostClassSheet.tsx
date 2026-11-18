@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { askAI } from "@/lib/ai";
 import { track } from "@/lib/track";
-import type { RoomState } from "@/lib/types";
+import type { RoomState, SharedRecap } from "@/lib/types";
 import { lectureContent } from "@/lib/recapContent";
 import { Sheet } from "./Sheet";
 
@@ -18,7 +18,7 @@ const INCLUDES = ["Recap", "Key points", "3 practice questions", "Catch-up note"
  * Recap, practice, catch-up note and a teacher follow-up note, copied or downloaded as Markdown.
  * The AI only runs when the teacher presses Generate, and the result is kept for this room so reopening is free.
  */
-export function PostClassSheet({ state, onClose }: { state: RoomState; onClose: () => void }) {
+export function PostClassSheet({ state, onClose, onShare }: { state: RoomState; onClose: () => void; onShare?: (recap: SharedRecap | null) => void }) {
   const key = `pacer:recap:${state.code}`;
   const [saved, setSaved] = useState<Saved | null>(null);
   const [busy, setBusy] = useState(false);
@@ -49,6 +49,10 @@ export function PostClassSheet({ state, onClose }: { state: RoomState; onClose: 
   };
 
   const data = saved?.data;
+  // Sharing sends students everything except the teacher note. Re-sharing replaces it; Stop sharing removes it.
+  const shared = state.sharedRecap;
+  const outdated = !!(shared && saved && saved.ts > shared.ts);
+  const share = () => data && onShare?.({ recap: data.recap, keyPoints: data.keyPoints, practice: data.practice, catchup: data.catchup, ts: saved!.ts });
   const md = data ? toMarkdown(state.title, data) : "";
   const fileName = `${state.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "lecture"}-recap.md`;
   const time = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -59,6 +63,9 @@ export function PostClassSheet({ state, onClose }: { state: RoomState; onClose: 
       footer={data && !busy ? <>
         <button className="btn btn-primary btn-sm" onClick={() => { void navigator.clipboard?.writeText(md).then(() => setCopied(true)); }}>{copied ? "Copied" : "Copy as text"}</button>
         <a className="btn btn-outline btn-sm" href={`data:text/markdown;charset=utf-8,${encodeURIComponent(md)}`} download={fileName}>Download .md</a>
+        {onShare && (!shared || outdated
+          ? <button className="btn btn-outline btn-sm" onClick={share}>{shared ? "Share the new version" : "Share with class"}</button>
+          : <button className="btn btn-outline btn-sm" onClick={() => onShare(null)}>Stop sharing</button>)}
         <button className="btn btn-outline btn-sm ml-auto" onClick={() => void generate()}>Regenerate</button>
       </> : undefined}>
       {!data && !busy && (
@@ -89,6 +96,10 @@ export function PostClassSheet({ state, onClose }: { state: RoomState; onClose: 
             {saved.rev < state.rev && " The lesson has changed since then, so Regenerate to include the latest."}
           </p>
           {err && <p role="alert" className="text-sm text-[#992f34]">{err}</p>}
+          {onShare && <p role="status" className={`recap-share-note ${shared ? "recap-share-note-on" : ""}`}>
+            {shared ? <>Shared with your class at {time(shared.ts)}. Students see it in class and with this lesson on their dashboard.{outdated && " You regenerated since then: share the new version to update it."}</>
+              : "Share with class sends the recap, key points, practice and catch-up note to students. The teacher note stays private."}
+          </p>}
           <section className="sheet-card pop-in"><h3 className="sheet-card-title">Recap</h3><p className="mt-1.5 whitespace-pre-wrap leading-relaxed">{data.recap}</p></section>
           {data.keyPoints.length > 0 && <section className="sheet-card pop-in"><h3 className="sheet-card-title">Key points</h3>
             <ul className="mt-1.5 grid gap-1.5">{data.keyPoints.map((p, i) => <li key={i} className="recap-point">{p}</li>)}</ul></section>}

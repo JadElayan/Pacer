@@ -1,4 +1,5 @@
 "use client";
+import { appendCard as appendCard_ } from "./noteBlocks";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { hasNoteText, noteHtml, textToHtml } from "./noteHtml";
 import { hasInk, isInkPage, type InkPage } from "./ink";
@@ -86,7 +87,8 @@ export function useTopicNotes(key: string, fallback?: { notes?: TopicNotes; clip
     clearTimeout(inkTimer.current);
     inkTimer.current = undefined;
     try {
-      const kept = Object.fromEntries(Object.entries(latestInk.current).filter(([, page]) => hasInk(page)));
+      // A page with only clip positions (no strokes yet) is kept too, so placed clips stay where they were put.
+      const kept = Object.fromEntries(Object.entries(latestInk.current).filter(([, page]) => hasInk(page) || Object.keys(page.c ?? {}).length > 0));
       if (Object.keys(kept).length) localStorage.setItem(inkKey, JSON.stringify(kept)); else localStorage.removeItem(inkKey);
       setStatus("saved");
     } catch { setStatus("error"); }
@@ -115,6 +117,11 @@ export function useTopicNotes(key: string, fallback?: { notes?: TopicNotes; clip
   const append = useCallback((topic: string, text: string) => {
     const current = hasNoteText(latest.current[topic]) ? noteHtml(latest.current[topic]) : "";
     write({ ...latest.current, [topic]: `${current}${current ? "<div><br></div>" : ""}${textToHtml(text)}` });
+  }, [write]);
+  /** Adds a saved answer as its own card (label + text) the student can move, edit, collapse or turn into notes. */
+  const appendCard = useCallback((topic: string, label: string, text: string) => {
+    const current = hasNoteText(latest.current[topic]) ? noteHtml(latest.current[topic]) : "";
+    write({ ...latest.current, [topic]: appendCard_(current, label, textToHtml(text)) });
   }, [write]);
 
   const writeClips = useCallback((next: NoteClip[]) => {
@@ -147,5 +154,5 @@ export function useTopicNotes(key: string, fallback?: { notes?: TopicNotes; clip
   }, [flush, flushInk]);
   useEffect(() => () => { if (inkTimer.current) flushInk(); }, [flushInk]);
 
-  return { notes, clips, ink, ready, status, update, append, addClip, removeClip, setInk };
+  return { notes, clips, ink, ready, status, update, append, appendCard, addClip, removeClip, setInk };
 }
