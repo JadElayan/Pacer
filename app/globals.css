@@ -793,6 +793,18 @@ button.notebook-section { display: flex; justify-content: space-between; }
 .progress-key { display: inline-flex; align-items: center; gap: 5px; }
 .progress-key::before { content: ""; width: 8px; height: 8px; border-radius: 999px; background: var(--dot); }
 .progress-retry { background: #fff; }
+.progress-step { display: flex; gap: 10px; padding: 10px; border-radius: 14px; background: #ffffffb3; transition: background-color .3s, opacity .3s; }
+.progress-step[data-done="true"] { background: #effaf3; }
+.progress-step[data-done="true"] > div > p:first-child { color: #4a6b57; }
+.progress-step-mark { display: grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; border-radius: 999px; border: 1.5px solid #c9d3f3; background: #fff; color: #2454e8; font-size: .75rem; font-weight: 700; transition: background-color .3s, border-color .3s, color .3s; }
+.progress-step[data-done="true"] .progress-step-mark { border-color: #2fbf71; background: #2fbf71; color: #fff; }
+.progress-step-mark svg { width: 14px; height: 14px; }
+.progress-loading::after { content: ""; display: inline-block; width: 10px; height: 10px; margin-left: 8px; border: 2px solid #c9d3f3; border-top-color: #2454e8; border-radius: 999px; vertical-align: -1px; }
+@media (prefers-reduced-motion: no-preference) { .progress-loading::after { animation: progress-spin .8s linear infinite; } }
+@keyframes progress-spin { to { rotate: 360deg; } }
+button.progress-topic { cursor: pointer; }
+button.progress-topic:hover { border-color: #b9c9ff; }
+button.progress-topic[aria-pressed="true"] { border-color: #2454e8; box-shadow: 0 0 0 2px #2454e833; }
 @media (prefers-reduced-motion: no-preference) { .progress-retry, .progress-next { animation: board-pop .25s cubic-bezier(.3, 1.2, .5, 1) both; } }
 /* Compact lesson rows: clicking a row opens its summary, preview and actions. */
 .lesson-row > button { cursor: pointer; border-radius: 12px; }

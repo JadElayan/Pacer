@@ -2,8 +2,8 @@
 // Type-only imports so unit tests can load this file directly.
 import type { Lesson } from "./lessons";
 
-const PLACEHOLDER_TITLES = new Set(["", "untitled lecture", "untitled", "new topic"]);
-const isPlaceholder = (title?: string) => PLACEHOLDER_TITLES.has((title ?? "").trim().toLowerCase());
+// Same rule as isPlaceholderTitle in lib/studyPlan.ts (kept separate so unit tests can load each file alone).
+const isPlaceholder = (title?: string) => /^(|untitled lecture|untitled|new topic|topic \d+)$/i.test((title ?? "").trim());
 const shortDate = (ts: number) => new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
 /** A name worth showing: the lecture title, else its first real topic, else subject and date. */
