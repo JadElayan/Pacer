@@ -1210,3 +1210,5 @@ svg g[color] { transition: color .45s ease-in-out; }
 .guide-chip:hover { border-color: #b9c9ff; }
 .guide-chip[aria-pressed="true"] { border-color: #e6a23c; background: #fff6e6; color: #8a5a00; }
 .guide-try { padding: .6rem .75rem; border: 1px solid #dfe6fb; border-radius: 14px; background: #ffffffcc; }
+.nb-free[data-drawing] { cursor: crosshair; touch-action: none; box-shadow: 0 0 0 2px #e6a23c, 0 8px 22px #18234822; }
+.nb-free-done { position: absolute; top: 6px; left: 6px; z-index: 2; padding: 3px 10px; border-radius: 999px; background: #171d38; color: #fff; font-size: .75rem; font-weight: 600; cursor: pointer; box-shadow: 0 2px 8px #18234833; }

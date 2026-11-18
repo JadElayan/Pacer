@@ -186,6 +186,8 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
   const freeRef = useRef<FreeDrag | null>(null);
   const setFree = (next: FreeDrag | null) => { freeRef.current = next; setFreeState(next); };
   const [selectedClip, setSelectedClip] = useState<string | null>(null);
+  // Drawing on a clip starts with a double-click, so a normal drag always moves it. Done, Escape or clicking away stops.
+  const [drawingOn, setDrawingOn] = useState<string | null>(null);
   // Height of each topic's typed notes (in units), so clips not placed yet sit just below the text.
   const [textHeight, setTextHeight] = useState<Record<string, number>>({});
   const [aspects, setAspects] = useState<Record<string, number>>({});
@@ -447,8 +449,8 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
             {onViewBoard && index >= 0 && !isLive && <button type="button" className="nb-link" onClick={() => onViewBoard(section.id)}>View board</button>}
           </div>
           <div className="nb-canvas" style={{ minHeight: `${clipBottom(section.id) / 10 + 2}cqw` }}
-            onPointerDown={(e) => { if (!(e.target as Element).closest(".nb-free")) setSelectedClip(null); }}>
-          <div className="nb-blocks">{(() => {
+            onPointerDown={(e) => { if (!(e.target as Element).closest(".nb-free")) { setSelectedClip(null); setDrawingOn(null); } }}>
+          {!writing && <div className="nb-blocks">{(() => {
             const blocks = blocksOf(section.id);
             return blocks.map((b, i) => {
               if (b.kind === "text") {
@@ -480,8 +482,8 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
               // Clips aren't rows in the text: they float on the topic's notes (rendered below).
               return null;
             });
-          })()}</div>
-          {(writing || hasInk(ink[section.id])) && <div className="nb-ink-page" data-writing={writing || undefined}
+          })()}</div>}
+          {writing && <div className="nb-ink-page" data-writing={writing || undefined}
             onPointerDown={() => setFocused(section.id)}>
             {writing && !hasInk(ink[section.id]) && <span className="nb-ink-hint" aria-hidden="true">Write here with a pen, finger or mouse</span>}
             <InkCanvas page={pageWithClips(section.id)} editable={writing} tool={tool} label={`Handwritten notes for ${section.title}`}
@@ -495,22 +497,27 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
             const place = live ?? placeOf(section.id, clip.id, i);
             const picked = selectedClip === clip.id;
             const handlers = (mode: FreeMode) => ({ onPointerDown: (e: React.PointerEvent<HTMLElement>) => startFree(e, section.id, clip.id, i, mode), onPointerMove: moveFree, onPointerUp: endFree, onPointerCancel: () => setFree(null) });
-            return <figure key={clip.id} className="nb-free" data-clip={clip.id} data-picked={picked || undefined} data-moving={live ? true : undefined} data-writing={writing || undefined}
-              title={clipLabel(clip)} tabIndex={0} aria-label={`${clipLabel(clip)}. Arrow keys move it, Delete removes it.`}
-              onKeyDown={(e) => { if (e.target === e.currentTarget) keyNudge(e, section.id, clip.id, place, false); }}
+            const drawing = drawingOn === clip.id && !!clip.image;
+            return <figure key={clip.id} className="nb-free" data-clip={clip.id} data-picked={picked || undefined} data-moving={live ? true : undefined} data-drawing={drawing || undefined}
+              title={drawing ? undefined : `${clipLabel(clip)} · double-click to write on it`} tabIndex={0}
+              aria-label={`${clipLabel(clip)}. Arrow keys move it, Enter writes on it, Delete removes it.`}
+              onDoubleClick={() => { if (clip.image) { setSelectedClip(clip.id); setDrawingOn(clip.id); } }}
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === "Enter" && clip.image) { e.preventDefault(); setDrawingOn(drawing ? null : clip.id); return; }
+                if (e.key === "Escape") { setDrawingOn(null); return; }
+                keyNudge(e, section.id, clip.id, place, false);
+              }}
               onFocus={() => setSelectedClip(clip.id)}
               style={{ left: `${place.x / 10}cqw`, top: `${place.y / 10}cqw`, width: `${place.w / 10}cqw`, height: clip.image ? `${place.h / 10}cqw` : undefined, minHeight: clip.image ? undefined : `${Math.min(place.h, 200) / 10}cqw` }}
-              {...(!writing ? handlers("move") : {})}>
+              {...(!drawing ? handlers("move") : {})}>
               {clip.image ? <>
                 <img src={clip.image} alt={clip.text ? "" : "Saved from the board"} draggable={false}
                   onLoad={(e) => { const img = e.currentTarget; if (img.naturalWidth && !aspects[clip.id]) setAspects((a) => ({ ...a, [clip.id]: img.naturalHeight / img.naturalWidth })); }} />
-                {(writing || hasInk(ink[clipInkKey(clip.id)])) && <InkCanvas fill page={ink[clipInkKey(clip.id)] ?? EMPTY} editable={writing} tool={tool}
+                {(drawing || hasInk(ink[clipInkKey(clip.id)])) && <InkCanvas fill page={ink[clipInkKey(clip.id)] ?? EMPTY} editable={drawing} tool={tool}
                   label={`Your writing on ${clipLabel(clip)}`} onChange={(page) => changeInk(clipInkKey(clip.id), page)} />}
               </> : <p>{clip.text}</p>}
-              {writing && <span className="nb-free-grip" role="button" tabIndex={0} aria-label={`Move ${clipLabel(clip)}`} {...handlers("move")}
-                onKeyDown={(e) => keyNudge(e, section.id, clip.id, place, false)}>
-                <svg viewBox="0 0 12 18" aria-hidden="true"><circle cx="3.5" cy="4" r="1.4" /><circle cx="8.5" cy="4" r="1.4" /><circle cx="3.5" cy="9" r="1.4" /><circle cx="8.5" cy="9" r="1.4" /><circle cx="3.5" cy="14" r="1.4" /><circle cx="8.5" cy="14" r="1.4" /></svg>
-              </span>}
+              {drawing && <button type="button" className="nb-free-done" onPointerDown={(e) => e.stopPropagation()} onClick={() => setDrawingOn(null)}>Done</button>}
               <button type="button" className="nb-free-remove" aria-label={`Remove ${clipLabel(clip)} from your notes`} onPointerDown={(e) => e.stopPropagation()} onClick={() => removeClip(section.id, clip.id)}>×</button>
               <span className="nb-free-edge nb-free-right" aria-hidden="true" {...handlers("right")} />
               <span className="nb-free-edge nb-free-bottom" aria-hidden="true" {...handlers("bottom")} />
