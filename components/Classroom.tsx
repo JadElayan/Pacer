@@ -11,6 +11,7 @@ import { GENERAL_NOTES, useTopicNotes } from "@/lib/useTopicNotes";
 import { privateNoteKey } from "@/lib/privateNoteKey";
 import { boardRpc, useBoardCollaboration, usePrivateAnnotations } from "@/lib/useBoardCollaboration";
 import { publishAiState } from "@/lib/aiPause";
+import { suggestionsForSlide } from "@/lib/slideQuestions";
 import { planCheckins, savePlan, savedPlan, setSuggestionsEnabled, suggestionsEnabled, type CheckinPlan } from "@/lib/checkins";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -25,6 +26,9 @@ import { CheckIn } from "./CheckIn";
 import { TopicStrip } from "./TopicStrip";
 import { checkinStats, computeRows, MIN_GROUP } from "@/lib/insights";
 import { Insights } from "./Insights";
+import { joinClass, setClassLive } from "@/lib/classes";
+import { forLessons } from "@/lib/studyPlan";
+import { addSignal, emptyLog, loadLog, mergeLogs, saveLog, upsertCheckin, type ProgressLog } from "@/lib/progress";
 import { bump, loadProfile, loadStudy, mergeStudy, saveProfile, saveStudy, subjectOf, type Profile, type Stats, type StudyEntry } from "@/lib/profile";
 import { ProfileSheet } from "./ProfileSheet";
 import { mergeProfiles, pullLearning, pushProfile } from "@/lib/cloudProfile";
@@ -34,6 +38,7 @@ import { ArchiveSheet } from "./ArchiveSheet";
 import { Sheet } from "./Sheet";
 import { SplitBoards } from "./SplitBoards";
 import { PostClassSheet } from "./PostClassSheet";
+import { RecapView, recapDate } from "./SharedRecap";
 import { track, trackOnce } from "@/lib/track";
 import { Logo } from "./Logo";
 import { RichText } from "./RichText";
@@ -246,6 +251,9 @@ export function Classroom({ code, review }: { code: string; review?: {
   const toggleInsights = (open: boolean) => runViewTransition(() => setShowInsights(open), { reduced: prefs.reduceMotion });
   const [showFinish, setShowFinish] = useState(false);
   const [showRecap, setShowRecap] = useState(false);
+  // Students: the class recap the teacher shared. The banner can be hidden; a newer share shows it again.
+  const [recapOpen, setRecapOpen] = useState(false);
+  const [recapHidden, setRecapHidden] = useState<number>();
   const [savingLecture, setSavingLecture] = useState(false);
   const [lectureMessage, setLectureMessage] = useState("");
   const [showPages, setShowPages] = useState(true);
@@ -265,6 +273,9 @@ export function Classroom({ code, review }: { code: string; review?: {
   const [spotSeen, setSpotSeen] = useState(0);
   const [profile, setProfile] = useState<Profile>({}); const [showProfile, setShowProfile] = useState(false);
   const seenQ = useRef<Set<string>>(new Set());
+  // Student-private progress history (check-in answers and lost / got-it signals) for the dashboard's Your progress.
+  const [plog, setPlog] = useState<ProgressLog>(emptyLog());
+  const myAnswers = useRef<Record<string, string>>({});
   const [connectorMode, setConnectorMode] = useState(false);
   const [annotationMode, setAnnotationMode] = useState(false);
   const [annotationVisible, setAnnotationVisible] = useState(true);
@@ -436,14 +447,17 @@ export function Classroom({ code, review }: { code: string; review?: {
     setCheckinPlan(plan && { ...plan, deckId: deck.id });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isTeacher, deck?.id]);
-  // A suggestion shows only while its own slide is on screen, and goes away once asked or skipped.
-  const offered = suggestOn && state?.showSlides && deck && checkinPlan && !checkinPlan.done.includes(deck.current)
-    ? checkinPlan.suggestions.find((item) => item.slide === deck.current) : undefined;
-  const finishCheckin = (slide: number) => {
+  // A suggestion shows only while its own slide is on screen, and goes away once asked or skipped. Questions written
+  // on the slide itself are suggested too (no AI), so a slide that asks the class something always offers it.
+  const offered = isTeacher && suggestOn && state?.showSlides && deck && !checkinPlan?.done.includes(deck.current)
+    ? suggestionsForSlide(deck.current, deck.pages[deck.current]?.text ?? "", checkinPlan?.suggestions ?? []).find((item) => !checkinPlan?.done.includes(item.id))
+    : undefined;
+  const finishCheckin = (id: string) => {
+    if (!deck) return;
     setCheckinPlan((plan) => {
-      if (!plan) return plan;
-      const next = { ...plan, done: [...new Set([...plan.done, slide])] };
-      savePlan(plan.deckId, next);
+      const base = plan ?? { suggestions: [], answerSlides: [], done: [], source: "demo" as const, deckId: deck.id };
+      const next = { ...base, done: [...new Set([...base.done, id])] };
+      savePlan(base.deckId, next);
       return next;
     });
   };
@@ -690,10 +704,30 @@ export function Classroom({ code, review }: { code: string; review?: {
     inkTimer.current = setTimeout(() => void readInk(), 6000);
   };
 
+  // A signed-in student in a class meeting joins that class once, so its lessons group together on the dashboard.
+  useEffect(() => {
+    const cls = state?.classRef;
+    if (isTeacher || review || !userId || !cls?.joinCode) return;
+    const flag = `pacer:joined:${cls.id}:${userId}`;
+    try { if (localStorage.getItem(flag)) return; } catch { return; }
+    void joinClass(cls.joinCode).then(() => { try { localStorage.setItem(flag, "1"); } catch { /* asked again next time */ } }).catch(() => { /* classes not installed or offline */ });
+  }, [state?.classRef?.id, state?.classRef?.joinCode, isTeacher, review, userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---- student: private learning profile (this device only) ----
-  const rec = (f: keyof Stats) => setProfile(bump(subjectOf(state?.title ?? "", state?.subject), f, userId));
+  const updateLog = (change: (log: ProgressLog) => ProgressLog) => {
+    const next = change(loadLog(userId));
+    saveLog(next, userId);
+    if (currentAccount.current === userId) setPlog(next);
+  };
+  const rec = (f: keyof Stats, topicId?: string | null) => {
+    setProfile(bump(subjectOf(state?.title ?? "", state?.subject), f, userId));
+    if (state && (f === "confused" || f === "helped")) {
+      const topic = state.topics.find((t) => t.id === (topicId ?? live))?.title ?? state.title;
+      updateLog((log) => addSignal(log, { id: uid(), ts: Date.now(), lesson: state.code, topic, kind: f === "helped" ? "gotit" : "lost" }));
+    }
+  };
   const recordStudy = (entry: StudyEntry) => {
-    const entries = mergeStudy(loadStudy(userId), [entry]);
+    const entries = mergeStudy(loadStudy(userId), [{ code: state?.code, ...entry }]);
     saveStudy(entries, userId);
     if (currentAccount.current === userId) setStudy(entries);
   };
@@ -703,14 +737,16 @@ export function Classroom({ code, review }: { code: string; review?: {
     setSyncError(false);
     setProfile(loadProfile(userId));
     setStudy(loadStudy(userId));
+    setPlog(loadLog(userId));
     if (!userId) return;
     let active = true;
     void pullLearning(userId).then((remote) => {
       if (!active) return;
       const profile = mergeProfiles(loadProfile(userId), remote.profile);
       const study = mergeStudy(remote.study, loadStudy(userId));
-      saveProfile(profile, userId); saveStudy(study, userId);
-      setProfile(profile); setStudy(study); setSyncedUser(userId);
+      const log = mergeLogs(loadLog(userId), remote.log);
+      saveProfile(profile, userId); saveStudy(study, userId); saveLog(log, userId);
+      setProfile(profile); setStudy(study); setPlog(log); setSyncedUser(userId);
     }).catch(() => { if (active) setSyncError(true); });
     return () => { active = false; };
   }, [authReady, isTeacher, userId]);
@@ -719,22 +755,38 @@ export function Classroom({ code, review }: { code: string; review?: {
     let active = true;
     profileWrites.current = profileWrites.current.then(async () => {
       if (!active) return;
-      try { await pushProfile(userId, profile, study); if (active) setSyncError(false); }
+      try { await pushProfile(userId, profile, study, plog); if (active) setSyncError(false); }
       catch { if (active) setSyncError(true); }
     });
     return () => { active = false; };
-  }, [profile, study, userId, syncedUser, isTeacher]);
+  }, [profile, study, plog, userId, syncedUser, isTeacher]);
   useEffect(() => {
-    Object.entries(grades).forEach(([id, ok]) => { if (!seenQ.current.has(id)) { seenQ.current.add(id); rec(ok ? "checkRight" : "checkWrong"); } });
+    Object.entries(grades).forEach(([id, ok]) => {
+      if (seenQ.current.has(id)) return;
+      seenQ.current.add(id); rec(ok ? "checkRight" : "checkWrong");
+      const q = state?.question?.id === id ? state.question : undefined;
+      if (state && q) {
+        const topic = state.topics.find((t) => t.id === live)?.title ?? state.title;
+        updateLog((log) => upsertCheckin(log, { id, ts: Date.now(), lesson: state.code, lecture: state.title, subject: subjectOf(state.title, state.subject), topic,
+          question: q.text, given: myAnswers.current[id], key: q.answer, correct: ok }));
+      }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grades]);
+  // The answer key arrives when the teacher shows it; keep it with the student's answer so missed check-ins can be retried.
+  useEffect(() => {
+    const q = state?.question;
+    if (isTeacher || !q?.answer || !plog.checkins.some((c) => c.id === q.id && !c.key)) return;
+    updateLog((log) => { const c = log.checkins.find((item) => item.id === q.id); return c ? upsertCheckin(log, { ...c, key: q.answer }) : log; });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.question?.answer, state?.question?.id, plog, isTeacher]);
 
   // Save what was covered so the student can review it later from the dashboard.
   const lessonContent = useMemo(() => state && ({
     code: state.code, title: state.title, subject: state.subject, blocks: state.blocks,
     topics: state.topics, strokes: state.strokes, archive: state.archive, slides: state.slides, collaborationId: state.collaborationId, ended: state.ended,
-    showSlides: state.showSlides, currentTopicId: state.currentTopicId,
-  }), [state?.code, state?.title, state?.subject, state?.blocks, state?.topics, state?.strokes, state?.archive, state?.slides, state?.collaborationId, state?.ended, state?.showSlides, state?.currentTopicId]);
+    showSlides: state.showSlides, currentTopicId: state.currentTopicId, teacherName: state.teacherName, classRef: state.classRef, sharedRecap: state.sharedRecap,
+  }), [state?.code, state?.title, state?.subject, state?.blocks, state?.topics, state?.strokes, state?.archive, state?.slides, state?.collaborationId, state?.ended, state?.showSlides, state?.currentTopicId, state?.teacherName, state?.classRef, state?.sharedRecap]);
   const myNotes = topicNotes.ready ? topicNotes.notes : undefined;
   useEffect(() => {
     if (review || !authReady || isTeacher || wantTeacher || !lessonContent || !myNotes) return;
@@ -819,7 +871,7 @@ export function Classroom({ code, review }: { code: string; review?: {
   const feedback = (f: "helped" | "confused" | "another") => {
     if (!anchor) return; const sel = selectedBlocks(anchor)[0];
     if (f === "another") { void ask(anchor, "another"); return; }
-    setFed(f); sendEvent(f, sel?.id ?? null, sel?.topicId ?? null); score(prefs.mode, f === "helped" ? 1 : -1); rec(f === "helped" ? "helped" : "confused");
+    setFed(f); sendEvent(f, sel?.id ?? null, sel?.topicId ?? null); score(prefs.mode, f === "helped" ? 1 : -1); rec(f === "helped" ? "helped" : "confused", sel?.topicId);
     if (f === "confused" && state) {
       const topic = state.topics.find((t) => t.id === (sel?.topicId ?? live))?.title ?? state.title;
       const entry = { id: uid(), lecture: state.title, topic, ts: Date.now() };
@@ -839,7 +891,7 @@ export function Classroom({ code, review }: { code: string; review?: {
     if (kind === "catchup") { openCatchup(topic?.id ?? null); return; }
     if (kind === "ask" && aiOff) { blockedAI(); return; }
     if (kind === "lost") {
-      sendEvent("confused", null, topicId); rec("confused");
+      sendEvent("confused", null, topicId); rec("confused", topicId);
       recordStudy({ id: uid(), lecture: state.title, topic: topic?.title ?? state.title, ts: Date.now() });
       return;
     }
@@ -974,6 +1026,7 @@ export function Classroom({ code, review }: { code: string; review?: {
   const finishLecture = async (save: boolean) => {
     if (savingLecture) return;
     setSavingLecture(true);
+    if (state.classRef && userId) void setClassLive(state.classRef.id, null).catch(() => { /* it expires on its own */ });
     setLectureMessage("");
     try {
       if (collaborationId && collaboration.allowed) await boardRpc("pacer_set_contributions", { board: collaborationId, allowed: false });
@@ -997,6 +1050,7 @@ export function Classroom({ code, review }: { code: string; review?: {
     const addPrivate = (items: Partial<Block>[]) => addPrivateBlocks(items, surface);
     return (
     <Whiteboard key={surface ?? (browseTopic ? browsedTopicId : "live")} boardRef={ref} spotlightId={browseTopic ? undefined : spotBlock?.id}
+      empty={blocksFor(sp).length === 0 && (sp || !sharedNotepads.length) && (sp ? slideInk : visibleInk).length === 0}
       blocks={[...blocksFor(sp), ...(sp ? [] : sharedNotepads), ...(!isTeacher && annotationVisible ? privateNotes.data.blocks.filter((block) => block.surface === surface) : [])]}
       strokes={[...(sp ? slideInk : visibleInk), ...(!isTeacher && annotationVisible ? privateNotes.data.strokes.filter((stroke) => stroke.surface === surface) : [])]} isTeacher={isTeacher} selectedIds={anchor?.ids ?? []}
       privateInk={privateEditing}
@@ -1096,7 +1150,7 @@ export function Classroom({ code, review }: { code: string; review?: {
           onSaveClip={wantTeacher || anchor.topicTitle || (!sel.length && !anchor.image) ? undefined : () => topicNotes.addClip({
             topicId: noteTopicFor(anchor), image: anchor.image, text: sel.map((b) => b.content).join("\n"),
             label: anchor.slideTitle ?? (sel.length ? "From the board" : "Handwriting from the board") })}
-          onSaveAnswer={wantTeacher ? undefined : (text) => topicNotes.append(noteTopicFor(anchor), `Explanation (AI)\n${plainNote(text)}`)} />
+          onSaveAnswer={wantTeacher ? undefined : (text) => topicNotes.appendCard(noteTopicFor(anchor), "Explanation (AI)", plainNote(text))} />
       )}
     </Whiteboard>
     );
@@ -1216,7 +1270,7 @@ export function Classroom({ code, review }: { code: string; review?: {
             <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M2.5 6V2.5H6M13.5 6V2.5H10M2.5 10v3.5H6M13.5 10v3.5H10" /></svg>Focus
           </button>
           {!review && <button className="btn btn-outline btn-sm" onClick={() => { setShowClassTools(false); setShowArchive(true); }}>Board archive{state.archive?.length ? ` (${state.archive.length})` : ""}</button>}
-          {isTeacher ? <button className="btn btn-outline btn-sm" onClick={toggleDemo} aria-pressed={demoMode} title="Show insights in classes with only one or two students">Small class: {demoMode ? "on" : "off"}</button> : <>
+          {isTeacher ? <button className="btn btn-outline btn-sm" onClick={toggleDemo} aria-pressed={demoMode} title="Insights normally wait until 3 students share a struggle, so no one can be singled out. Turn this on for tutoring or groups of 1 or 2.">Small group insights: {demoMode ? "on" : "off"}</button> : <>
             {!wantTeacher && authReady && <button className="btn btn-outline btn-sm max-lg:!hidden notes-toggle" aria-pressed={notesOpen} aria-controls="student-notebook" onClick={toggleNotes}>
               <svg aria-hidden="true" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2" /><path d="M10 2.5v11" /></svg>{notesOpen ? "Hide notes" : "Show notes"}
             </button>}
@@ -1414,7 +1468,12 @@ export function Classroom({ code, review }: { code: string; review?: {
                 onAccessChange={(allowed) => { if (isTeacher) mutate((room) => ({ ...room, studentStickyPermission: allowed ? "open" : "closed" })); }} />}
             </div>
           )}
-          {!isTeacher && authReady && state.question && <CheckIn key={checkInKey} storageKey={checkInKey} text={state.question.text} open={state.question.open} answer={state.question.answer} correct={state.question.correct} total={state.question.total} grade={grades[state.question.id]} onSubmit={(v) => submitAnswer(state.question!.id, v)} />}
+          {!isTeacher && state.sharedRecap && recapHidden !== state.sharedRecap.ts && <div role="status" className="recap-banner pop-in">
+            <span className="min-w-0 flex-1"><b>Your teacher shared the class recap.</b> Key points, practice questions and a catch-up note.</span>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => setRecapOpen(true)}>Open recap</button>
+            <button type="button" className="nb-link" onClick={() => setRecapHidden(state.sharedRecap!.ts)}>Hide</button>
+          </div>}
+          {!isTeacher && authReady && state.question && <CheckIn key={checkInKey} storageKey={checkInKey} text={state.question.text} open={state.question.open} answer={state.question.answer} correct={state.question.correct} total={state.question.total} grade={grades[state.question.id]} onSubmit={(v) => { myAnswers.current[state.question!.id] = v; submitAnswer(state.question!.id, v); }} />}
           {offTeacherSlide && deck && state.showSlides && !review && (
             <div role="status" className="flex flex-wrap items-center gap-3 rounded-[16px] border border-sky bg-sky-soft px-3 py-2 text-sm">
               <span className="min-w-0 flex-1">{stayedToAnnotate
@@ -1450,13 +1509,13 @@ export function Classroom({ code, review }: { code: string; review?: {
           </Collapse>
           {browseTopic && (
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-2 text-sm">
-                Topic
-                <ChoiceMenu label="Topic" value={browsedTopicId ?? ""}
+              {state.topics.length > 1 && !slidePage && <div className="flex items-center gap-2 text-sm" title="Each topic has its own whiteboard. Pick one to look back at it.">
+                Board for
+                <ChoiceMenu label="Whiteboard to browse, by topic" value={browsedTopicId ?? ""}
                   onChange={(value) => { setBrowsedTopicId(value); setStudentView({ zoom: 1 }); setAnchor(null); setSnip(false); }}>
                   {state.topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.title}</option>)}
                 </ChoiceMenu>
-              </div>
+              </div>}
               <button type="button" className="btn btn-sm btn-outline" aria-label="Zoom out" disabled={studentView.zoom <= 0.5}
                 onClick={() => setStudentView((view) => ({ ...view, zoom: Math.max(0.5, view.zoom - 0.25) }))}>−</button>
               <button type="button" className="btn btn-sm btn-outline" aria-label="Reset browse view"
@@ -1585,12 +1644,12 @@ export function Classroom({ code, review }: { code: string; review?: {
               {giveaway && <p className="checkin-card-warn">Slide {giveaway} may show the answer.
                 <button type="button" className="nb-link" onClick={() => mutate((room) => room.slides ? { ...room, slides: { ...room.slides, hidden: [...new Set([...(room.slides.hidden ?? []), giveaway])] } } : room)}>Hide it from students until you present it</button></p>}
               <div className="flex flex-wrap gap-2">
-                {offered.answer ? <button type="button" className="btn btn-primary btn-sm" onClick={() => { postQuestion(offered.question, offered.answer); finishCheckin(offered.slide); }}>Ask class</button> : null}
+                {offered.answer ? <button type="button" className="btn btn-primary btn-sm" onClick={() => { postQuestion(offered.question, offered.answer); finishCheckin(offered.id); }}>Ask class</button> : null}
                 <button type="button" className={`btn btn-sm ${offered.answer ? "btn-outline" : "btn-primary"}`} onClick={() => {
-                  setQText(offered.question); setQAnswer(offered.answer); finishCheckin(offered.slide);
+                  setQText(offered.question); setQAnswer(offered.answer); finishCheckin(offered.id);
                   window.setTimeout(() => document.getElementById(offered.answer ? "q-text" : "q-ans")?.focus(), 50);
                 }}>{offered.answer ? "Edit first" : "Add an answer"}</button>
-                <button type="button" className="btn btn-outline btn-sm" onClick={() => finishCheckin(offered.slide)}>Skip</button>
+                <button type="button" className="btn btn-outline btn-sm" onClick={() => finishCheckin(offered.id)}>Skip</button>
               </div>
             </section>;
           })()}
@@ -1622,7 +1681,7 @@ export function Classroom({ code, review }: { code: string; review?: {
             notes={topicNotes.notes} clips={topicNotes.clips} status={topicNotes.status} ready={topicNotes.ready} onChange={topicNotes.update} onRemoveClip={topicNotes.removeClip}
             ink={topicNotes.ink} onInk={topicNotes.setInk}
             onHelp={notebookHelp}
-            onBackOnTrack={(topic) => { sendEvent("helped", null, topic?.id ?? live); rec("helped"); }}
+            onBackOnTrack={(topic) => { sendEvent("helped", null, topic?.id ?? live); rec("helped", topic?.id ?? live); }}
             onViewBoard={review ? undefined : (id) => { setBrowsedTopicId(id); setStudentView({ zoom: 1 }); setAnchor(null); setSnip(false); setMobilePane("board"); }}
             headerExtra={(!privateNotes.ready || privateNotes.status === "Retry" || (!review && authReady && !user && signInEnabled)) ? <>
               {!review && authReady && !user && signInEnabled && <span>Notes stay on this device. <button type="button" className="nb-link" onClick={() => void signIn()}>Sign in</button> to keep them in your account and annotate the board.</span>}
@@ -1652,13 +1711,24 @@ export function Classroom({ code, review }: { code: string; review?: {
       )}
       {popup && !isTeacher && <Popup p={popup} onDismiss={() => setPopup(null)} onNever={() => { update({ popups: false }); setPopup(null); }} />}
       <AnimatedPanel open={showProfile && !isTeacher} motion="drawer" reduced={prefs.reduceMotion}>
-        <ProfileSheet profile={profile} study={study} syncError={syncError} onClose={() => setShowProfile(false)} onReset={() => { saveProfile({}, userId); saveStudy([], userId); setProfile({}); setStudy([]); }} />
+        <ProfileSheet {...(() => {
+          // Only what belongs to lessons the student still has (plus this one), so removed lectures don't linger here.
+          const kept = [...loadLessons(userId).filter((l) => !l.removed && l.code !== code), { code, title: state.title, subject: state.subject }];
+          const subjects = new Set(kept.map((l) => subjectOf(l.title, l.subject)));
+          return { profile: Object.fromEntries(Object.entries(profile).filter(([name]) => subjects.has(name))), study: forLessons(emptyLog(), study, kept).study };
+        })()} syncError={syncError} onClose={() => setShowProfile(false)} onReset={() => { saveProfile({}, userId); saveStudy([], userId); saveLog(emptyLog(), userId); setProfile({}); setStudy([]); setPlog(emptyLog()); }} />
       </AnimatedPanel>
       <AnimatedPanel open={showArchive} motion="drawer" reduced={prefs.reduceMotion}>
         <ArchiveSheet boards={state.archive ?? []} onClose={() => setShowArchive(false)} />
       </AnimatedPanel>
       <AnimatedPanel open={isTeacher && showRecap} motion="drawer" reduced={prefs.reduceMotion}>
-        <PostClassSheet state={state} onClose={() => setShowRecap(false)} />
+        <PostClassSheet state={state} onClose={() => setShowRecap(false)}
+          onShare={(recap) => mutate((room) => { const { sharedRecap: _old, ...rest } = room; void _old; return recap ? { ...rest, sharedRecap: recap } : rest; })} />
+      </AnimatedPanel>
+      <AnimatedPanel open={!isTeacher && recapOpen && !!state.sharedRecap} motion="drawer" reduced={prefs.reduceMotion}>
+      {state.sharedRecap && <Sheet title="Class recap" label="Class recap" subtitle={`Shared by your teacher on ${recapDate(state.sharedRecap.ts)}. It's also saved with this lesson on your dashboard.`} wide onClose={() => setRecapOpen(false)}>
+        <div className="sheet-card"><RecapView recap={state.sharedRecap} /></div>
+      </Sheet>}
       </AnimatedPanel>
       <AnimatedPanel open={showSettings} motion="drawer" reduced={prefs.reduceMotion}>
         <SettingsSheet prefs={prefs} update={update} reset={reset} onClose={() => setShowSettings(false)} />
@@ -1670,7 +1740,7 @@ export function Classroom({ code, review }: { code: string; review?: {
             <button className="btn btn-primary btn-sm" onClick={() => { setCatchup(null); setLastViewed(live); setAnchor(null); boardRef.current?.querySelector("[role=region]")?.scrollTo({ top: 1e6 }); }}>Return to live</button>
             {catchup.text && !catchupLoading && <button className="btn btn-outline btn-sm" onClick={() => void explainCatchup("long")}>Explain more</button>}
             {catchup.text && !catchupLoading && !wantTeacher && authReady && <button className="btn btn-outline btn-sm ml-auto" disabled={catchupSaved}
-              onClick={() => { topicNotes.append(catchupTopic ?? live ?? GENERAL_NOTES, `Catch-up\n${plainNote(catchup.text)}`); setCatchupSaved(true); }}>{catchupSaved ? "Added to notes" : "Add to my notes"}</button>}
+              onClick={() => { topicNotes.appendCard(catchupTopic ?? live ?? GENERAL_NOTES, "Catch-up", plainNote(catchup.text)); setCatchupSaved(true); }}>{catchupSaved ? "Added to notes" : "Add to my notes"}</button>}
           </>}>
           <ol className="grid gap-2">
             {catchupTopics(catchupTopic).map((topic, i) => <li key={topic.id} className="sheet-card pop-in !p-3" style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}>

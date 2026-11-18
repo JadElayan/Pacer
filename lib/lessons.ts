@@ -1,5 +1,5 @@
 /** Student's saved lesson notes. Saved on this device; also synced to the account when signed in. */
-import type { Archived, RoomState } from "./types";
+import type { Archived, ClassRef, RoomState, SharedRecap } from "./types";
 import { getSupabase } from "./supabase";
 import { backUpSavedDeck } from "./teacherStorage";
 import type { SlideDeck } from "./slides";
@@ -9,9 +9,12 @@ export interface LessonTopic { id?: string; title: string; summary: string; note
 export interface LessonClip { id: string; topicId: string; text?: string; label?: string; ts: number }
 export interface Lesson { code: string; title: string; subject?: string; ts: number; topics: LessonTopic[]; boards?: Archived[]; slides?: SlideDeck; collaborationId?: string; myNotes?: Record<string, string>; myClips?: LessonClip[];
   /** True once the student saw the teacher end the lecture (or a later check found the room closed). */ ended?: boolean;
-  /** What was on screen when the lesson was last saved: a slide (showSlides) or the board, and its topic. */ showSlides?: boolean; currentTopic?: string }
+  /** What was on screen when the lesson was last saved: a slide (showSlides) or the board, and its topic. */ showSlides?: boolean; currentTopic?: string;
+  /** The student removed it from their list. Kept as a small marker so an older account copy doesn't bring it back. */ removed?: boolean;
+  /** Who taught it and which class it belongs to, for grouping on the dashboard. */ teacherName?: string; classRef?: ClassRef;
+  /** The class recap the teacher shared, kept with the lesson. */ recap?: SharedRecap }
 const KEY = "pacer:lessons";
-type LessonContent = Pick<RoomState, "code" | "title" | "subject" | "blocks" | "topics" | "strokes" | "archive" | "slides" | "collaborationId"> & { ended?: boolean; showSlides?: boolean; currentTopicId?: string | null };
+type LessonContent = Pick<RoomState, "code" | "title" | "subject" | "blocks" | "topics" | "strokes" | "archive" | "slides" | "collaborationId" | "teacherName" | "classRef" | "sharedRecap"> & { ended?: boolean; showSlides?: boolean; currentTopicId?: string | null };
 
 const lessonKey = (userId?: string) => userId ? `${KEY}:${userId}` : KEY;
 export function loadLessons(userId?: string): Lesson[] { try { const v = localStorage.getItem(lessonKey(userId)); return v ? (JSON.parse(v) as Lesson[]) : []; } catch { return []; } }
@@ -26,7 +29,9 @@ export function buildLesson(s: LessonContent, myNotes?: Record<string, string>, 
   const boards = [...(s.archive ?? [])];
   if (s.strokes.length || s.blocks.length) boards.push({ id: `${s.code}-live`, ts, blocks: s.blocks, strokes: s.strokes });
   return { code: s.code, title: s.title, subject: s.subject, ts, topics, boards, slides: s.slides, collaborationId: s.collaborationId, ...(notes ? { myNotes: notes } : {}), ...(clips?.length ? { myClips: clips } : {}), ...(s.ended ? { ended: true } : {}),
-    ...(s.showSlides && s.slides ? { showSlides: true } : {}), currentTopic: s.topics.find((t) => t.id === s.currentTopicId)?.title };
+    ...(s.showSlides && s.slides ? { showSlides: true } : {}), currentTopic: s.topics.find((t) => t.id === s.currentTopicId)?.title,
+    ...(s.sharedRecap ? { recap: s.sharedRecap } : {}),
+    ...(s.teacherName ? { teacherName: s.teacherName } : {}), ...(s.classRef ? { classRef: { id: s.classRef.id, name: s.classRef.name, color: s.classRef.color } } : {}) };
 }
 export function saveLesson(s: LessonContent, userId?: string, myNotes?: Record<string, string>, myClips?: LessonClip[]): Lesson | null {
   const l = buildLesson(s, myNotes, myClips); if (!l) return null;
@@ -41,6 +46,17 @@ export async function pushLesson(userId: string, l: Lesson) {
 export async function pullLessons(userId: string): Promise<Lesson[]> {
   const { data } = (await getSupabase()?.from("student_lessons").select("data").eq("user_id", userId).order("updated_at", { ascending: false }).limit(30)) ?? { data: null };
   return (data ?? []).map((r) => r.data as Lesson);
+}
+/** Removes a lesson from the student's list, here and (when signed in) in their account. Rejoining the class saves it again. */
+export async function removeLesson(code: string, userId?: string) {
+  const marker: Lesson = { code, title: "", ts: Date.now(), topics: [], ended: true, removed: true };
+  const next = [marker, ...loadLessons(userId).filter((lesson) => lesson.code !== code)];
+  storeLessons(next, userId);
+  if (userId) {
+    const result = await getSupabase()?.from("student_lessons").upsert({ user_id: userId, code, data: marker, updated_at: new Date().toISOString() });
+    if (!result || result.error) throw result?.error ?? new Error("Account storage is unavailable.");
+  }
+  return next;
 }
 /** Records that a lesson's lecture has ended, so the list stops checking whether it is live. */
 export function markLessonEnded(code: string, userId?: string) {

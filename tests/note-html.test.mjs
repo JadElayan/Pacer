@@ -28,3 +28,9 @@ test("checklists, titles, indents and links export as readable text", () => {
   assert.equal(noteHtml('<ul data-checklist="true"><li>x</li></ul>'), '<ul data-checklist="true"><li>x</li></ul>');
   assert.equal(hasNoteText('<ul data-checklist="true"><li><br></li></ul>'), false);
 });
+
+test("notes that start with plain text before the first formatted line are still HTML", () => {
+  assert.equal(noteHtml("asd<div>a</div>"), "asd<div>a</div>");
+  assert.equal(htmlToText("asd<div>a</div>"), "asd\na");
+  assert.equal(noteHtml("2 < 3 and 5 > 4"), textToHtml("2 < 3 and 5 > 4"));
+});

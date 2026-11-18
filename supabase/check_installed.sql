@@ -18,6 +18,8 @@ select step, script, installed from (values
   ('09', 'notepad_owner_post.sql', exists (select 1 from pg_proc
         where proname = 'pacer_write_notepad' and prosrc like '%owner := %')),
   ('10', 'room_ai_pause.sql', to_regclass('public.pacer_room_ai_signals') is not null),
-  ('11', 'ai_token_budget.sql', exists (select 1 from pg_proc where proname = 'ai_budget_add'))
+  ('11', 'ai_token_budget.sql', exists (select 1 from pg_proc where proname = 'ai_budget_add')),
+  ('12', 'classes.sql', to_regclass('public.pacer_classes') is not null
+        and exists (select 1 from pg_proc where proname = 'pacer_join_class'))
 ) as checks(step, script, installed)
 order by step;

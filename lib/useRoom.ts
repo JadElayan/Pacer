@@ -23,7 +23,7 @@ const ls = {
 export function newRoom(code: string, title: string, subject?: string): RoomState {
   return { code, title, subject: subject?.trim() || undefined, blocks: [], topics: [], strokes: [], currentTopicId: null, ended: false, rev: 0 };
 }
-export async function createMeeting(title: string, subject?: string, materials?: LectureMaterials): Promise<string> {
+export async function createMeeting(title: string, subject?: string, materials?: LectureMaterials, extra?: Pick<RoomState, "teacherName" | "classRef">): Promise<string> {
   let code = "";
   // Register the room's signing key before anyone can learn the code. A code another live room holds is skipped.
   for (let attempt = 0; attempt < 8; attempt++) {
@@ -32,7 +32,7 @@ export async function createMeeting(title: string, subject?: string, materials?:
     if (await registerRoomKey(code) !== "taken") break;
   }
   localStorage.setItem(`pacer:room:${code}`, JSON.stringify({
-    ...newRoom(code, title || "Untitled lecture", subject), ...materials,
+    ...newRoom(code, title || "Untitled lecture", subject), ...materials, ...extra,
   }));
   localStorage.setItem(`pacer:token:${code}`, JSON.stringify(uid() + uid()));
   return code;

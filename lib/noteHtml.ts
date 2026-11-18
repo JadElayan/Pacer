@@ -14,7 +14,10 @@ const SAFE_LINK = /^(https?:|mailto:)/i;
 export const escapeHtml = (text: string) =>
   text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
-const isHtml = (value: string) => /^\s*<(div|p|ul|ol|h[2-4]|strong|b|em|i|u|s|mark|span|a|blockquote|br)\b/i.test(value);
+// Saved notes are HTML even when they start with plain text: an editor often keeps the first line as a bare text node
+// ("asd<div>a</div>"). Only checking the start made those notes look like plain text, so their tags showed as words.
+const isHtml = (value: string) => /^\s*<(div|p|ul|ol|h[2-4]|strong|b|em|i|u|s|mark|span|a|blockquote|br)\b/i.test(value)
+  || /<(div|p|ul|ol|li|h[2-4]|strong|em|mark|span|blockquote)\b[^>]*>[\s\S]*<\/\1>|<br\s*\/?>/i.test(value);
 
 /** Plain text (with "•", "-", "*" or "1." list lines) to note HTML. */
 export function textToHtml(text: string): string {
@@ -64,8 +67,9 @@ export function htmlToText(value: string | undefined): string {
     .replace(/\n{3,}/g, "\n\n").trim();
 }
 
+// A placed clip (see lib/noteBlocks.ts) counts too, so a topic holding only a moved clip is still saved.
 export const hasNoteText = (value: string | undefined) =>
-  !!value && decode(isHtml(value) ? value.replace(/<[^>]+>/g, "") : value).trim().length > 0;
+  !!value && (value.includes('data-block="clip:') || decode(isHtml(value) ? value.replace(/<[^>]+>/g, "") : value).trim().length > 0);
 
 /** Keeps only safe style values: alignment on blocks, text and highlight colors on spans. */
 function cleanStyle(el: HTMLElement): string {

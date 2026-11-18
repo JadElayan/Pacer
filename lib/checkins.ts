@@ -6,7 +6,8 @@ import { askAI } from "./ai";
  * answerSlides are slides that give an answer away, which the teacher can hide until they ask.
  */
 export type CheckinSuggestion = { slide: number; question: string; answer: string; answerSlide: number | null };
-export type CheckinPlan = { suggestions: CheckinSuggestion[]; answerSlides: number[]; done: number[]; source: "ai" | "demo" };
+/** `done` holds suggestion ids that were asked or skipped (older plans stored slide numbers, which still hide that slide's ideas). */
+export type CheckinPlan = { suggestions: CheckinSuggestion[]; answerSlides: number[]; done: (number | string)[]; source: "ai" | "demo" };
 
 const key = (deckId: string) => `pacer:checkins:${deckId}`;
 const SETTING = "pacer:suggest-checkins";

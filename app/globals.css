@@ -781,6 +781,37 @@ button.notebook-section { display: flex; justify-content: space-between; }
 .lesson-card:hover { background-color: #fafbff; box-shadow: 0 6px 18px #1823480f; }
 .lesson-card[data-open="true"] { box-shadow: 0 10px 26px #18234814; }
 .lesson-card [data-lesson-preview] { cursor: default; }
+/* Your progress: Next up card, topic chips (green strong, amber mixed, red needs work), retry panel. */
+.progress-next { background: linear-gradient(135deg, #eef3ff, #f6f0ff); border: 1px solid #dfe6fb; }
+.progress-streak { display: inline-block; padding: 1px 8px; border-radius: 999px; background: #fff3d6; color: #8a5a00; font-size: .75rem; font-weight: 600; }
+.progress-topic { --dot: #9aa1b8; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid #e3e6ef; background: #fff; font-size: .8125rem; transition: background-color .3s, border-color .3s; }
+.progress-topic[data-status="strong"], .progress-key[data-status="strong"] { --dot: #2fbf71; }
+.progress-topic[data-status="mixed"], .progress-key[data-status="mixed"] { --dot: #e6a23c; }
+.progress-topic[data-status="needs work"], .progress-key[data-status="needs work"] { --dot: #e05a5a; }
+.progress-topic[data-status="needs work"] { border-color: #f6cfcf; background: #fff7f7; }
+.progress-topic-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--dot); }
+.progress-key { display: inline-flex; align-items: center; gap: 5px; }
+.progress-key::before { content: ""; width: 8px; height: 8px; border-radius: 999px; background: var(--dot); }
+.progress-retry { background: #fff; }
+.progress-step { display: flex; gap: 10px; padding: 10px; border-radius: 14px; background: #ffffffb3; transition: background-color .3s, opacity .3s; }
+.progress-step[data-done="true"] { background: #effaf3; }
+.progress-step[data-done="true"] > div > p:first-child { color: #4a6b57; }
+.progress-step-mark { display: grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; border-radius: 999px; border: 1.5px solid #c9d3f3; background: #fff; color: #2454e8; font-size: .75rem; font-weight: 700; transition: background-color .3s, border-color .3s, color .3s; }
+.progress-step[data-done="true"] .progress-step-mark { border-color: #2fbf71; background: #2fbf71; color: #fff; }
+.progress-step-mark svg { width: 14px; height: 14px; }
+.progress-loading::after { content: ""; display: inline-block; width: 10px; height: 10px; margin-left: 8px; border: 2px solid #c9d3f3; border-top-color: #2454e8; border-radius: 999px; vertical-align: -1px; }
+@media (prefers-reduced-motion: no-preference) { .progress-loading::after { animation: progress-spin .8s linear infinite; } }
+@keyframes progress-spin { to { rotate: 360deg; } }
+button.progress-topic { cursor: pointer; }
+button.progress-topic:hover { border-color: #b9c9ff; }
+button.progress-topic[aria-pressed="true"] { border-color: #2454e8; box-shadow: 0 0 0 2px #2454e833; }
+@media (prefers-reduced-motion: no-preference) { .progress-retry, .progress-next { animation: board-pop .25s cubic-bezier(.3, 1.2, .5, 1) both; } }
+/* Compact lesson rows: clicking a row opens its summary, preview and actions. */
+.lesson-row > button { cursor: pointer; border-radius: 12px; }
+.lesson-remove { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; color: #6b655d; font-size: .8125rem; cursor: pointer; transition: background-color .15s, color .15s; }
+.lesson-remove svg { width: 15px; height: 15px; }
+.lesson-remove:hover, .lesson-remove:focus-visible { background: #fdecec; color: #a52a2a; }
+@media (prefers-reduced-motion: no-preference) { .lesson-group li { animation: board-pop .22s cubic-bezier(.3, 1.2, .5, 1) both; } }
 .lesson-card-toggle { display: grid; place-items: center; flex: 0 0 auto; width: 30px; height: 30px; border-radius: 999px; color: #6b655d; transition: background-color .2s ease, rotate .3s cubic-bezier(.3, 1.3, .5, 1); }
 .lesson-card-toggle svg { width: 15px; height: 15px; }
 .lesson-card:hover .lesson-card-toggle { background: #eef1fb; }
@@ -1087,3 +1118,104 @@ svg g[color] { transition: color .45s ease-in-out; }
 .eq-live { position: absolute; bottom: calc(100% + 8px); left: 0; display: flex; align-items: center; min-width: 100%; min-height: 48px; width: max-content; max-width: 70vw; padding: .45rem .8rem; border: 1px solid #d6dffb; border-radius: 14px; background: #fff; box-shadow: 0 8px 22px #18234818; font-size: 1.45rem; color: #171d38; animation: board-pop .22s cubic-bezier(.3, 1.4, .5, 1) both; }
 .eq-live .katex { transition: opacity .15s; }
 .eq-live-hint { font-size: .8125rem; color: #6b7290; }
+
+/* Notebook blocks: clips and saved answers can be dragged (⋮⋮ handle), moved with Alt+↑/↓, resized and turned into notes. */
+.nb-page { position: relative; }
+.nb-page[data-dragging] { user-select: none; -webkit-user-select: none; cursor: grabbing; }
+.nb-block { position: relative; }
+.nb-block[data-kind="clip"], .nb-block[data-kind="card"] { padding-left: 22px; margin-left: -22px; }
+.nb-block[data-gap] .nb-rich { min-height: 1.3em; }
+.nb-block[data-dragging] { opacity: .4; }
+.nb-handle { position: absolute; left: 0; top: 6px; display: grid; place-items: center; width: 18px; height: 28px; border-radius: 6px; color: #8d94ad; cursor: grab; opacity: 0; touch-action: none; transition: opacity .15s, background-color .15s; }
+.nb-handle svg { width: 10px; height: 15px; fill: currentColor; }
+.nb-handle:hover { background: #eef1fb; color: #4a5272; }
+.nb-handle:active { cursor: grabbing; }
+.nb-block:hover > .nb-handle, .nb-handle:focus-visible, .nb-handle[aria-expanded="true"] { opacity: 1; }
+@media (hover: none) { .nb-handle { opacity: .75; } }
+.nb-drop-line { position: absolute; left: .75rem; right: .75rem; z-index: 5; height: 3px; margin-top: -2px; border-radius: 3px; background: #2454e8; box-shadow: 0 0 0 3px #2454e833; pointer-events: none; }
+.nb-drag-ghost { position: fixed; z-index: 60; max-width: 220px; padding: 4px 10px; border-radius: 999px; background: #171d38; color: #fff; font-size: .75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; transform: translate(14px, -50%); box-shadow: 0 6px 18px #18234833; }
+.nb-block-menu { position: absolute; left: 20px; top: 36px; z-index: 20; display: flex; flex-direction: column; min-width: 190px; padding: 4px; border: 1px solid #dfe3f0; border-radius: 12px; background: #fff; box-shadow: 0 10px 28px #18234822; }
+.nb-block-menu button { padding: 7px 10px; border-radius: 8px; text-align: left; font-size: .8125rem; color: #1f2540; cursor: pointer; }
+.nb-block-menu button:hover, .nb-block-menu button:focus-visible { background: #f1f3fa; }
+.nb-block-menu .nb-block-menu-danger { color: #a52a2a; }
+.nb-card { margin: .35rem 0 .6rem; padding: .5rem .7rem .6rem; border: 1px solid #dfe6fb; border-left: 3px solid #6d8cf0; border-radius: 0 12px 12px 0; background: #f7f9ff; transition: background-color .2s; }
+.nb-card-head { display: flex; align-items: center; gap: 8px; color: #2442a2; font-size: .75rem; font-weight: 600; }
+.nb-card .nb-rich { margin-top: .3rem; }
+.nb-clip-resize { position: absolute; right: -6px; bottom: -6px; width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(135deg, transparent 52%, #8d94ad 52%, #8d94ad 62%, transparent 62%, transparent 72%, #8d94ad 72%, #8d94ad 82%, transparent 82%); cursor: nwse-resize; opacity: 0; touch-action: none; transition: opacity .15s; }
+.nb-clip:hover .nb-clip-resize, .nb-clip-resize:focus-visible { opacity: 1; }
+@media (hover: none) { .nb-clip-resize { opacity: .7; } }
+@media (prefers-reduced-motion: no-preference) {
+  .nb-block-menu { animation: board-pop .18s cubic-bezier(.3, 1.3, .5, 1) both; }
+  .nb-block[data-kind="clip"], .nb-block[data-kind="card"] { transition: opacity .2s; }
+}
+
+/* Guided review on saved lessons. */
+.guide { background: linear-gradient(135deg, #eef3ff, #f6f0ff); border: 1px solid #dfe6fb; }
+.guide-progress { flex: 1 1 auto; height: 6px; overflow: hidden; border-radius: 999px; background: #dfe5f8; }
+.guide-progress span { display: block; height: 100%; border-radius: inherit; background: #2454e8; transition: width .35s cubic-bezier(.3, 1.1, .5, 1); }
+@media (prefers-reduced-motion: no-preference) { .guide-step { animation: guide-in .28s cubic-bezier(.3, 1.1, .5, 1) both; } }
+@keyframes guide-in { from { opacity: 0; transform: translateX(10px); } }
+
+/* Classes on the Learning dashboard: one card per class, its lessons inside. */
+.class-card { --class: #6d8cf0; transition: box-shadow .25s, border-color .25s; }
+.class-card[data-open="true"] { border-color: color-mix(in srgb, var(--class) 45%, #e3e6ef); box-shadow: 0 8px 22px #1823480f; }
+.class-card > button { cursor: pointer; border-radius: 16px; }
+.class-dot { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 999px; background: var(--class); box-shadow: 0 0 0 3px color-mix(in srgb, var(--class) 22%, transparent); transition: background-color .45s ease-in-out; }
+.class-card[data-open="true"] > button .lesson-card-toggle { rotate: 180deg; }
+.class-card[data-open="true"] > button .lesson-card-toggle-v { scale: 1 0; }
+.class-code { padding: 2px 8px; border-radius: 8px; background: #eef1fb; color: #1f2540; font: 600 .875rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .12em; }
+
+/* Write mode: clips sit on the lined page like pictures in a notebook. */
+.nb-page-clip { position: absolute; z-index: 2; margin: 0; border: 1px solid #c9d3f3; border-radius: 12px; background: #fff; box-shadow: 0 6px 18px #1823481a; transition: box-shadow .2s; }
+.nb-page-clip[data-moving] { box-shadow: 0 14px 30px #18234833; transition: none; }
+.nb-page-clip-bar { display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 4px; border-bottom: 1px solid #eef0f7; border-radius: 12px 12px 0 0; background: #f7f9ff; color: #4a5272; font-size: .75rem; font-weight: 600; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.nb-page-clip-bar:active { cursor: grabbing; }
+.nb-page-clip-bar svg { flex: 0 0 auto; width: 10px; height: 15px; fill: #8d94ad; }
+.nb-page-clip .nb-clip-media { position: relative; }
+.nb-page-clip .nb-clip-media img { display: block; width: 100%; height: auto; max-height: none; border-radius: 0 0 12px 12px; }
+.nb-page-clip p { padding: .45rem .6rem .6rem; font-size: .875rem; line-height: 1.5; white-space: pre-wrap; }
+.nb-page-clip .nb-clip-resize { opacity: .75; }
+
+/* Shared class recap: teacher note in the package, student banner, and the recap saved with a lesson. */
+.recap-share-note { padding: .55rem .75rem; border-radius: 12px; background: #f3f5fb; color: #4a5272; font-size: .8125rem; }
+.recap-share-note-on { background: #effaf3; color: #2d6a47; }
+.recap-banner { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; padding: .7rem .9rem; border: 1px solid #cfe3d6; border-radius: 16px; background: #f2fbf5; font-size: .875rem; }
+.recap-card { border: 1px solid #dfe6fb; background: #f7f9ff; }
+.recap-view-title { color: #2442a2; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+
+/* Clips float on a topic's notes: drag anywhere, resize from the corner (both ways) or the right and bottom edges. */
+.nb-canvas { position: relative; container-type: inline-size; }
+.nb-free { position: absolute; z-index: 3; margin: 0; border-radius: 10px; background: #fff; box-shadow: 0 0 0 1px #dfe3f0, 0 4px 14px #18234814; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; transition: box-shadow .2s; }
+.nb-free[data-writing] { cursor: default; touch-action: auto; }
+.nb-free:focus-visible, .nb-free[data-picked] { z-index: 4; outline: none; box-shadow: 0 0 0 2px #2454e8, 0 8px 22px #18234822; }
+.nb-free[data-moving] { cursor: grabbing; box-shadow: 0 0 0 2px #2454e8, 0 16px 34px #18234833; transition: none; }
+.nb-free > img { display: block; width: 100%; height: 100%; object-fit: fill; border-radius: inherit; pointer-events: none; }
+.nb-free > .ink-canvas { position: absolute; inset: 0; border-radius: inherit; }
+.nb-free > p { padding: .55rem .7rem; font-size: .875rem; line-height: 1.5; white-space: pre-wrap; color: #1f2540; }
+.nb-free-remove, .nb-free-grip, .nb-free-corner, .nb-free-edge { position: absolute; opacity: 0; transition: opacity .15s; }
+.nb-free:hover > *, .nb-free[data-picked] > *, .nb-free:focus-within > * { opacity: 1; }
+.nb-free > img, .nb-free > p, .nb-free > .ink-canvas { opacity: 1; }
+@media (hover: none) { .nb-free-remove, .nb-free-grip, .nb-free-corner { opacity: .85; } }
+.nb-free-remove { top: -9px; right: -9px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 999px; background: #171d38; color: #fff; font-size: .8rem; line-height: 1; cursor: pointer; box-shadow: 0 2px 6px #18234833; }
+.nb-free-grip { top: 4px; left: 4px; display: grid; place-items: center; width: 22px; height: 26px; border-radius: 7px; background: #ffffffe6; box-shadow: 0 1px 4px #18234826; cursor: grab; touch-action: none; }
+.nb-free-grip svg { width: 10px; height: 15px; fill: #4a5272; }
+.nb-free-corner { right: -7px; bottom: -7px; width: 16px; height: 16px; border: 2px solid #2454e8; border-radius: 5px; background: #fff; cursor: nwse-resize; touch-action: none; }
+.nb-free-edge { touch-action: none; }
+.nb-free-right { top: 20%; right: -5px; width: 10px; height: 60%; cursor: ew-resize; }
+.nb-free-bottom { left: 20%; bottom: -5px; width: 60%; height: 10px; cursor: ns-resize; }
+.nb-free-right::after, .nb-free-bottom::after { content: ""; position: absolute; inset: 0; margin: auto; border-radius: 3px; background: #2454e8; }
+.nb-free-right::after { width: 4px; height: 26px; }
+.nb-free-bottom::after { width: 26px; height: 4px; }
+.guide-chip { padding: 4px 11px; border: 1px solid #d6dffb; border-radius: 999px; background: #fff; color: #1f2540; font-size: .8125rem; cursor: pointer; transition: background-color .2s, border-color .2s, color .2s; }
+.guide-chip:hover { border-color: #b9c9ff; }
+.guide-chip[aria-pressed="true"] { border-color: #e6a23c; background: #fff6e6; color: #8a5a00; }
+.guide-try { padding: .6rem .75rem; border: 1px solid #dfe6fb; border-radius: 14px; background: #ffffffcc; }
+
+/* Large view for writing over a clip (double-click a clip). */
+.clip-annotator { position: fixed; inset: 0; z-index: 80; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px; background: #10142acc; backdrop-filter: blur(3px); }
+.clip-annotator-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: min(92vw, 1100px); padding: 8px 10px; border-radius: 16px; background: #fff; box-shadow: 0 10px 30px #0004; }
+.clip-annotator-title { margin-right: 6px; max-width: 30ch; overflow: hidden; color: #171d38; font-size: .875rem; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.clip-annotator-stage { position: relative; max-width: 92vw; border-radius: 14px; background: #fff; box-shadow: 0 16px 40px #0006; overflow: hidden; touch-action: none; }
+.clip-annotator-stage > img { display: block; width: 100%; height: 100%; object-fit: fill; user-select: none; -webkit-user-select: none; pointer-events: none; }
+.clip-annotator-hint { color: #dfe4f5; font-size: .8125rem; }
+@media (prefers-reduced-motion: no-preference) { .clip-annotator { animation: guide-in .2s ease both; } .clip-annotator-stage { animation: board-pop .25s cubic-bezier(.3, 1.2, .5, 1) both; } }
