@@ -64,8 +64,9 @@ export function htmlToText(value: string | undefined): string {
     .replace(/\n{3,}/g, "\n\n").trim();
 }
 
+// A placed clip (see lib/noteBlocks.ts) counts too, so a topic holding only a moved clip is still saved.
 export const hasNoteText = (value: string | undefined) =>
-  !!value && decode(isHtml(value) ? value.replace(/<[^>]+>/g, "") : value).trim().length > 0;
+  !!value && (value.includes('data-block="clip:') || decode(isHtml(value) ? value.replace(/<[^>]+>/g, "") : value).trim().length > 0);
 
 /** Keeps only safe style values: alignment on blocks, text and highlight colors on spans. */
 function cleanStyle(el: HTMLElement): string {

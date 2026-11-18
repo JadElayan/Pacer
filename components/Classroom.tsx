@@ -1129,7 +1129,7 @@ export function Classroom({ code, review }: { code: string; review?: {
           onSaveClip={wantTeacher || anchor.topicTitle || (!sel.length && !anchor.image) ? undefined : () => topicNotes.addClip({
             topicId: noteTopicFor(anchor), image: anchor.image, text: sel.map((b) => b.content).join("\n"),
             label: anchor.slideTitle ?? (sel.length ? "From the board" : "Handwriting from the board") })}
-          onSaveAnswer={wantTeacher ? undefined : (text) => topicNotes.append(noteTopicFor(anchor), `Explanation (AI)\n${plainNote(text)}`)} />
+          onSaveAnswer={wantTeacher ? undefined : (text) => topicNotes.appendCard(noteTopicFor(anchor), "Explanation (AI)", plainNote(text))} />
       )}
     </Whiteboard>
     );
@@ -1703,7 +1703,7 @@ export function Classroom({ code, review }: { code: string; review?: {
             <button className="btn btn-primary btn-sm" onClick={() => { setCatchup(null); setLastViewed(live); setAnchor(null); boardRef.current?.querySelector("[role=region]")?.scrollTo({ top: 1e6 }); }}>Return to live</button>
             {catchup.text && !catchupLoading && <button className="btn btn-outline btn-sm" onClick={() => void explainCatchup("long")}>Explain more</button>}
             {catchup.text && !catchupLoading && !wantTeacher && authReady && <button className="btn btn-outline btn-sm ml-auto" disabled={catchupSaved}
-              onClick={() => { topicNotes.append(catchupTopic ?? live ?? GENERAL_NOTES, `Catch-up\n${plainNote(catchup.text)}`); setCatchupSaved(true); }}>{catchupSaved ? "Added to notes" : "Add to my notes"}</button>}
+              onClick={() => { topicNotes.appendCard(catchupTopic ?? live ?? GENERAL_NOTES, "Catch-up", plainNote(catchup.text)); setCatchupSaved(true); }}>{catchupSaved ? "Added to notes" : "Add to my notes"}</button>}
           </>}>
           <ol className="grid gap-2">
             {catchupTopics(catchupTopic).map((topic, i) => <li key={topic.id} className="sheet-card pop-in !p-3" style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}>

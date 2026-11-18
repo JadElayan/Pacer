@@ -690,7 +690,9 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
         }}>
         <div ref={viewport} data-board-viewport className="absolute inset-0 overflow-hidden [overflow-anchor:none]" aria-label={shapeTool ? `Drag to size ${shapeTool}` : placement ? `Click to place ${placement}` : "Board viewport"}
           tabIndex={placement || displayZoom > 1 ? 0 : undefined} style={{ touchAction: onZoom ? "none" : undefined,
-            cursor: panning ? "grabbing" : !draft && (modeIcon || placement) ? boardToolCursor((modeIcon || placement)!) : active ? "crosshair" : undefined }}
+            cursor: panning ? "grabbing" : !draft && (modeIcon || placement) ? boardToolCursor((modeIcon || placement)!) : active ? "crosshair" : undefined,
+            // While drawing, a drag must not also select the text underneath (the highlighter used to).
+            userSelect: active ? "none" : undefined, WebkitUserSelect: active ? "none" : undefined }}
           onClick={(event) => {
             const target = event.target as Element;
             if (!placement) {
@@ -724,6 +726,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
             if (e.pointerType === "pen") penSeen.current = true;
             if (!e.isPrimary || e.button !== 0 || (e.pointerType === "touch" && pinch.current)) return;
             if (e.pointerType === "touch" && penSeen.current && active) return;
+            if (active) { e.preventDefault(); window.getSelection()?.removeAllRanges(); }
             if (shapeTool) {
               const start = canvasPoint(e.clientX, e.clientY);
               if (!start) return;

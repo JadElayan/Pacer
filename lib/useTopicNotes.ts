@@ -1,4 +1,5 @@
 "use client";
+import { appendCard as appendCard_ } from "./noteBlocks";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { hasNoteText, noteHtml, textToHtml } from "./noteHtml";
 import { hasInk, isInkPage, type InkPage } from "./ink";
@@ -116,6 +117,11 @@ export function useTopicNotes(key: string, fallback?: { notes?: TopicNotes; clip
     const current = hasNoteText(latest.current[topic]) ? noteHtml(latest.current[topic]) : "";
     write({ ...latest.current, [topic]: `${current}${current ? "<div><br></div>" : ""}${textToHtml(text)}` });
   }, [write]);
+  /** Adds a saved answer as its own card (label + text) the student can move, edit, collapse or turn into notes. */
+  const appendCard = useCallback((topic: string, label: string, text: string) => {
+    const current = hasNoteText(latest.current[topic]) ? noteHtml(latest.current[topic]) : "";
+    write({ ...latest.current, [topic]: appendCard_(current, label, textToHtml(text)) });
+  }, [write]);
 
   const writeClips = useCallback((next: NoteClip[]) => {
     latestClips.current = next;
@@ -147,5 +153,5 @@ export function useTopicNotes(key: string, fallback?: { notes?: TopicNotes; clip
   }, [flush, flushInk]);
   useEffect(() => () => { if (inkTimer.current) flushInk(); }, [flushInk]);
 
-  return { notes, clips, ink, ready, status, update, append, addClip, removeClip, setInk };
+  return { notes, clips, ink, ready, status, update, append, appendCard, addClip, removeClip, setInk };
 }
