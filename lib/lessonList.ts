@@ -47,3 +47,24 @@ export function groupLessons<T extends { ts: number }>(lessons: T[], now = Date.
 /** How many rows show before "Show all", and when the search box appears. */
 export const LESSONS_SHOWN = 4;
 export const SEARCH_AFTER = 6;
+
+export interface ClassGroup<T> { key: string; name: string; teacher?: string; color?: string; classId?: string; items: T[]; latest: number }
+
+/**
+ * Groups lessons by class: a teacher-made class when the meeting had one, else the same teacher and subject.
+ * Lessons with neither go in "Other lessons", listed last.
+ */
+export function groupByClass<T extends Pick<Lesson, "ts" | "subject" | "teacherName" | "classRef">>(lessons: T[]): ClassGroup<T>[] {
+  const groups = new Map<string, ClassGroup<T>>();
+  for (const lesson of lessons) {
+    const subject = lesson.subject?.trim();
+    const teacher = lesson.teacherName?.trim();
+    const key = lesson.classRef ? `class:${lesson.classRef.id}` : teacher || subject ? `t:${(teacher ?? "").toLowerCase()}|s:${(subject ?? "").toLowerCase()}` : "other";
+    const name = lesson.classRef?.name ?? (subject ? subject.replace(/^./, (c) => c.toUpperCase()) : teacher ? `${teacher}'s lessons` : "Other lessons");
+    const group = groups.get(key) ?? { key, name, teacher, color: lesson.classRef?.color, classId: lesson.classRef?.id, items: [], latest: 0 };
+    group.items.push(lesson);
+    group.latest = Math.max(group.latest, lesson.ts);
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((a, b) => Number(a.key === "other") - Number(b.key === "other") || b.latest - a.latest);
+}

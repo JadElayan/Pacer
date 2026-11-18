@@ -33,3 +33,16 @@ test("lessons group into today, this week and earlier", () => {
   const groups = groupLessons([{ ts: now - 3600_000 }, { ts: now - 2 * 86_400_000 }, { ts: now - 30 * 86_400_000 }], now);
   assert.deepEqual(groups.map((g) => [g.label, g.items.length]), [["Today", 1], ["This week", 1], ["Earlier", 1]]);
 });
+
+test("lessons group by class, then by teacher and subject, with the rest last", async () => {
+  const { groupByClass } = await import("../lib/lessonList.ts");
+  const groups = groupByClass([
+    { ts: 5, subject: "Stats", teacherName: "Ms Lee", classRef: { id: "c1", name: "Stats 101 · P3" } },
+    { ts: 4, subject: "stats", teacherName: "Ms Lee" },
+    { ts: 3, subject: "Stats", teacherName: "Ms Lee" },
+    { ts: 9 },
+    { ts: 2, subject: "Stats", teacherName: "Ms Lee", classRef: { id: "c1", name: "Stats 101 · P3" } },
+  ]);
+  assert.deepEqual(groups.map((g) => [g.name, g.items.length]), [["Stats 101 · P3", 2], ["Stats", 2], ["Other lessons", 1]]);
+  assert.equal(groups[1].teacher, "Ms Lee");
+});

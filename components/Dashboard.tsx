@@ -1,9 +1,11 @@
 "use client";
 import Link from "next/link";
-import { Collapse } from "./Motion";
+import { Collapse, SegmentedControl } from "./Motion";
 import { useEffect, useState } from "react";
 import { loadLessons, markLessonEnded, mergeLessons, pullLessons, removeLesson, storeLessons, type Lesson } from "@/lib/lessons";
-import { groupLessons, isEmptyLesson, lessonName, LESSONS_SHOWN, matchesSearch, SEARCH_AFTER } from "@/lib/lessonList";
+import { groupByClass, groupLessons, isEmptyLesson, lessonName, LESSONS_SHOWN, matchesSearch, SEARCH_AFTER } from "@/lib/lessonList";
+import { isLive, joinClass, myClasses, type PacerClass } from "@/lib/classes";
+import { authEnabled } from "@/lib/supabase";
 import { LIVE_WINDOW_MS, probeLesson, type LessonStatus } from "@/lib/lessonStatus";
 import { LessonPreview, type LessonView } from "./LessonPreview";
 import type { RoomState } from "@/lib/types";
@@ -65,20 +67,7 @@ export function LearnedBox() {
     try { setLessons(await removeLesson(code, userId)); }
     catch { setRemoveError("Removed here, but your account copy couldn't be updated. Try again later."); }
   };
-  return (
-    <section aria-label="What you've learned" className="flex flex-col rounded-[28px] border border-stone bg-eggshell/95 p-6 shadow-[var(--shadow-whisper)] lg:min-h-[560px]">
-      <p className="text-xs font-medium uppercase tracking-wide text-sky-deep">What you've learned</p>
-      <h2 className="display mt-1 text-3xl">Your lessons</h2>
-      <p className="mt-1 text-sm text-smoke">Pacer takes notes while you're in class, so you can go back over them any time.</p>
-      {worth.length > SEARCH_AFTER && <input type="search" aria-label="Search your lessons" placeholder="Search lessons" className="input mt-4 py-2 text-sm" value={query} onChange={(e) => setQuery(e.target.value)} />}
-      {removeError && <p role="alert" className="mt-2 text-sm">{removeError}</p>}
-      <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
-        {ordered.length === 0 && <p className="rounded-2xl bg-taupe p-4 text-sm text-smoke">No lessons yet. Join a meeting and your notes will show up here.</p>}
-        {searching && !matching.length && <p className="rounded-2xl bg-taupe p-4 text-sm text-smoke">No lessons match &ldquo;{query.trim()}&rdquo;.</p>}
-        {groups.map((group) => <div key={group.label} className="lesson-group mt-4 first:mt-0">
-          {(groups.length > 1 || showAll || searching) && <h3 className="mb-1.5 text-xs font-medium uppercase tracking-wide text-smoke">{group.label}</h3>}
-          <ul className="space-y-2">
-            {group.items.map((l) => {
+  const row = (l: Lesson) => {
               const live = statusOf(l) === "live";
               const name = lessonName(l);
               return <li key={l.code} data-open={open === l.code} className={`lesson-card lesson-row rounded-2xl border px-3 py-2.5 ${live ? "border-emerald-300 bg-emerald-50/40" : "border-stone"}`}>
@@ -122,13 +111,90 @@ export function LearnedBox() {
                   })()}
                 </Collapse>
               </li>;
-            })}
+  };
+  // By class: lessons grouped by teacher-made class, else teacher and subject. Signed-in students also see classes they joined.
+  const [view, setViewState] = useState<"class" | "all">("class");
+  useEffect(() => { try { if (localStorage.getItem("pacer:lessons-view") === "all") setViewState("all"); } catch { /* default */ } }, []);
+  const setView = (v: "class" | "all") => { setViewState(v); try { localStorage.setItem("pacer:lessons-view", v); } catch { /* not kept */ } };
+  const [joined, setJoined] = useState<PacerClass[]>([]);
+  useEffect(() => {
+    if (!userId) { setJoined([]); return; }
+    let active = true;
+    void myClasses(userId).then((list) => { if (active) setJoined(list); }).catch(() => {});
+    return () => { active = false; };
+  }, [userId]);
+  const classGroups = (() => {
+    const groups = groupByClass(worth);
+    for (const c of joined) if (!groups.some((g) => g.classId === c.id)) groups.push({ key: `class:${c.id}`, name: c.name, teacher: c.teacher_name ?? undefined, color: c.color ?? undefined, classId: c.id, items: [], latest: 0 });
+    return groups;
+  })();
+  const canGroup = classGroups.some((g) => g.key !== "other") && (worth.length >= 3 || joined.length > 0);
+  const byClass = canGroup && view === "class" && !searching;
+  const [openClass, setOpenClass] = useState<string | null>(null);
+  const [allIn, setAllIn] = useState<Record<string, boolean>>({});
+  const [code, setCode] = useState("");
+  const [joinState, setJoinState] = useState<{ busy?: boolean; message?: string; error?: boolean }>({});
+  const join = async () => {
+    if (!code.trim()) return;
+    setJoinState({ busy: true });
+    try { const c = await joinClass(code); setJoined((list) => [...list.filter((x) => x.id !== c.id), c]); setCode(""); setJoinState({ message: `You joined ${c.name}.` }); setOpenClass(`class:${c.id}`); setView("class"); }
+    catch (e) { setJoinState({ error: true, message: e instanceof Error ? e.message : "Couldn't join that class." }); }
+  };
+
+  return (
+    <section aria-label="What you've learned" className="flex flex-col rounded-[28px] border border-stone bg-eggshell/95 p-6 shadow-[var(--shadow-whisper)] lg:min-h-[560px]">
+      <p className="text-xs font-medium uppercase tracking-wide text-sky-deep">What you've learned</p>
+      <h2 className="display mt-1 text-3xl">Your lessons</h2>
+      <p className="mt-1 text-sm text-smoke">Pacer takes notes while you're in class, so you can go back over them any time.</p>
+      {canGroup && <div className="mt-3"><SegmentedControl label="Group lessons" value={view} onChange={setView}
+        options={[{ value: "class", label: "By class" }, { value: "all", label: "All lessons" }] as const} /></div>}
+      {worth.length > SEARCH_AFTER && <input type="search" aria-label="Search your lessons" placeholder="Search lessons" className="input mt-4 py-2 text-sm" value={query} onChange={(e) => setQuery(e.target.value)} />}
+      {removeError && <p role="alert" className="mt-2 text-sm">{removeError}</p>}
+      <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
+        {ordered.length === 0 && <p className="rounded-2xl bg-taupe p-4 text-sm text-smoke">No lessons yet. Join a meeting and your notes will show up here.</p>}
+        {searching && !matching.length && <p className="rounded-2xl bg-taupe p-4 text-sm text-smoke">No lessons match &ldquo;{query.trim()}&rdquo;.</p>}
+        {byClass && <ul className="space-y-2">{classGroups.map((g) => {
+          const isOpen = openClass === g.key;
+          const live = g.items.filter((l) => statusOf(l) === "live").length;
+          const cls = joined.find((c) => c.id === g.classId);
+          const liveCode = cls && isLive(cls) ? cls.live_code : null;
+          const list = allIn[g.key] ? g.items : g.items.slice(0, LESSONS_SHOWN);
+          return <li key={g.key} className="class-card rounded-2xl border border-stone" data-open={isOpen} style={g.color ? { ["--class" as string]: g.color } : undefined}>
+            <button className="flex w-full items-center gap-3 px-3 py-2.5 text-left" aria-expanded={isOpen} onClick={() => setOpenClass(isOpen ? null : g.key)}>
+              <span aria-hidden className="class-dot" />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2 font-medium"><span className="truncate">{g.name}</span>{(live > 0 || liveCode) && <LessonBadge status="live" />}</span>
+                <span className="block truncate text-xs text-smoke">{g.teacher ? `${g.teacher} · ` : ""}{g.items.length ? `${g.items.length} lesson${g.items.length === 1 ? "" : "s"} · last ${when(g.latest)}` : "No lessons yet"}</span>
+              </span>
+              <span aria-hidden className="lesson-card-toggle"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M3.5 8h9" /><path className="lesson-card-toggle-v" d="M8 3.5v9" /></svg></span>
+            </button>
+            {liveCode && !live && <div className="px-3 pb-2.5"><Link href={`/room/${liveCode}`} className="btn btn-primary btn-sm">Class is live · Join</Link></div>}
+            <Collapse open={isOpen}>
+              <div className="px-2 pb-2">
+                {g.items.length ? <ul className="space-y-2">{list.map(row)}</ul> : <p className="px-1 pb-1 text-sm text-smoke">Lessons from this class will show up here after you join one of its meetings.</p>}
+                {g.items.length > LESSONS_SHOWN && <button className="mt-2 px-1 text-sm font-medium text-sky-deep hover:underline" aria-expanded={!!allIn[g.key]} onClick={() => setAllIn((m) => ({ ...m, [g.key]: !m[g.key] }))}>{allIn[g.key] ? "Show fewer" : `Show all (${g.items.length})`}</button>}
+              </div>
+            </Collapse>
+          </li>;
+        })}</ul>}
+        {!byClass && groups.map((group) => <div key={group.label} className="lesson-group mt-4 first:mt-0">
+          {(groups.length > 1 || showAll || searching) && <h3 className="mb-1.5 text-xs font-medium uppercase tracking-wide text-smoke">{group.label}</h3>}
+          <ul className="space-y-2">
+            {group.items.map(row)}
           </ul>
         </div>)}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
-          {!searching && matching.length > LESSONS_SHOWN && <button className="font-medium text-sky-deep hover:underline" aria-expanded={showAll} onClick={() => setShowAll(!showAll)}>{showAll ? "Show fewer" : `Show all (${matching.length})`}</button>}
+          {!byClass && !searching && matching.length > LESSONS_SHOWN && <button className="font-medium text-sky-deep hover:underline" aria-expanded={showAll} onClick={() => setShowAll(!showAll)}>{showAll ? "Show fewer" : `Show all (${matching.length})`}</button>}
           {empty.length > 0 && <button className="text-smoke hover:underline" aria-pressed={showEmpty} onClick={() => setShowEmpty(!showEmpty)}>{showEmpty ? "Hide empty classes" : `${empty.length} empty class${empty.length === 1 ? "" : "es"} hidden`}</button>}
         </div>
+        {authEnabled() && <form className="class-join mt-4 border-t border-stone pt-3" onSubmit={(e) => { e.preventDefault(); void join(); }}>
+          <label htmlFor="class-code" className="text-xs font-medium text-smoke">Have a class code from your teacher?</label>
+          {userId ? <div className="mt-1.5 flex gap-2">
+            <input id="class-code" className="input py-2 text-sm uppercase tracking-[0.2em]" placeholder="ABC123" maxLength={6} autoComplete="off" value={code} onChange={(e) => setCode(e.target.value.replace(/[^a-z0-9]/gi, "").toUpperCase())} />
+            <button className="btn btn-outline btn-sm shrink-0" disabled={joinState.busy || code.length < 6}>{joinState.busy ? "Joining…" : "Join class"}</button>
+          </div> : <p className="mt-1 text-sm text-smoke">Sign in with Google to join a class.</p>}
+          {joinState.message && <p role={joinState.error ? "alert" : "status"} className="mt-1.5 text-sm">{joinState.message}</p>}
+        </form>}
       </div>
     </section>
   );

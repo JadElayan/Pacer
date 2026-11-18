@@ -18,6 +18,9 @@ import { SegmentedControl, runViewTransition, useFlip } from "@/components/Motio
 import { Onboarding } from "@/components/Onboarding";
 import { DeskScene, HomeArt, RotatingSubject } from "@/components/HomeArt";
 import { usePrefs } from "@/lib/usePrefs";
+import { classRef, setClassLive, teacherClasses, type PacerClass } from "@/lib/classes";
+import { TeacherClasses } from "@/components/TeacherClasses";
+import { ChoiceMenu } from "@/components/ChoiceMenu";
 
 export default function Home() {
   const router = useRouter();
@@ -29,6 +32,18 @@ export default function Home() {
   const [code, setCode] = useState("");
   const [nick, setNick] = useState("");
   const [title, setTitle] = useState("");
+  // Teacher-made classes (signed in). Starting a meeting for a class files it there and tells the class it's live.
+  const [classes, setClasses] = useState<PacerClass[]>([]);
+  const [classError, setClassError] = useState("");
+  const [forClass, setForClass] = useState("");
+  useEffect(() => {
+    if (!user) { setClasses([]); return; }
+    let active = true;
+    setClassError("");
+    void teacherClasses(user.id).then((list) => { if (active) setClasses(list); })
+      .catch((e) => { if (active) setClassError(e instanceof Error ? e.message : "Couldn't load your classes."); });
+    return () => { active = false; };
+  }, [user]);
   const [subject, setSubject] = useState("");
   const [err, setErr] = useState("");
   const [lobby, setLobby] = useState<string | null>(null);
@@ -59,15 +74,17 @@ export default function Home() {
     router.push(`/room/${code}`);
   };
   const link = lobby && typeof window !== "undefined" ? `${window.location.origin}/room/${lobby}` : "";
-  const host = async (lecture?: SavedLecture) => {
+  const host = async (lecture?: SavedLecture, forCls?: PacerClass) => {
     if (continuing) return;
     setHostError("");
     setContinuing(true);
     try {
       const materials = lecture ? await continueLecture(lecture, user?.id) : undefined;
-      const meetingTitle = (lecture ? lessonName(lecture) : title.trim()) || "Untitled lecture";
-      const meetingSubject = lecture ? lecture.subject : subject.trim() || undefined;
-      const meeting = await createMeeting(meetingTitle, meetingSubject, materials);
+      const cls = forCls ?? classes.find((c) => c.id === forClass);
+      const meetingTitle = (lecture ? lessonName(lecture) : title.trim()) || (cls ? `${cls.name} · ${new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "Untitled lecture");
+      const meetingSubject = lecture ? lecture.subject : subject.trim() || cls?.subject || undefined;
+      const meeting = await createMeeting(meetingTitle, meetingSubject, materials, { teacherName: user?.name, ...(cls ? { classRef: classRef(cls) } : {}) });
+      if (cls) void setClassLive(cls.id, meeting).catch(() => { /* students can still join with the code */ });
       setLobby(meeting);
       if (user) void recordLecture(user.id, { code: meeting, title: meetingTitle, subject: meetingSubject });
     } catch {
@@ -111,6 +128,13 @@ export default function Home() {
               <input id="title" className="input mt-2" placeholder="Solving Linear Equations" value={title} onChange={(e) => setTitle(e.target.value)} />
               <label htmlFor="subject" className="mt-4 block text-sm font-medium">Subject <span className="text-smoke">(optional)</span></label>
               <input id="subject" className="input mt-2" placeholder="Algebra" value={subject} onChange={(e) => setSubject(e.target.value)} />
+              {classes.length > 0 && <>
+                <label htmlFor="for-class" className="mt-4 block text-sm font-medium">Class <span className="text-smoke">(optional)</span></label>
+                <div className="mt-2"><ChoiceMenu label="Class for this meeting" value={forClass} onChange={setForClass}>
+                  <option value="">No class</option>
+                  {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </ChoiceMenu></div>
+              </>}
               <button className="btn btn-dark mt-4 w-full text-base" type="submit" disabled={continuing}>Start Meeting</button>
             </form>
             )}
@@ -132,7 +156,11 @@ export default function Home() {
       {!teaching && <><div className="home-left min-w-0 lg:col-start-1 lg:row-start-1"><LearnedBox /></div>
         <div className="home-right min-w-0 lg:col-start-3 lg:row-start-1"><ProgressBox /></div></>}
       </div>
-      {teaching && !lobby && <div className="home-below"><TeachingDashboard key={user?.id ?? "guest"} userId={user?.id} continuing={continuing} error={hostError} onContinue={(lecture) => void host(lecture)} /></div>}
+      {teaching && !lobby && <div className="home-below">
+        {authEnabled() && <div className={`relative mx-auto mb-5 w-full px-6 ${user && classes.length ? "max-w-[1280px]" : "max-w-xl"}`}><TeacherClasses userId={user?.id} teacherName={user?.name} classes={classes} error={classError} starting={continuing}
+          onChange={setClasses} onStart={(cls) => void host(undefined, cls)} /></div>}
+        <TeachingDashboard key={user?.id ?? "guest"} userId={user?.id} continuing={continuing} error={hostError} onContinue={(lecture) => void host(lecture)} />
+      </div>}
       </>
       )}
       <div className="home-footer relative"><SiteFooter /></div>

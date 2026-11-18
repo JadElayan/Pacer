@@ -34,7 +34,12 @@ export interface RoomState {
   /** Pause student AI while a check-in question is open (on unless the teacher turns it off). */
   aiAutoPause?: boolean;
   boardPosition?: [number, number];
+  /** The teacher's display name, so students can group lessons by teacher. */
+  teacherName?: string;
+  /** The class this meeting was started for (teacher-made classes, supabase/classes.sql). */
+  classRef?: ClassRef;
 }
+export interface ClassRef { id: string; name: string; color?: string; /** Lets a signed-in student join the class from a meeting. */ joinCode?: string }
 export interface FeedbackEvent { id: string; sid: string; kind: "ask" | "confused" | "helped" | "answer" | "blocked"; blockId: string | null; topicId: string | null; ts: number; correct?: boolean; questionId?: string }
 export type Mode = "standard" | "focus" | "guided" | "example";
 export interface Prefs { mode: Mode; textSize: number; reduceMotion: boolean; popups: boolean; /** Guided review on saved lessons. */ guide: boolean; scores: Record<Mode, number> }

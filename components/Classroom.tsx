@@ -25,6 +25,7 @@ import { CheckIn } from "./CheckIn";
 import { TopicStrip } from "./TopicStrip";
 import { checkinStats, computeRows, MIN_GROUP } from "@/lib/insights";
 import { Insights } from "./Insights";
+import { joinClass, setClassLive } from "@/lib/classes";
 import { addSignal, emptyLog, loadLog, mergeLogs, saveLog, upsertCheckin, type ProgressLog } from "@/lib/progress";
 import { bump, loadProfile, loadStudy, mergeStudy, saveProfile, saveStudy, subjectOf, type Profile, type Stats, type StudyEntry } from "@/lib/profile";
 import { ProfileSheet } from "./ProfileSheet";
@@ -694,6 +695,15 @@ export function Classroom({ code, review }: { code: string; review?: {
     inkTimer.current = setTimeout(() => void readInk(), 6000);
   };
 
+  // A signed-in student in a class meeting joins that class once, so its lessons group together on the dashboard.
+  useEffect(() => {
+    const cls = state?.classRef;
+    if (isTeacher || review || !userId || !cls?.joinCode) return;
+    const flag = `pacer:joined:${cls.id}:${userId}`;
+    try { if (localStorage.getItem(flag)) return; } catch { return; }
+    void joinClass(cls.joinCode).then(() => { try { localStorage.setItem(flag, "1"); } catch { /* asked again next time */ } }).catch(() => { /* classes not installed or offline */ });
+  }, [state?.classRef?.id, state?.classRef?.joinCode, isTeacher, review, userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---- student: private learning profile (this device only) ----
   const updateLog = (change: (log: ProgressLog) => ProgressLog) => {
     const next = change(loadLog(userId));
@@ -766,8 +776,8 @@ export function Classroom({ code, review }: { code: string; review?: {
   const lessonContent = useMemo(() => state && ({
     code: state.code, title: state.title, subject: state.subject, blocks: state.blocks,
     topics: state.topics, strokes: state.strokes, archive: state.archive, slides: state.slides, collaborationId: state.collaborationId, ended: state.ended,
-    showSlides: state.showSlides, currentTopicId: state.currentTopicId,
-  }), [state?.code, state?.title, state?.subject, state?.blocks, state?.topics, state?.strokes, state?.archive, state?.slides, state?.collaborationId, state?.ended, state?.showSlides, state?.currentTopicId]);
+    showSlides: state.showSlides, currentTopicId: state.currentTopicId, teacherName: state.teacherName, classRef: state.classRef,
+  }), [state?.code, state?.title, state?.subject, state?.blocks, state?.topics, state?.strokes, state?.archive, state?.slides, state?.collaborationId, state?.ended, state?.showSlides, state?.currentTopicId, state?.teacherName, state?.classRef]);
   const myNotes = topicNotes.ready ? topicNotes.notes : undefined;
   useEffect(() => {
     if (review || !authReady || isTeacher || wantTeacher || !lessonContent || !myNotes) return;
@@ -1007,6 +1017,7 @@ export function Classroom({ code, review }: { code: string; review?: {
   const finishLecture = async (save: boolean) => {
     if (savingLecture) return;
     setSavingLecture(true);
+    if (state.classRef && userId) void setClassLive(state.classRef.id, null).catch(() => { /* it expires on its own */ });
     setLectureMessage("");
     try {
       if (collaborationId && collaboration.allowed) await boardRpc("pacer_set_contributions", { board: collaborationId, allowed: false });

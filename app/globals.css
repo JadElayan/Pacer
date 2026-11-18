@@ -1155,3 +1155,12 @@ svg g[color] { transition: color .45s ease-in-out; }
 .guide-progress span { display: block; height: 100%; border-radius: inherit; background: #2454e8; transition: width .35s cubic-bezier(.3, 1.1, .5, 1); }
 @media (prefers-reduced-motion: no-preference) { .guide-step { animation: guide-in .28s cubic-bezier(.3, 1.1, .5, 1) both; } }
 @keyframes guide-in { from { opacity: 0; transform: translateX(10px); } }
+
+/* Classes on the Learning dashboard: one card per class, its lessons inside. */
+.class-card { --class: #6d8cf0; transition: box-shadow .25s, border-color .25s; }
+.class-card[data-open="true"] { border-color: color-mix(in srgb, var(--class) 45%, #e3e6ef); box-shadow: 0 8px 22px #1823480f; }
+.class-card > button { cursor: pointer; border-radius: 16px; }
+.class-dot { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 999px; background: var(--class); box-shadow: 0 0 0 3px color-mix(in srgb, var(--class) 22%, transparent); transition: background-color .45s ease-in-out; }
+.class-card[data-open="true"] > button .lesson-card-toggle { rotate: 180deg; }
+.class-card[data-open="true"] > button .lesson-card-toggle-v { scale: 1 0; }
+.class-code { padding: 2px 8px; border-radius: 8px; background: #eef1fb; color: #1f2540; font: 600 .875rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .12em; }
