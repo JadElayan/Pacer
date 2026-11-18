@@ -44,6 +44,7 @@ export function SettingsSheet({ prefs, update, reset, onClose }: { prefs: Prefs;
       <section className="sheet-card mt-3 grid gap-1">
         <Toggle label="Reduce motion" help="Turn off animations in the classroom." checked={prefs.reduceMotion} onChange={(value) => update({ reduceMotion: value })} />
         <Toggle label="Show AI suggestions" help="Short tips like “Want a simpler explanation?”." checked={prefs.popups} onChange={(value) => update({ popups: value })} />
+        <Toggle label="Guided review" help="When you open a saved lesson, walk through each slide and topic with you." checked={prefs.guide} onChange={(value) => update({ guide: value })} />
       </section>
       <p className="mt-4 px-1 text-xs leading-relaxed text-smoke">Helpful and not-helpful taps adjust a simple preference score. It shows what you liked, not what you understood.</p>
     </Sheet>

@@ -1148,3 +1148,10 @@ svg g[color] { transition: color .45s ease-in-out; }
   .nb-block-menu { animation: board-pop .18s cubic-bezier(.3, 1.3, .5, 1) both; }
   .nb-block[data-kind="clip"], .nb-block[data-kind="card"] { transition: opacity .2s; }
 }
+
+/* Guided review on saved lessons. */
+.guide { background: linear-gradient(135deg, #eef3ff, #f6f0ff); border: 1px solid #dfe6fb; }
+.guide-progress { flex: 1 1 auto; height: 6px; overflow: hidden; border-radius: 999px; background: #dfe5f8; }
+.guide-progress span { display: block; height: 100%; border-radius: inherit; background: #2454e8; transition: width .35s cubic-bezier(.3, 1.1, .5, 1); }
+@media (prefers-reduced-motion: no-preference) { .guide-step { animation: guide-in .28s cubic-bezier(.3, 1.1, .5, 1) both; } }
+@keyframes guide-in { from { opacity: 0; transform: translateX(10px); } }

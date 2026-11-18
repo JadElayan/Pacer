@@ -37,8 +37,8 @@ export interface RoomState {
 }
 export interface FeedbackEvent { id: string; sid: string; kind: "ask" | "confused" | "helped" | "answer" | "blocked"; blockId: string | null; topicId: string | null; ts: number; correct?: boolean; questionId?: string }
 export type Mode = "standard" | "focus" | "guided" | "example";
-export interface Prefs { mode: Mode; textSize: number; reduceMotion: boolean; popups: boolean; scores: Record<Mode, number> }
-export const DEFAULT_PREFS: Prefs = { mode: "standard", textSize: 100, reduceMotion: false, popups: true, scores: { standard: 0, focus: 0, guided: 0, example: 0 } };
+export interface Prefs { mode: Mode; textSize: number; reduceMotion: boolean; popups: boolean; /** Guided review on saved lessons. */ guide: boolean; scores: Record<Mode, number> }
+export const DEFAULT_PREFS: Prefs = { mode: "standard", textSize: 100, reduceMotion: false, popups: true, guide: true, scores: { standard: 0, focus: 0, guided: 0, example: 0 } };
 export type AIKind = "explain" | "why" | "simplify" | "example" | "snip" | "followup" | "another" | "summarize" | "catchup" | "deeper" | "clarify" | "graph" | "visual" | "quiz" | "recap" | "checkins";
 export interface AIRequest {
   kind: AIKind; selected: string[]; context: string[]; topicTitle?: string; topics?: { title: string; summary: string }[];

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { loadLessons, mergeLessons, pullLessons, type Lesson } from "@/lib/lessons";
 import { getSupabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/useAuth";
@@ -10,6 +10,10 @@ import { slideUrl } from "@/lib/slides";
 import type { Block, RoomState } from "@/lib/types";
 import { Classroom } from "./Classroom";
 import { ChoiceMenu } from "./ChoiceMenu";
+import { GuidedReview } from "./GuidedReview";
+import { guideSteps } from "@/lib/guide";
+import { lessonName } from "@/lib/lessonList";
+import { usePrefs } from "@/lib/usePrefs";
 
 export function SavedLesson({ code }: { code: string }) {
   const { ready, user } = useAuth();
@@ -107,6 +111,12 @@ function LessonReview({ lesson, userId }: { lesson: Lesson; userId?: string }) {
     slides: slide && deck ? { ...deck, current: number } : undefined, showSlides: !!slide,
   };
   const selected = options.findIndex((item) => item.value === selection);
+  // Guided review: on by default, turned off with Guided review in Settings. "Hide guide" closes it for this visit.
+  const { prefs } = usePrefs();
+  const [guideClosed, setGuideClosed] = useState(false);
+  const steps = useMemo(() => guideSteps(lesson, slideNumbers, options.some((o) => o.value === "notes") ? "notes" : primaryBoard ? `board:${primaryBoard.id}` : undefined),
+    [lesson]); // eslint-disable-line react-hooks/exhaustive-deps
+  const guideOpen = prefs.guide && !guideClosed && steps.length > 0;
   return <Classroom code={lesson.code} review={{
     state,
     surface: board && board !== primaryBoard ? `archive:${board.id}` : selection === "notes" && primaryBoard ? "notes" : undefined,
@@ -122,6 +132,9 @@ function LessonReview({ lesson, userId }: { lesson: Lesson; userId?: string }) {
         <button type="button" className="btn btn-sm btn-outline" aria-label="Next page" disabled={selected >= options.length - 1}
           onClick={() => selectPage(options[selected + 1].value)}>›</button>
       </div>
+      {prefs.guide && guideClosed && steps.length > 0 && <button type="button" className="btn btn-sm btn-outline" onClick={() => setGuideClosed(false)}>Guided review</button>}
+      {guideOpen && <GuidedReview code={lesson.code} lessonTitle={lessonName(lesson)} steps={steps} userId={userId}
+        onGo={(page) => { if (options.some((o) => o.value === page)) selectPage(page); }} onClose={() => setGuideClosed(true)} />}
       {lesson.topics.length > 0 && <details className="w-full rounded-xl border border-stone bg-eggshell px-3 py-2 text-sm">
         <summary className="cursor-pointer font-medium">Topic summaries</summary>
         <ul className="mt-2 space-y-2">{lesson.topics.map((topic, index) => <li key={index}>
