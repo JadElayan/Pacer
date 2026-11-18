@@ -126,8 +126,9 @@ Motion lives in [components/Motion.tsx](../components/Motion.tsx) and the end of
 
 ## Saved work and the database
 
-- Students: [lib/lessons.ts](../lib/lessons.ts) saves lessons and notes per account; [lib/useTopicNotes.ts](../lib/useTopicNotes.ts) holds notebook notes.
-- Teachers: [lib/savedLectures.ts](../lib/savedLectures.ts) saves lectures (including `showSlides`, `splitView`, zoom) to reopen later; [lib/teacherStorage.ts](../lib/teacherStorage.ts) backs up rooms and slide images.
+- Students: [lib/lessons.ts](../lib/lessons.ts) saves lessons and notes per account; [lib/useTopicNotes.ts](../lib/useTopicNotes.ts) holds notebook notes. Removing a lesson (`removeLesson`) stores a small `removed: true` marker with a newer timestamp instead of deleting the row, because `student_lessons` has no delete grant and the marker stops an older account copy from bringing it back. Rejoining that class saves it again.
+- Both dashboards' lesson lists use [lib/lessonList.ts](../lib/lessonList.ts): `lessonName` replaces "Untitled lecture" with the first real topic, or subject and date; `isEmptyLesson` hides classes with nothing saved (behind "N empty classes hidden"); lists show `LESSONS_SHOWN` rows before Show all, group into Today / This week / Earlier, and get a search box after `SEARCH_AFTER` lessons. Continuing a saved lecture names the new meeting with `lessonName`.
+- Teachers: [lib/savedLectures.ts](../lib/savedLectures.ts) saves lectures (including `showSlides`, `splitView`, zoom) to reopen later, and `removeLecture` deletes one (device and account). Guest lectures live only in the browser, and choosing Continue as guest clears an earlier guest's (`clearGuestLectures`); [lib/teacherStorage.ts](../lib/teacherStorage.ts) backs up rooms and slide images.
 - SQL lives in [supabase/](../supabase/) and is applied by hand. [supabase/README.md](../supabase/README.md) lists each script and whether it is installed.
 
 ## Gotchas

@@ -781,6 +781,11 @@ button.notebook-section { display: flex; justify-content: space-between; }
 .lesson-card:hover { background-color: #fafbff; box-shadow: 0 6px 18px #1823480f; }
 .lesson-card[data-open="true"] { box-shadow: 0 10px 26px #18234814; }
 .lesson-card [data-lesson-preview] { cursor: default; }
+/* Compact lesson rows: the name opens the lesson, the round button opens the preview. */
+.lesson-row { cursor: default; }
+.lesson-row .lesson-card-toggle { cursor: pointer; }
+.lesson-row .lesson-card-toggle:hover, .lesson-row .lesson-card-toggle:focus-visible { background: #e3e8fa; }
+@media (prefers-reduced-motion: no-preference) { .lesson-group li { animation: board-pop .22s cubic-bezier(.3, 1.2, .5, 1) both; } }
 .lesson-card-toggle { display: grid; place-items: center; flex: 0 0 auto; width: 30px; height: 30px; border-radius: 999px; color: #6b655d; transition: background-color .2s ease, rotate .3s cubic-bezier(.3, 1.3, .5, 1); }
 .lesson-card-toggle svg { width: 15px; height: 15px; }
 .lesson-card:hover .lesson-card-toggle { background: #eef1fb; }

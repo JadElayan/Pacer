@@ -9,7 +9,8 @@ export interface LessonTopic { id?: string; title: string; summary: string; note
 export interface LessonClip { id: string; topicId: string; text?: string; label?: string; ts: number }
 export interface Lesson { code: string; title: string; subject?: string; ts: number; topics: LessonTopic[]; boards?: Archived[]; slides?: SlideDeck; collaborationId?: string; myNotes?: Record<string, string>; myClips?: LessonClip[];
   /** True once the student saw the teacher end the lecture (or a later check found the room closed). */ ended?: boolean;
-  /** What was on screen when the lesson was last saved: a slide (showSlides) or the board, and its topic. */ showSlides?: boolean; currentTopic?: string }
+  /** What was on screen when the lesson was last saved: a slide (showSlides) or the board, and its topic. */ showSlides?: boolean; currentTopic?: string;
+  /** The student removed it from their list. Kept as a small marker so an older account copy doesn't bring it back. */ removed?: boolean }
 const KEY = "pacer:lessons";
 type LessonContent = Pick<RoomState, "code" | "title" | "subject" | "blocks" | "topics" | "strokes" | "archive" | "slides" | "collaborationId"> & { ended?: boolean; showSlides?: boolean; currentTopicId?: string | null };
 
@@ -41,6 +42,17 @@ export async function pushLesson(userId: string, l: Lesson) {
 export async function pullLessons(userId: string): Promise<Lesson[]> {
   const { data } = (await getSupabase()?.from("student_lessons").select("data").eq("user_id", userId).order("updated_at", { ascending: false }).limit(30)) ?? { data: null };
   return (data ?? []).map((r) => r.data as Lesson);
+}
+/** Removes a lesson from the student's list, here and (when signed in) in their account. Rejoining the class saves it again. */
+export async function removeLesson(code: string, userId?: string) {
+  const marker: Lesson = { code, title: "", ts: Date.now(), topics: [], ended: true, removed: true };
+  const next = [marker, ...loadLessons(userId).filter((lesson) => lesson.code !== code)];
+  storeLessons(next, userId);
+  if (userId) {
+    const result = await getSupabase()?.from("student_lessons").upsert({ user_id: userId, code, data: marker, updated_at: new Date().toISOString() });
+    if (!result || result.error) throw result?.error ?? new Error("Account storage is unavailable.");
+  }
+  return next;
 }
 /** Records that a lesson's lecture has ended, so the list stops checking whether it is live. */
 export function markLessonEnded(code: string, userId?: string) {

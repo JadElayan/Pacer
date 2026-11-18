@@ -22,7 +22,8 @@ export function SavedLesson({ code }: { code: string }) {
     void (async () => {
       const local = loadLessons(userId).filter((lesson) => lesson.code === code);
       const remote = userId && !local.length ? await pullLessons(userId).catch(() => []) : [];
-      let lesson = mergeLessons(local, remote.filter((item) => item.code === code))[0];
+      let lesson: Lesson | undefined = mergeLessons(local, remote.filter((item) => item.code === code))[0];
+      if (lesson?.removed) lesson = undefined;
       if (lesson && !lesson.collaborationId && userId) {
         // Older lesson records predate the board ID. Recover it through the member-only lookup.
         const result = await getSupabase()?.rpc("pacer_load_member_board", { room_code: code });

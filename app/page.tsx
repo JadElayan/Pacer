@@ -13,6 +13,7 @@ import { LearnedBox, ProgressBox } from "@/components/Dashboard";
 import { authEnabled } from "@/lib/supabase";
 import { TeachingDashboard } from "@/components/TeachingDashboard";
 import { clearGuestLectures, continueLecture, type SavedLecture } from "@/lib/savedLectures";
+import { lessonName } from "@/lib/lessonList";
 import { SegmentedControl, runViewTransition, useFlip } from "@/components/Motion";
 import { Onboarding } from "@/components/Onboarding";
 import { DeskScene, HomeArt, RotatingSubject } from "@/components/HomeArt";
@@ -64,7 +65,7 @@ export default function Home() {
     setContinuing(true);
     try {
       const materials = lecture ? await continueLecture(lecture, user?.id) : undefined;
-      const meetingTitle = (lecture?.title ?? title.trim()) || "Untitled lecture";
+      const meetingTitle = (lecture ? lessonName(lecture) : title.trim()) || "Untitled lecture";
       const meetingSubject = lecture ? lecture.subject : subject.trim() || undefined;
       const meeting = await createMeeting(meetingTitle, meetingSubject, materials);
       setLobby(meeting);
