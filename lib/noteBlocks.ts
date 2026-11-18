@@ -68,7 +68,9 @@ export function normalizeBlocks(blocks: NoteBlock[]): NoteBlock[] {
 export function blocksFor(html: string, clipIds: string[], unplaced: string[]): NoteBlock[] {
   const known = new Set(clipIds);
   const blocks = parseBlocks(html).filter((b) => b.kind !== "clip" || known.has(b.id));
-  return normalizeBlocks([...blocks, ...unplaced.map((id) => ({ kind: "clip" as const, id }))]);
+  const all = normalizeBlocks([...blocks, ...unplaced.map((id) => ({ kind: "clip" as const, id }))]);
+  // A topic always starts with somewhere to type, even when it has no notes yet.
+  return all[0]?.kind === "text" ? all : [{ kind: "text", html: "" }, ...all];
 }
 
 /** Every clip id placed in any topic's notes. */
