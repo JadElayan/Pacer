@@ -33,7 +33,8 @@ export function AskPanel({ rect, boardW, boardH, excerpt, basedOn, msgs, loading
   useEffect(() => { lastRef.current?.scrollIntoView({ block: "start", behavior: "auto" }); }, [msgs.length]);
   const W = 340;
   let left = rect.right + 12; if (left + W > boardW - 8) left = Math.max(8, rect.left - W - 12);
-  const top = Math.max(8, Math.min(rect.top, boardH - 540));
+  // Stay level with what was asked about; near the bottom, sit just above the edge instead of jumping to the middle.
+  const top = Math.max(8, Math.min(rect.top, boardH - 340));
   const maxH = Math.max(260, boardH - top - 8);
   const last = msgs[msgs.length - 1];
   const demo = msgs.some((m) => m.source === "demo");

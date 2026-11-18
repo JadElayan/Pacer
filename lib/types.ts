@@ -9,7 +9,7 @@ export type BoardConnector = { from: ConnectorEnd; to: ConnectorEnd; color?: str
 export type StickyStyle = { color?: "yellow" | "pink" | "blue" | "green"; bold?: boolean; align?: "left" | "center"; size?: "small" | "medium" | "large" };
 export type BoardTextStyle = { bold?: boolean; fontFamily?: string; fontSize?: number; color?: string };
 export type BoardTextRun = BoardTextStyle & { text: string };
-export interface Block { id: string; topicId: string; kind: BlockKind; content: string; order: number; ts: number; position?: BoardPoint; stickyStyle?: StickyStyle; fontSize?: number; scale?: number; shapeSize?: BoardShapeSize; textWidth?: number; textRuns?: BoardTextRun[]; connector?: BoardConnector; attachedTo?: string; attachmentOrigin?: BoardPoint; surface?: string }
+export interface Block { id: string; topicId: string; kind: BlockKind; content: string; order: number; ts: number; position?: BoardPoint; stickyStyle?: StickyStyle; fontSize?: number; scale?: number; shapeSize?: BoardShapeSize; textWidth?: number; textRuns?: BoardTextRun[]; connector?: BoardConnector; attachedTo?: string; attachmentOrigin?: BoardPoint; surface?: string; /** Outline colour of a shape (fill is a light tint of it). */ shapeColor?: string }
 export interface Topic { id: string; title: string; summary: string; ts: number; auto: boolean; strokeIds?: string[]; inkAspect?: number; /** Slides shown while this topic was live. */ slides?: { deck: string; pages: number[] } }
 export interface Stroke { id: string; pts: [number, number][]; color?: string; width?: number; opacity?: number; surface?: string }
 export interface Archived { id: string; ts: number; blocks: Omit<Block, "ts" | "order">[]; strokes: Stroke[]; inkAspect?: number }
@@ -29,16 +29,20 @@ export interface RoomState {
   showSlides?: boolean;
   /** With slides showing: put the whiteboard beside the slide. */
   splitView?: boolean;
+  /** The teacher paused student AI help. */
+  aiPaused?: boolean;
+  /** Pause student AI while a check-in question is open (on unless the teacher turns it off). */
+  aiAutoPause?: boolean;
   boardPosition?: [number, number];
 }
-export interface FeedbackEvent { id: string; sid: string; kind: "ask" | "confused" | "helped" | "answer"; blockId: string | null; topicId: string | null; ts: number; correct?: boolean; questionId?: string }
+export interface FeedbackEvent { id: string; sid: string; kind: "ask" | "confused" | "helped" | "answer" | "blocked"; blockId: string | null; topicId: string | null; ts: number; correct?: boolean; questionId?: string }
 export type Mode = "standard" | "focus" | "guided" | "example";
 export interface Prefs { mode: Mode; textSize: number; reduceMotion: boolean; popups: boolean; scores: Record<Mode, number> }
 export const DEFAULT_PREFS: Prefs = { mode: "standard", textSize: 100, reduceMotion: false, popups: true, scores: { standard: 0, focus: 0, guided: 0, example: 0 } };
-export type AIKind = "explain" | "why" | "simplify" | "example" | "snip" | "followup" | "another" | "summarize" | "catchup" | "deeper" | "clarify" | "graph" | "visual" | "quiz" | "recap";
+export type AIKind = "explain" | "why" | "simplify" | "example" | "snip" | "followup" | "another" | "summarize" | "catchup" | "deeper" | "clarify" | "graph" | "visual" | "quiz" | "recap" | "checkins";
 export interface AIRequest {
   kind: AIKind; selected: string[]; context: string[]; topicTitle?: string; topics?: { title: string; summary: string }[];
-  mode: Mode; image?: string; slide?: boolean; question?: string; history?: { role: "user" | "assistant"; text: string }[]; detail?: "short" | "long"; stats?: string;
+  mode: Mode; image?: string; slide?: boolean; /** Live room code: the server refuses when that room's teacher has paused AI. */ room?: string; question?: string; history?: { role: "user" | "assistant"; text: string }[]; detail?: "short" | "long"; stats?: string;
 }
 export interface AIResponse { text: string; title?: string; summary?: string; newTopic?: boolean; data?: unknown; source: "ai" | "demo"; error?: string }
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);

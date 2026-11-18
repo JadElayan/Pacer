@@ -1,6 +1,6 @@
 "use client";
-import { useRef } from "react";
-import { ChoiceMenu } from "./ChoiceMenu";
+import { useLayoutEffect, useRef, useState } from "react";
+import { LiquidSwatches } from "./LiquidSwatches";
 
 import type { Block, BlockKind, BoardShape, StickyStyle } from "@/lib/types";
 
@@ -11,11 +11,38 @@ const templates = {
   "Lesson recap": ["Key idea", "Worked example", "What to practice"],
 };
 
-export function BoardObjects({ panel, onAdd, onChooseShape, onClose }: {
-  panel: "shapes" | "templates"; onAdd: (items: Pick<Block, "kind" | "content" | "stickyStyle">[]) => void;
+type Anchor = { top: number; left: number; right: number; bottom: number };
+
+/** Opens beside the button that opened it (right of a side rail, or below a top bar), kept inside the window. */
+function usePlacement(anchor: Anchor | undefined) {
+  const ref = useRef<HTMLElement>(null);
+  const [style, setStyle] = useState<React.CSSProperties>();
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!anchor || !el) { setStyle(undefined); return; }
+    const place = () => {
+      const w = el.offsetWidth, h = el.offsetHeight, gap = 10, edge = 8;
+      const vw = window.innerWidth, vh = window.innerHeight;
+      const clamp = (v: number, max: number) => Math.max(edge, Math.min(max - edge, v));
+      let left: number, top: number;
+      if (anchor.right + gap + w <= vw - edge) { left = anchor.right + gap; top = clamp(anchor.top - 16, vh - h); }
+      else if (anchor.left - gap - w >= edge) { left = anchor.left - gap - w; top = clamp(anchor.top - 16, vh - h); }
+      else { left = clamp(anchor.left, vw - w); top = anchor.bottom + gap + h <= vh - edge ? anchor.bottom + gap : clamp(anchor.top - gap - h, vh - h); }
+      setStyle({ position: "fixed", left, top, transformOrigin: left > anchor.left ? "left top" : "right top" });
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [anchor]);
+  return [ref, style] as const;
+}
+
+export function BoardObjects({ panel, anchor, onAdd, onChooseShape, onClose }: {
+  panel: "shapes" | "templates"; anchor?: Anchor; onAdd: (items: Pick<Block, "kind" | "content" | "stickyStyle">[]) => void;
   onChooseShape: (shape: BoardShape) => void; onClose: () => void;
 }) {
-  return <section id="board-insert-panel" aria-label={panel} className="absolute left-3 top-3 z-30 w-[min(25rem,calc(100%-1.5rem))] max-w-[calc(100%-1.5rem)] rounded-2xl border border-stone bg-eggshell p-3 shadow-xl"
+  const [ref, style] = usePlacement(anchor);
+  return <section ref={ref} style={style} id="board-insert-panel" aria-label={panel} className="board-insert-panel absolute left-3 top-3 z-50 w-[min(25rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] rounded-2xl border border-stone bg-eggshell p-3 shadow-xl"
     onKeyDown={(event) => { if (event.key === "Escape") onClose(); }}>
     <div className="mb-2 flex items-center justify-between">
       <h2 className="font-semibold capitalize">{panel}</h2>
@@ -44,32 +71,59 @@ export function BoardObjects({ panel, onAdd, onChooseShape, onClose }: {
 const stickyColors = ["yellow", "pink", "blue", "green"] as const;
 const colorClasses = { yellow: "bg-amber-100", pink: "bg-pink-100", blue: "bg-sky-100", green: "bg-emerald-100" };
 
-export function StickyTools({ style = {}, onChange, onEdit, onDuplicate }: {
-  style?: StickyStyle; onChange: (style: StickyStyle) => void; onEdit: () => void; onDuplicate: () => void;
+// Swatch colours for sticky notes (a stronger version of each note colour, so the dots read at a glance).
+const STICKY_SWATCHES = [["Yellow", "#f7c948"], ["Pink", "#f18bc4"], ["Blue", "#62b8ef"], ["Green", "#4fcf9a"]] as const;
+const stickyByHex: Record<string, NonNullable<StickyStyle["color"]>> = { "#f7c948": "yellow", "#f18bc4": "pink", "#62b8ef": "blue", "#4fcf9a": "green" };
+export const SHAPE_COLORS = [["Blue", "#2454e8"], ["Purple", "#7f5bd6"], ["Green", "#1d9e75"], ["Red", "#d0453b"], ["Orange", "#e08a1e"], ["Gray", "#4a5272"]] as const;
+const SHAPE_DEFAULT: Partial<Record<BlockKind, string>> = { rectangle: "#2454e8", circle: "#7f5bd6", diamond: "#1d9e75", arrow: "#2454e8" };
+export const shapeColor = (kind: BlockKind, color?: string) => color ?? SHAPE_DEFAULT[kind] ?? "#2454e8";
+
+const Icon = ({ d }: { d: string }) => <svg viewBox="0 0 20 20" aria-hidden="true"><path d={d} /></svg>;
+const Sep = () => <span className="object-toolbar-sep" aria-hidden="true" />;
+
+/**
+ * Floating toolbar for a selected sticky note, in the style of Miro: one row above the note with colour, size,
+ * bold, alignment, edit, duplicate and delete. Colour changes flow like paint (LiquidSwatches).
+ */
+export function StickyTools({ style = {}, onChange, onEdit, onDuplicate, onDelete }: {
+  style?: StickyStyle; onChange: (style: StickyStyle) => void; onEdit: () => void; onDuplicate: () => void; onDelete: () => void;
 }) {
-  return <div role="group" aria-label="Sticky note formatting" className="mt-2 flex flex-wrap items-center gap-1" onClick={(event) => event.stopPropagation()}>
-    <button type="button" className="btn btn-outline btn-sm" onClick={onEdit}>Edit</button>
-    <button type="button" className="btn btn-outline btn-sm" aria-pressed={!!style.bold}
-      onClick={() => onChange({ ...style, bold: !style.bold })}>Bold</button>
-    <button type="button" className="btn btn-outline btn-sm" aria-pressed={style.align === "center"}
-      onClick={() => onChange({ ...style, align: style.align === "center" ? "left" : "center" })}>Center</button>
-    <ChoiceMenu label="Sticky note color" value={style.color ?? "yellow"} onChange={(value) => onChange({ ...style, color: value as StickyStyle["color"] })}>
-      {stickyColors.map((color) => <option key={color} value={color}>{color[0].toUpperCase() + color.slice(1)}</option>)}
-    </ChoiceMenu>
-    <ChoiceMenu label="Sticky note size" value={style.size ?? "medium"} onChange={(value) => onChange({ ...style, size: value as StickyStyle["size"] })}>
-      <option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option>
-    </ChoiceMenu>
-    <button type="button" className="btn btn-outline btn-sm" onClick={onDuplicate}>Duplicate</button>
+  const hex = STICKY_SWATCHES.find(([name]) => name.toLowerCase() === (style.color ?? "yellow"))?.[1] ?? STICKY_SWATCHES[0][1];
+  return <div role="toolbar" aria-label="Sticky note" className="object-toolbar" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
+    <LiquidSwatches label="Sticky note color" colors={STICKY_SWATCHES} value={hex} dot={16} onChange={(value) => onChange({ ...style, color: stickyByHex[value] })} />
+    <Sep />
+    <div role="radiogroup" aria-label="Size" className="object-toolbar-sizes">
+      {([["small", "S"], ["medium", "M"], ["large", "L"]] as const).map(([size, short]) => <button key={size} type="button" role="radio"
+        aria-checked={(style.size ?? "medium") === size} aria-label={`${size[0].toUpperCase()}${size.slice(1)}`} title={size[0].toUpperCase() + size.slice(1)}
+        onClick={() => onChange({ ...style, size })}>{short}</button>)}
+    </div>
+    <Sep />
+    <button type="button" className="connector-tool object-toolbar-bold" aria-pressed={!!style.bold} title="Bold" aria-label="Bold" onClick={() => onChange({ ...style, bold: !style.bold })}>B</button>
+    <button type="button" className="connector-tool" aria-pressed={style.align === "center"} title="Center text" aria-label="Center text"
+      onClick={() => onChange({ ...style, align: style.align === "center" ? "left" : "center" })}><Icon d="M4 5h12M6.5 10h7M4 15h12" /></button>
+    <Sep />
+    <button type="button" className="connector-tool" title="Edit text" aria-label="Edit text" onClick={onEdit}><Icon d="M4 16l1-4 8-8 3 3-8 8z M11.5 5.5l3 3" /></button>
+    <button type="button" className="connector-tool" title="Duplicate" aria-label="Duplicate" onClick={onDuplicate}><Icon d="M7 7h9v9H7z M4 13V4h9" /></button>
+    <button type="button" className="connector-tool connector-delete" title="Delete" aria-label="Delete" onClick={onDelete}><Icon d="M4.5 6h11 M8 6V4.5h4V6 M6 6l.7 10h6.6L14 6" /></button>
   </div>;
 }
 
-const stickyClasses = (style?: StickyStyle) => `min-h-16 max-w-full rounded p-4 text-slate-900 shadow-sm ${
+/** Floating toolbar for a selected shape: colour (flows like paint) and delete. */
+export function ShapeTools({ kind, color, onChange, onDelete }: { kind: BlockKind; color?: string; onChange: (color: string) => void; onDelete: () => void }) {
+  return <div role="toolbar" aria-label="Shape" className="object-toolbar" onClick={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
+    <LiquidSwatches label="Shape color" colors={SHAPE_COLORS} value={shapeColor(kind, color)} dot={16} onChange={onChange} />
+    <Sep />
+    <button type="button" className="connector-tool connector-delete" title="Delete" aria-label="Delete" onClick={onDelete}><Icon d="M4.5 6h11 M8 6V4.5h4V6 M6 6l.7 10h6.6L14 6" /></button>
+  </div>;
+}
+
+const stickyClasses = (style?: StickyStyle) => `sticky-note min-h-16 max-w-full rounded p-4 text-slate-900 shadow-sm ${
   { small: "w-28 text-sm", medium: "w-40 text-base", large: "w-56 text-lg" }[style?.size ?? "medium"]} ${colorClasses[style?.color ?? "yellow"]} ${
   style?.bold ? "font-bold" : ""} ${style?.align === "center" ? "text-center" : ""}`;
 
 /** Edits a sticky note in place: Enter or clicking away saves, Shift+Enter adds a line, Escape cancels. */
-export function StickyEditor({ content, style, onCommit, onCancel }: {
-  content: string; style?: StickyStyle; onCommit: (content: string) => void; onCancel: () => void;
+export function StickyEditor({ content, style, size, onCommit, onCancel }: {
+  content: string; style?: StickyStyle; size?: Block["shapeSize"]; onCommit: (content: string) => void; onCancel: () => void;
 }) {
   const done = useRef(false);
   const finish = (save: boolean, value: string) => {
@@ -78,9 +132,11 @@ export function StickyEditor({ content, style, onCommit, onCancel }: {
     const next = value.trim().slice(0, 500);
     if (save && next && next !== content) onCommit(next); else onCancel();
   };
+  // Like Miro: the note keeps its look while you type, with the cursor at the end rather than everything selected.
   return <textarea data-board-editor autoFocus aria-label="Edit sticky note" defaultValue={content} maxLength={500}
-    className={`${stickyClasses(style)} block resize-none whitespace-pre-wrap break-words outline-2 outline-offset-2 outline-sky [field-sizing:content]`}
-    onFocus={(event) => event.currentTarget.select()}
+    style={size ? { width: size.width, minHeight: size.height } : undefined}
+    className={`${stickyClasses(style)} sticky-editing block resize-none whitespace-pre-wrap break-words outline-none [field-sizing:content]`}
+    onFocus={(event) => { const el = event.currentTarget; el.setSelectionRange(el.value.length, el.value.length); }}
     onPointerDown={(event) => event.stopPropagation()}
     onClick={(event) => event.stopPropagation()}
     onBlur={(event) => finish(true, event.currentTarget.value)}
@@ -92,15 +148,19 @@ export function StickyEditor({ content, style, onCommit, onCancel }: {
     }} />;
 }
 
-export function BoardObject({ kind, content, stickyStyle, shapeSize }: { kind: BlockKind; content: string; stickyStyle?: StickyStyle; shapeSize?: Block["shapeSize"] }) {
-  if (kind === "sticky") return <p className={`${stickyClasses(stickyStyle)} whitespace-pre-wrap break-words`}>{content}</p>;
-  if (kind === "rectangle") return <span role="img" aria-label="Rectangle" style={shapeSize} className="block h-16 w-28 rounded border-2 border-blue-600 bg-blue-100" />;
-  if (kind === "circle") return <span role="img" aria-label="Circle" style={shapeSize} className="block size-16 rounded-full border-2 border-violet-600 bg-violet-100" />;
-  if (kind === "diamond" && shapeSize) return <span role="img" aria-label="Diamond" style={shapeSize}
-    className="relative block bg-emerald-600 [clip-path:polygon(50%_0,100%_50%,50%_100%,0_50%)]">
-    <span className="absolute inset-[3px] bg-emerald-100 [clip-path:polygon(50%_0,100%_50%,50%_100%,0_50%)]" />
+export function BoardObject({ kind, content, stickyStyle, shapeSize, color }: { kind: BlockKind; content: string; stickyStyle?: StickyStyle; shapeSize?: Block["shapeSize"]; color?: string }) {
+  // A resized note keeps its exact width and height; long text scrolls inside it.
+  if (kind === "sticky") return <p style={shapeSize ? { width: shapeSize.width, height: shapeSize.height } : undefined}
+    className={`${stickyClasses(stickyStyle)} whitespace-pre-wrap break-words ${shapeSize ? "overflow-hidden" : ""}`}>{content}</p>;
+  // Shapes take their colour from --shape (outline) and a light tint of it (fill); both blend smoothly when changed.
+  const tint = { ["--shape" as string]: shapeColor(kind, color) } as React.CSSProperties;
+  if (kind === "rectangle") return <span role="img" aria-label="Rectangle" style={{ ...shapeSize, ...tint }} className="board-shape block h-16 w-28 rounded border-2" />;
+  if (kind === "circle") return <span role="img" aria-label="Circle" style={{ ...shapeSize, ...tint }} className="board-shape block size-16 rounded-full border-2" />;
+  if (kind === "diamond" && shapeSize) return <span role="img" aria-label="Diamond" style={{ ...shapeSize, ...tint }}
+    className="board-shape-solid relative block [clip-path:polygon(50%_0,100%_50%,50%_100%,0_50%)]">
+    <span className="board-shape-fill absolute inset-[3px] [clip-path:polygon(50%_0,100%_50%,50%_100%,0_50%)]" />
   </span>;
-  if (kind === "diamond") return <span role="img" aria-label="Diamond" className="m-3 block size-12 rotate-45 border-2 border-emerald-600 bg-emerald-100" />;
-  if (kind === "arrow") return <span role="img" aria-label="Arrow" className="block text-5xl text-blue-700">→</span>;
+  if (kind === "diamond") return <span role="img" aria-label="Diamond" style={tint} className="board-shape m-3 block size-12 rotate-45 border-2" />;
+  if (kind === "arrow") return <span role="img" aria-label="Arrow" style={tint} className="board-shape-text block text-5xl">→</span>;
   return <p className="text-xl leading-snug">{content}</p>;
 }

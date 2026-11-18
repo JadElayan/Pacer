@@ -38,11 +38,12 @@ export function buildUser(r: AIRequest): string {
   return parts.join("\n\n");
 }
 
-export const JSON_KINDS = ["graph", "visual", "quiz", "recap"];
+export const JSON_KINDS = ["graph", "visual", "quiz", "recap", "checkins"];
 const SPEC: Record<string, string> = {
   graph: '{"title":"string","series":[{"label":"y = 2x + 6","expr":"2*x+6"},{"label":"y = 14","expr":"14"}],"xRange":[-2,8],"note":"one short sentence"}. Use "x" as the variable; expr may only use numbers, x, + - * / ^, parentheses, pi, sin, cos, tan, sqrt, abs, ln. If the content is an equation such as 2x + 6 = 14, plot each side as its own series so the crossing shows the solution. At most 3 series.',
   visual: '{"steps":[{"caption":"short action","left":"LaTeX","right":"LaTeX"}]}. Show 3 to 5 steps that keep an equation balanced like a balance scale; left and right are short LaTeX strings. If the content is not an equation, show the idea as balanced steps anyway.',
   recap: '{"recap":"3-4 sentence summary of what the lesson covered","keyPoints":["3 to 5 short bullet points"],"practice":[{"question":"string","answer":"string"}],"catchup":"under 80 words for a student who missed class: what to read first and what to try","nextTime":"one sentence: what the teacher may want to revisit, based on the content only"}. Write for a TEACHER who will paste this into an email or LMS. Use only the lecture content provided; do not invent topics. Give exactly 3 practice questions with short answers.',
+  checkins: '{"suggestions":[{"slide":3,"question":"string","answer":"string","answerSlide":5}],"answerSlides":[5]}. You are helping a TEACHER plan quick check-in questions to ask the class mid-lecture, from their own slides (numbered in the content). Suggest at most one question per slide and at most 8 in total, only after a slide that finishes a concept or worked example. Each question must have a short answer (a number, word or short phrase). Fill "answer" ONLY when the slides themselves state that answer, and set "answerSlide" to the slide number where it appears; otherwise use "" and null. Never invent an answer. In "answerSlides" list slides that show the answer or a worked solution to one of your questions, so the teacher can hide them until they have asked. Use only the content given; skip slides with too little text.',
   quiz: '{"question":"string","answer":"string","hint":"string"}. Write ONE short practice question similar to the selected content. The answer must be a short number or expression.',
 };
 export function buildJson(r: AIRequest): string {

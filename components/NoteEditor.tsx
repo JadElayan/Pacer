@@ -173,10 +173,22 @@ function Dropdown({ label, title, button, children, wide }: { label: string; tit
     document.addEventListener("mousedown", away); document.addEventListener("keydown", esc);
     return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
   }, [open]);
+  // Keep the menu on screen: the notebook sits at the window's right edge, so menus near the end of the bar shift left.
+  const menu = useRef<HTMLSpanElement>(null);
+  const [shift, setShift] = useState<{ x: number; up: boolean }>({ x: 0, up: false });
+  useLayoutEffect(() => {
+    if (!open || !menu.current || !box.current) { setShift({ x: 0, up: false }); return; }
+    const m = menu.current.getBoundingClientRect(), b = box.current.getBoundingClientRect(), edge = 8;
+    const vw = document.documentElement.clientWidth;
+    const right = b.left + m.width;
+    const x = right > vw - edge ? Math.max(edge - b.left, vw - edge - right) : b.left < edge ? edge - b.left : 0;
+    const up = b.bottom + 4 + m.height > window.innerHeight - edge && b.top - 4 - m.height > edge;
+    setShift({ x, up });
+  }, [open]);
   return <span ref={box} className="relative inline-flex">
     <button type="button" className={`nb-fmt ${wide ? "nb-fmt-wide" : ""}`} aria-label={label} title={title} aria-haspopup="true" aria-expanded={open}
       onMouseDown={(event) => event.preventDefault()} onClick={() => setOpen((v) => !v)}>{button}<span aria-hidden className="nb-caret">▾</span></button>
-    {open && <span role="menu" className="nb-menu" onMouseDown={(event) => event.preventDefault()}>{children(() => setOpen(false))}</span>}
+    {open && <span ref={menu} role="menu" className="nb-menu" data-up={shift.up || undefined} style={{ left: shift.x }} onMouseDown={(event) => event.preventDefault()}>{children(() => setOpen(false))}</span>}
   </span>;
 }
 

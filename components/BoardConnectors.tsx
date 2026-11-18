@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
+import { LiquidSwatches } from "./LiquidSwatches";
 import type { Block, BoardConnector, BoardPoint, ConnectorEnd } from "@/lib/types";
 
 const sides = ["left", "right", "top", "bottom"] as const;
@@ -27,6 +28,8 @@ export function resolveEnd(end: ConnectorEnd, anchors: Anchors): BoardPoint {
     ? [rect[end.side], (rect.top + rect.bottom) / 2]
     : [(rect.left + rect.right) / 2, rect[end.side]];
 }
+
+const CONNECTOR_COLORS = [["Blue", "#2454e8"], ["Black", "#1f2540"], ["Red", "#d0453b"], ["Green", "#1d9e75"], ["Purple", "#7f5bd6"], ["Orange", "#e08a1e"]] as const;
 
 export function BoardConnectors({ root, plane, blocks, selectedObject, width, height, viewOrigin, enabled, drawing, canEdit, onCancel, onSave, onDelete }: {
   root: RefObject<HTMLDivElement | null>; plane: RefObject<SVGSVGElement | null>;
@@ -124,10 +127,11 @@ export function BoardConnectors({ root, plane, blocks, selectedObject, width, he
     const coords = { x1: x1 * width, y1: y1 * height, x2: x2 * width, y2: y2 * height };
     const color = connector.color ?? "#2454e8";
     return <g key={id ?? "preview"} color={color}>
+      {editable && selected === id && <line {...coords} stroke={color} strokeOpacity={.18} strokeWidth={12} strokeLinecap="round" vectorEffect="non-scaling-stroke" className="connector-halo" />}
       <line {...coords} stroke={color} strokeWidth={2} strokeDasharray={connector.dashed ? "6 5" : undefined}
         vectorEffect="non-scaling-stroke" markerEnd={connector.head === false ? undefined : `url(#${marker})`} />
-      {editable && <line {...coords} data-connector-control stroke="transparent" strokeWidth={18} vectorEffect="non-scaling-stroke"
-        className="cursor-pointer" pointerEvents="stroke" role="button" tabIndex={0} aria-label="Select connector"
+      {editable && <line {...coords} data-connector-control className="connector-hit cursor-pointer" stroke="transparent" strokeWidth={18} vectorEffect="non-scaling-stroke"
+        pointerEvents="stroke" role="button" tabIndex={0} aria-label="Select connector"
         onClick={(event) => { event.stopPropagation(); setSelected(id); }}
         onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(id); } }} />}
       {editable && selected === id && (["from", "to"] as const).map((edge) => <circle key={edge} data-connector-control
@@ -174,13 +178,31 @@ export function BoardConnectors({ root, plane, blocks, selectedObject, width, he
           onPointerDown={(event) => start(event, undefined, "to", undefined, end)} />;
       })}
     </svg>
-    {chosen && selected && !drawing && <div ref={toolbar} role="toolbar" aria-label="Connector formatting"
-      style={{ left: viewOrigin[0] + 12, top: viewOrigin[1] + 12 }}
-      className="absolute z-20 flex flex-wrap items-center gap-2 rounded-xl border border-stone bg-white p-2 text-sm shadow">
-      <label>Color <input type="color" value={chosen.color ?? "#2454e8"} onChange={(event) => onSave({ ...chosen, color: event.target.value }, selected)} /></label>
-      <button type="button" className="btn btn-outline btn-sm" aria-pressed={!!chosen.dashed} onClick={() => onSave({ ...chosen, dashed: !chosen.dashed }, selected)}>Dashed</button>
-      <button type="button" className="btn btn-outline btn-sm" aria-pressed={chosen.head !== false} onClick={() => onSave({ ...chosen, head: chosen.head === false }, selected)}>Arrowhead</button>
-      <button type="button" className="btn btn-outline btn-sm" onClick={() => { onDelete(selected); setSelected(undefined); }}>Delete</button>
-    </div>}
+    {chosen && selected && !drawing && (() => {
+      // A small floating toolbar just above the middle of the arrow, in the same style as the rest of the board.
+      const [x1, y1] = resolveEnd(chosen.from, anchors.current);
+      const [x2, y2] = resolveEnd(chosen.to, anchors.current);
+      const left = Math.max(viewOrigin[0] + 8, ((x1 + x2) / 2) * width - 130);
+      const top = Math.max(viewOrigin[1] + 8, Math.min(y1, y2) * height - 56);
+      const color = chosen.color ?? "#2454e8";
+      return <div ref={toolbar} role="toolbar" aria-label="Arrow style" style={{ left, top }} className="connector-toolbar board-pop absolute z-20">
+        <LiquidSwatches label="Arrow color" colors={CONNECTOR_COLORS} value={color.toLowerCase()} dot={16}
+          onChange={(value) => onSave({ ...chosen, color: value }, selected)} />
+        <span className="connector-toolbar-sep" aria-hidden="true" />
+        <button type="button" className="connector-tool" aria-pressed={!!chosen.dashed} title="Dashed line" aria-label="Dashed line"
+          onClick={() => onSave({ ...chosen, dashed: !chosen.dashed }, selected)}>
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h3M9 10h3M15 10h2" /></svg>
+        </button>
+        <button type="button" className="connector-tool" aria-pressed={chosen.head !== false} title="Arrowhead" aria-label="Arrowhead"
+          onClick={() => onSave({ ...chosen, head: chosen.head === false }, selected)}>
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h13M12 6l4 4-4 4" /></svg>
+        </button>
+        <span className="connector-toolbar-sep" aria-hidden="true" />
+        <button type="button" className="connector-tool connector-delete" title="Delete arrow" aria-label="Delete arrow"
+          onClick={() => { onDelete(selected); setSelected(undefined); }}>
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 6h10M8 6V4.5h4V6M6.5 6l.6 9.5h5.8l.6-9.5" /></svg>
+        </button>
+      </div>;
+    })()}
   </>;
 }
