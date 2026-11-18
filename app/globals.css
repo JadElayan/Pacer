@@ -781,6 +781,19 @@ button.notebook-section { display: flex; justify-content: space-between; }
 .lesson-card:hover { background-color: #fafbff; box-shadow: 0 6px 18px #1823480f; }
 .lesson-card[data-open="true"] { box-shadow: 0 10px 26px #18234814; }
 .lesson-card [data-lesson-preview] { cursor: default; }
+/* Your progress: Next up card, topic chips (green strong, amber mixed, red needs work), retry panel. */
+.progress-next { background: linear-gradient(135deg, #eef3ff, #f6f0ff); border: 1px solid #dfe6fb; }
+.progress-streak { display: inline-block; padding: 1px 8px; border-radius: 999px; background: #fff3d6; color: #8a5a00; font-size: .75rem; font-weight: 600; }
+.progress-topic { --dot: #9aa1b8; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid #e3e6ef; background: #fff; font-size: .8125rem; transition: background-color .3s, border-color .3s; }
+.progress-topic[data-status="strong"], .progress-key[data-status="strong"] { --dot: #2fbf71; }
+.progress-topic[data-status="mixed"], .progress-key[data-status="mixed"] { --dot: #e6a23c; }
+.progress-topic[data-status="needs work"], .progress-key[data-status="needs work"] { --dot: #e05a5a; }
+.progress-topic[data-status="needs work"] { border-color: #f6cfcf; background: #fff7f7; }
+.progress-topic-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--dot); }
+.progress-key { display: inline-flex; align-items: center; gap: 5px; }
+.progress-key::before { content: ""; width: 8px; height: 8px; border-radius: 999px; background: var(--dot); }
+.progress-retry { background: #fff; }
+@media (prefers-reduced-motion: no-preference) { .progress-retry, .progress-next { animation: board-pop .25s cubic-bezier(.3, 1.2, .5, 1) both; } }
 /* Compact lesson rows: clicking a row opens its summary, preview and actions. */
 .lesson-row > button { cursor: pointer; border-radius: 12px; }
 .lesson-remove { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; color: #6b655d; font-size: .8125rem; cursor: pointer; transition: background-color .15s, color .15s; }

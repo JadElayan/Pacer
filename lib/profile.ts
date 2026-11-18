@@ -1,7 +1,8 @@
 /** Student-private learning profile. Stored only on this device (localStorage). Teachers never see it. */
 export interface Stats { asks: number; confused: number; helped: number; checkRight: number; checkWrong: number; quizRight: number; quizWrong: number }
 export type Profile = Record<string, Stats>;
-export interface StudyEntry { id: string; lecture: string; topic: string; question?: string; suggestion?: string; ts: number }
+export interface StudyEntry { id: string; lecture: string; topic: string; question?: string; suggestion?: string; ts: number;
+  /** Lesson code, for linking back to it. */ code?: string; /** The student chose "Got it now". */ resolved?: boolean }
 export function mergeStudy(...lists: StudyEntry[][]): StudyEntry[] {
   const entries = new Map<string, StudyEntry>();
   for (const entry of lists.flat()) entries.set(entry.id, { ...entries.get(entry.id), ...entry });

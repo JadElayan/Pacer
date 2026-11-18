@@ -25,6 +25,7 @@ import { CheckIn } from "./CheckIn";
 import { TopicStrip } from "./TopicStrip";
 import { checkinStats, computeRows, MIN_GROUP } from "@/lib/insights";
 import { Insights } from "./Insights";
+import { addSignal, emptyLog, loadLog, mergeLogs, saveLog, upsertCheckin, type ProgressLog } from "@/lib/progress";
 import { bump, loadProfile, loadStudy, mergeStudy, saveProfile, saveStudy, subjectOf, type Profile, type Stats, type StudyEntry } from "@/lib/profile";
 import { ProfileSheet } from "./ProfileSheet";
 import { mergeProfiles, pullLearning, pushProfile } from "@/lib/cloudProfile";
@@ -265,6 +266,9 @@ export function Classroom({ code, review }: { code: string; review?: {
   const [spotSeen, setSpotSeen] = useState(0);
   const [profile, setProfile] = useState<Profile>({}); const [showProfile, setShowProfile] = useState(false);
   const seenQ = useRef<Set<string>>(new Set());
+  // Student-private progress history (check-in answers and lost / got-it signals) for the dashboard's Your progress.
+  const [plog, setPlog] = useState<ProgressLog>(emptyLog());
+  const myAnswers = useRef<Record<string, string>>({});
   const [connectorMode, setConnectorMode] = useState(false);
   const [annotationMode, setAnnotationMode] = useState(false);
   const [annotationVisible, setAnnotationVisible] = useState(true);
@@ -691,9 +695,20 @@ export function Classroom({ code, review }: { code: string; review?: {
   };
 
   // ---- student: private learning profile (this device only) ----
-  const rec = (f: keyof Stats) => setProfile(bump(subjectOf(state?.title ?? "", state?.subject), f, userId));
+  const updateLog = (change: (log: ProgressLog) => ProgressLog) => {
+    const next = change(loadLog(userId));
+    saveLog(next, userId);
+    if (currentAccount.current === userId) setPlog(next);
+  };
+  const rec = (f: keyof Stats, topicId?: string | null) => {
+    setProfile(bump(subjectOf(state?.title ?? "", state?.subject), f, userId));
+    if (state && (f === "confused" || f === "helped")) {
+      const topic = state.topics.find((t) => t.id === (topicId ?? live))?.title ?? state.title;
+      updateLog((log) => addSignal(log, { id: uid(), ts: Date.now(), lesson: state.code, topic, kind: f === "helped" ? "gotit" : "lost" }));
+    }
+  };
   const recordStudy = (entry: StudyEntry) => {
-    const entries = mergeStudy(loadStudy(userId), [entry]);
+    const entries = mergeStudy(loadStudy(userId), [{ code: state?.code, ...entry }]);
     saveStudy(entries, userId);
     if (currentAccount.current === userId) setStudy(entries);
   };
@@ -703,14 +718,16 @@ export function Classroom({ code, review }: { code: string; review?: {
     setSyncError(false);
     setProfile(loadProfile(userId));
     setStudy(loadStudy(userId));
+    setPlog(loadLog(userId));
     if (!userId) return;
     let active = true;
     void pullLearning(userId).then((remote) => {
       if (!active) return;
       const profile = mergeProfiles(loadProfile(userId), remote.profile);
       const study = mergeStudy(remote.study, loadStudy(userId));
-      saveProfile(profile, userId); saveStudy(study, userId);
-      setProfile(profile); setStudy(study); setSyncedUser(userId);
+      const log = mergeLogs(loadLog(userId), remote.log);
+      saveProfile(profile, userId); saveStudy(study, userId); saveLog(log, userId);
+      setProfile(profile); setStudy(study); setPlog(log); setSyncedUser(userId);
     }).catch(() => { if (active) setSyncError(true); });
     return () => { active = false; };
   }, [authReady, isTeacher, userId]);
@@ -719,15 +736,31 @@ export function Classroom({ code, review }: { code: string; review?: {
     let active = true;
     profileWrites.current = profileWrites.current.then(async () => {
       if (!active) return;
-      try { await pushProfile(userId, profile, study); if (active) setSyncError(false); }
+      try { await pushProfile(userId, profile, study, plog); if (active) setSyncError(false); }
       catch { if (active) setSyncError(true); }
     });
     return () => { active = false; };
-  }, [profile, study, userId, syncedUser, isTeacher]);
+  }, [profile, study, plog, userId, syncedUser, isTeacher]);
   useEffect(() => {
-    Object.entries(grades).forEach(([id, ok]) => { if (!seenQ.current.has(id)) { seenQ.current.add(id); rec(ok ? "checkRight" : "checkWrong"); } });
+    Object.entries(grades).forEach(([id, ok]) => {
+      if (seenQ.current.has(id)) return;
+      seenQ.current.add(id); rec(ok ? "checkRight" : "checkWrong");
+      const q = state?.question?.id === id ? state.question : undefined;
+      if (state && q) {
+        const topic = state.topics.find((t) => t.id === live)?.title ?? state.title;
+        updateLog((log) => upsertCheckin(log, { id, ts: Date.now(), lesson: state.code, lecture: state.title, subject: subjectOf(state.title, state.subject), topic,
+          question: q.text, given: myAnswers.current[id], key: q.answer, correct: ok }));
+      }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grades]);
+  // The answer key arrives when the teacher shows it; keep it with the student's answer so missed check-ins can be retried.
+  useEffect(() => {
+    const q = state?.question;
+    if (isTeacher || !q?.answer || !plog.checkins.some((c) => c.id === q.id && !c.key)) return;
+    updateLog((log) => { const c = log.checkins.find((item) => item.id === q.id); return c ? upsertCheckin(log, { ...c, key: q.answer }) : log; });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.question?.answer, state?.question?.id, plog, isTeacher]);
 
   // Save what was covered so the student can review it later from the dashboard.
   const lessonContent = useMemo(() => state && ({
@@ -819,7 +852,7 @@ export function Classroom({ code, review }: { code: string; review?: {
   const feedback = (f: "helped" | "confused" | "another") => {
     if (!anchor) return; const sel = selectedBlocks(anchor)[0];
     if (f === "another") { void ask(anchor, "another"); return; }
-    setFed(f); sendEvent(f, sel?.id ?? null, sel?.topicId ?? null); score(prefs.mode, f === "helped" ? 1 : -1); rec(f === "helped" ? "helped" : "confused");
+    setFed(f); sendEvent(f, sel?.id ?? null, sel?.topicId ?? null); score(prefs.mode, f === "helped" ? 1 : -1); rec(f === "helped" ? "helped" : "confused", sel?.topicId);
     if (f === "confused" && state) {
       const topic = state.topics.find((t) => t.id === (sel?.topicId ?? live))?.title ?? state.title;
       const entry = { id: uid(), lecture: state.title, topic, ts: Date.now() };
@@ -839,7 +872,7 @@ export function Classroom({ code, review }: { code: string; review?: {
     if (kind === "catchup") { openCatchup(topic?.id ?? null); return; }
     if (kind === "ask" && aiOff) { blockedAI(); return; }
     if (kind === "lost") {
-      sendEvent("confused", null, topicId); rec("confused");
+      sendEvent("confused", null, topicId); rec("confused", topicId);
       recordStudy({ id: uid(), lecture: state.title, topic: topic?.title ?? state.title, ts: Date.now() });
       return;
     }
@@ -1414,7 +1447,7 @@ export function Classroom({ code, review }: { code: string; review?: {
                 onAccessChange={(allowed) => { if (isTeacher) mutate((room) => ({ ...room, studentStickyPermission: allowed ? "open" : "closed" })); }} />}
             </div>
           )}
-          {!isTeacher && authReady && state.question && <CheckIn key={checkInKey} storageKey={checkInKey} text={state.question.text} open={state.question.open} answer={state.question.answer} correct={state.question.correct} total={state.question.total} grade={grades[state.question.id]} onSubmit={(v) => submitAnswer(state.question!.id, v)} />}
+          {!isTeacher && authReady && state.question && <CheckIn key={checkInKey} storageKey={checkInKey} text={state.question.text} open={state.question.open} answer={state.question.answer} correct={state.question.correct} total={state.question.total} grade={grades[state.question.id]} onSubmit={(v) => { myAnswers.current[state.question!.id] = v; submitAnswer(state.question!.id, v); }} />}
           {offTeacherSlide && deck && state.showSlides && !review && (
             <div role="status" className="flex flex-wrap items-center gap-3 rounded-[16px] border border-sky bg-sky-soft px-3 py-2 text-sm">
               <span className="min-w-0 flex-1">{stayedToAnnotate
@@ -1622,7 +1655,7 @@ export function Classroom({ code, review }: { code: string; review?: {
             notes={topicNotes.notes} clips={topicNotes.clips} status={topicNotes.status} ready={topicNotes.ready} onChange={topicNotes.update} onRemoveClip={topicNotes.removeClip}
             ink={topicNotes.ink} onInk={topicNotes.setInk}
             onHelp={notebookHelp}
-            onBackOnTrack={(topic) => { sendEvent("helped", null, topic?.id ?? live); rec("helped"); }}
+            onBackOnTrack={(topic) => { sendEvent("helped", null, topic?.id ?? live); rec("helped", topic?.id ?? live); }}
             onViewBoard={review ? undefined : (id) => { setBrowsedTopicId(id); setStudentView({ zoom: 1 }); setAnchor(null); setSnip(false); setMobilePane("board"); }}
             headerExtra={(!privateNotes.ready || privateNotes.status === "Retry" || (!review && authReady && !user && signInEnabled)) ? <>
               {!review && authReady && !user && signInEnabled && <span>Notes stay on this device. <button type="button" className="nb-link" onClick={() => void signIn()}>Sign in</button> to keep them in your account and annotate the board.</span>}
@@ -1652,7 +1685,7 @@ export function Classroom({ code, review }: { code: string; review?: {
       )}
       {popup && !isTeacher && <Popup p={popup} onDismiss={() => setPopup(null)} onNever={() => { update({ popups: false }); setPopup(null); }} />}
       <AnimatedPanel open={showProfile && !isTeacher} motion="drawer" reduced={prefs.reduceMotion}>
-        <ProfileSheet profile={profile} study={study} syncError={syncError} onClose={() => setShowProfile(false)} onReset={() => { saveProfile({}, userId); saveStudy([], userId); setProfile({}); setStudy([]); }} />
+        <ProfileSheet profile={profile} study={study} syncError={syncError} onClose={() => setShowProfile(false)} onReset={() => { saveProfile({}, userId); saveStudy([], userId); saveLog(emptyLog(), userId); setProfile({}); setStudy([]); setPlog(emptyLog()); }} />
       </AnimatedPanel>
       <AnimatedPanel open={showArchive} motion="drawer" reduced={prefs.reduceMotion}>
         <ArchiveSheet boards={state.archive ?? []} onClose={() => setShowArchive(false)} />

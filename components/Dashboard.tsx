@@ -2,19 +2,13 @@
 import Link from "next/link";
 import { Collapse } from "./Motion";
 import { useEffect, useState } from "react";
-import { accuracy, loadProfile, loadStudy, mergeStudy, summarize, type Profile, type StudyEntry } from "@/lib/profile";
 import { loadLessons, markLessonEnded, mergeLessons, pullLessons, removeLesson, storeLessons, type Lesson } from "@/lib/lessons";
 import { groupLessons, isEmptyLesson, lessonName, LESSONS_SHOWN, matchesSearch, SEARCH_AFTER } from "@/lib/lessonList";
 import { LIVE_WINDOW_MS, probeLesson, type LessonStatus } from "@/lib/lessonStatus";
 import { LessonPreview, type LessonView } from "./LessonPreview";
 import type { RoomState } from "@/lib/types";
-import { mergeProfiles, pullLearning } from "@/lib/cloudProfile";
-import { StudyHistory } from "./ProfileSheet";
 import { useAuth } from "@/lib/useAuth";
 
-const KHAN: Record<string, string> = { algebra: "math/algebra", trigonometry: "math/trigonometry", geometry: "math/geometry", calculus: "math/calculus-1" };
-const study = (s: string) => { const k = KHAN[s.toLowerCase()]; return k ? `https://www.khanacademy.org/${k}` : `https://www.khanacademy.org/search?page_search_query=${encodeURIComponent(s)}`; };
-const video = (s: string) => `https://www.youtube.com/results?search_query=${encodeURIComponent(s + " lesson for students")}`;
 const when = (t: number) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
 /** Left and right boxes around the join/host area: what you learned, and how you're doing. */
@@ -161,48 +155,4 @@ function LessonBadge({ status }: { status: LessonStatus }) {
   return <span className="rounded-full bg-taupe px-2 py-0.5 text-xs font-medium text-smoke">Checking…</span>;
 }
 
-export function ProgressBox() {
-  const { user, ready } = useAuth();
-  const userId = user?.id;
-  const [p, setP] = useState<Profile>({});
-  const [studyEntries, setStudyEntries] = useState<StudyEntry[]>([]);
-  useEffect(() => {
-    if (!ready) return;
-    let active = true;
-    setP(loadProfile(userId)); setStudyEntries(loadStudy(userId));
-    if (userId) void pullLearning(userId).then((remote) => {
-      if (!active) return;
-      setP(mergeProfiles(loadProfile(userId), remote.profile));
-      setStudyEntries(mergeStudy(remote.study, loadStudy(userId)));
-    }).catch(() => {});
-    return () => { active = false; };
-  }, [ready, userId]);
-  const rows = Object.entries(p).filter(([, s]) => s.asks + s.checkRight + s.checkWrong + s.quizRight + s.quizWrong > 0);
-  const weak = rows.filter(([, s]) => { const a = accuracy(s); return a !== null && a < 70; });
-  const strong = rows.filter(([, s]) => { const a = accuracy(s); return a !== null && a >= 80; });
-  return (
-    <section aria-label="How you're doing" className="flex flex-col rounded-[28px] border border-stone bg-eggshell/95 p-6 shadow-[var(--shadow-whisper)] lg:min-h-[560px]">
-      <p className="text-xs font-medium uppercase tracking-wide text-sky-deep">How you're doing</p>
-      <h2 className="display mt-1 text-3xl">Your progress</h2>
-      <div className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto">
-        {rows.length === 0 && <p className="rounded-2xl bg-taupe p-4 text-sm text-smoke">Answer check-in questions in class and your results will show up here, by subject.</p>}
-        {rows.map(([name, s]) => { const a = accuracy(s); const right = s.checkRight + s.quizRight, wrong = s.checkWrong + s.quizWrong; return (
-          <div key={name}>
-            <div className="flex items-baseline justify-between"><p className="font-medium">{name}</p><p className="text-xs text-smoke">{right} right · {wrong} wrong</p></div>
-            <div className="mt-2 h-3 overflow-hidden rounded-full bg-[#fde8e8]" role="img" aria-label={a === null ? "No answers yet" : `${a} percent right`}><div className="h-3 rounded-full bg-[#2fbf71] transition-[width] duration-500" style={{ width: `${a ?? 0}%` }} /></div>
-          </div>); })}
-        {(weak.length > 0 || strong.length > 0) && (
-          <div className="rounded-[20px] bg-sky-soft p-4">
-            <p className="text-sm font-medium">What to study</p>
-            <ul className="mt-2 space-y-2 text-sm">
-              {weak.map(([n]) => <li key={n}>Review <b>{n}</b>: you're missing a lot of these. <a className="text-sky-deep underline" href={study(n)} target="_blank" rel="noreferrer">Khan Academy</a> · <a className="text-sky-deep underline" href={video(n)} target="_blank" rel="noreferrer">Videos</a></li>)}
-              {strong.map(([n]) => <li key={n}>You're strong in <b>{n}</b>. Nice work.</li>)}
-            </ul>
-            <p className="mt-2 text-xs text-smoke">Later, this will link to your class on Canvas and other tools.</p>
-          </div>)}
-        {rows.length > 0 && summarize(p).length > 0 && weak.length === 0 && strong.length === 0 && <ul className="space-y-2">{summarize(p).map((l, i) => <li key={i} className="rounded-2xl bg-sky-soft p-3 text-sm">{l}</li>)}</ul>}
-      </div>
-      <StudyHistory entries={studyEntries} />
-    </section>
-  );
-}
+export { ProgressBox } from "./ProgressBox";
