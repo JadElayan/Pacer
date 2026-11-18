@@ -49,7 +49,8 @@ export function readSlide(text: string): { title: string; points: string[]; ques
   const [title, body] = splitTitle(head);
   const rest = body ? [clean(body), ...after] : after;
   const questions = rest.filter((l) => l.endsWith("?") && l.length >= 8).map((l) => short(l, 300));
-  const points = rest.filter((l) => !questions.includes(l)).map((l) => short(l));
+  // Points are never cut off: long text becomes one point per sentence instead.
+  const points = rest.filter((l) => !questions.includes(l)).flatMap((l) => l.split(/(?<=[.!?])\s+(?=[A-Z(])/)).map((l) => l.trim()).filter((l) => l.length > 1);
   return { title: short(title, 90), points, questions };
 }
 
@@ -65,7 +66,7 @@ export function guideSteps(lesson: Pick<Lesson, "topics" | "slides">, slideNumbe
     const { title, points, questions } = readSlide(page.text);
     if (!points.length && !questions.length && slideNumbers.length > 3) continue;
     const overview = questions.length === 0 && points.length >= 3 && points.every((p) => p.length <= 48);
-    steps.push({ id: `slide-${n}`, kind: "slide", page: `slide:${n}`, title: title || `Slide ${n}`, points: points.slice(0, 6), questions: questions.slice(0, 3), ...(overview ? { overview } : {}) });
+    steps.push({ id: `slide-${n}`, kind: "slide", page: `slide:${n}`, title: title || `Slide ${n}`, points, questions: questions.slice(0, 3), ...(overview ? { overview } : {}) });
   }
   lesson.topics.forEach((topic, i) => {
     const notes = topic.notes.flatMap((n) => textOf(n).split("\n")).map(clean).filter(Boolean);

@@ -7,6 +7,8 @@ import { RichText } from "./RichText";
 import { Collapse } from "./Motion";
 import { QuizView, type QuizData } from "./QuizView";
 
+const POINTS_SHOWN = 5;
+
 /**
  * Walks through a saved lesson one slide or topic at a time. Each step shows its key points and gives the student
  * something to do: try the slide's own questions, tap the parts of an overview that feel unclear, or explain it in
@@ -22,6 +24,7 @@ export function GuidedReview({ code, lessonTitle, steps, userId, onGo, onClose }
   const [flagged, setFlagged] = useState<Record<string, boolean>>({});
   const [ai, setAi] = useState<{ id: string; kind: "explain" | "quiz"; text?: string; quiz?: QuizData; error?: string; loading?: boolean }>();
   const [answer, setAnswer] = useState("");
+  const [allPoints, setAllPoints] = useState(false);
   // Pick up where the student left off this session.
   useEffect(() => {
     try {
@@ -32,7 +35,7 @@ export function GuidedReview({ code, lessonTitle, steps, userId, onGo, onClose }
   useEffect(() => { try { sessionStorage.setItem(guideKey(code), JSON.stringify({ index, marks, flagged })); } catch { /* not kept */ } }, [code, index, marks, flagged]);
   const done = index >= steps.length;
   const step = steps[Math.min(index, steps.length - 1)];
-  useEffect(() => { setAnswer(""); if (!done && step) onGo(step.page); }, [index]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setAnswer(""); setAllPoints(false); if (!done && step) onGo(step.page); }, [index]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Adds (or, with resolved, clears) a review item that the study plan on the dashboard picks up. */
   const review = (id: string, topic: string, resolved: boolean) => {
@@ -98,7 +101,11 @@ export function GuidedReview({ code, lessonTitle, steps, userId, onGo, onClose }
         <ul className="mt-1.5 flex flex-wrap gap-1.5">{step.points.map((p) => <li key={p}>
           <button type="button" className="guide-chip" aria-pressed={!!flagged[`${step.id}:${p}`]} onClick={() => flag(p)}>{p}</button>
         </li>)}</ul>
-      </> : step.points.length > 0 && <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-sm">{step.points.map((p, i) => <li key={i}>{p}</li>)}</ul>}
+      </> : step.points.length > 0 && <>
+        <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-sm">{(allPoints ? step.points : step.points.slice(0, POINTS_SHOWN)).map((p, i) => <li key={i}>{p}</li>)}</ul>
+        {step.points.length > POINTS_SHOWN && <button type="button" className="mt-1 text-xs font-medium text-sky-deep hover:underline" aria-expanded={allPoints} onClick={() => setAllPoints(!allPoints)}>
+          {allPoints ? "Show less" : `Show ${step.points.length - POINTS_SHOWN} more`}</button>}
+      </>}
 
       {step.questions.length > 0 ? <div className="guide-try mt-2">
         <p className="text-xs font-medium uppercase tracking-wide text-sky-deep">Try it before moving on</p>

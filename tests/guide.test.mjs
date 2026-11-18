@@ -51,3 +51,13 @@ test("small words and lone maths letters don't stretch a title", () => {
   assert.equal(readSlide("Normal Distribution Curves X ~ N(0, 1) and X ~ N(2, 1) shown together on one plot here").title, "Normal Distribution Curves");
   assert.equal(readSlide("Rules of Thumb For most data, these estimates are close enough to be useful in practice.").title, "Rules of Thumb");
 });
+
+test("long slide text is split into sentences, never cut off", () => {
+  const r = readSlide("Continuous Random Variables\nA continuous random variable can take any possible value within a range. If X is a continuous random variable, then P(X = k) = 0. The probability that X is exactly any one value is zero, so we only talk about intervals.");
+  assert.deepEqual(r.points, [
+    "A continuous random variable can take any possible value within a range.",
+    "If X is a continuous random variable, then P(X = k) = 0.",
+    "The probability that X is exactly any one value is zero, so we only talk about intervals.",
+  ]);
+  assert.ok(r.points.every((p) => !p.endsWith("…")));
+});
