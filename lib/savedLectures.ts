@@ -58,6 +58,19 @@ export function savedLectures(userId?: string): SavedLecture[] {
   catch { return []; }
 }
 
+/** A new guest session starts with an empty dashboard; lectures from an earlier guest on this browser are dropped. */
+export function clearGuestLectures() {
+  try { localStorage.removeItem(key()); } catch { /* ignore */ }
+}
+
+/** Removes a saved lecture from this browser and, when signed in, from the account. */
+export async function removeLecture(code: string, userId?: string) {
+  try { localStorage.setItem(key(userId), JSON.stringify(savedLectures(userId).filter((item) => item.code !== code))); } catch { /* ignore */ }
+  if (!userId) return;
+  const result = await getSupabase()?.from("saved_teacher_lectures").delete().eq("user_id", userId).eq("code", code);
+  if (result?.error) throw result.error;
+}
+
 export async function loadSavedLectures(userId?: string): Promise<SavedLecture[]> {
   const local = savedLectures(userId);
   if (!userId) return local;

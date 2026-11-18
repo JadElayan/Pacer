@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { loadSavedLectures, savedLectures, type SavedLecture } from "@/lib/savedLectures";
+import { loadSavedLectures, removeLecture, savedLectures, type SavedLecture } from "@/lib/savedLectures";
 import { BoardPreview } from "./ArchiveSheet";
 import { SavedSlides } from "./SavedSlides";
 
@@ -20,6 +20,15 @@ export function TeachingDashboard({ userId, continuing, error, onContinue }: {
       .catch(() => { if (active) setUnavailable(true); });
     return () => { active = false; };
   }, [userId]);
+  const [confirming, setConfirming] = useState<string>();
+  const [removeError, setRemoveError] = useState("");
+  const remove = async (code: string) => {
+    setConfirming(undefined);
+    setLectures((items) => items.filter((item) => item.code !== code));
+    setSelected(undefined);
+    try { await removeLecture(code, userId); }
+    catch { setRemoveError("Removed from this browser, but your account copy is still saved. Try again later."); }
+  };
   const lecture = lectures.find((item) => item.code === selected) ?? lectures[0];
   return <section aria-label="Teaching dashboard" className={`relative mx-auto grid w-full gap-5 px-6 pb-16 ${lecture ? "max-w-[1280px] md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]" : "max-w-xl"}`}>
     <div className="rounded-[24px] border border-stone bg-eggshell p-5 shadow-[var(--shadow-whisper)]">
@@ -42,6 +51,14 @@ export function TeachingDashboard({ userId, continuing, error, onContinue }: {
         {continuing ? "Preparing meeting…" : "Continue lecture"}
       </button>
       <p className="text-sm text-smoke">Start a new meeting with these materials.</p>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        {confirming === lecture.code ? <>
+          <span>Remove this lecture? This can&apos;t be undone.</span>
+          <button className="btn btn-outline btn-sm" onClick={() => void remove(lecture.code)}>Remove</button>
+          <button className="btn btn-outline btn-sm" onClick={() => setConfirming(undefined)}>Cancel</button>
+        </> : <button className="btn btn-outline btn-sm" onClick={() => { setRemoveError(""); setConfirming(lecture.code); }}>Remove lecture</button>}
+        {removeError && <p role="alert">{removeError}</p>}
+      </div>
       <section aria-label="Class insights" className="rounded-2xl bg-sky-soft p-4">
         <h3 className="font-semibold">Where students got stuck</h3>
         {lecture.struggles.length ? <ul className="mt-2 space-y-2 text-sm">
