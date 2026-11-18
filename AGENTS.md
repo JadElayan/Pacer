@@ -7,3 +7,28 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+# Working on Pacer
+
+Pacer is a live classroom whiteboard (Next.js, React 19, Supabase Realtime, Claude for AI). These notes are for any contributor, human or AI. The section above is maintained by `next dev`; edit only below it.
+
+## Read first
+
+- [README.md](README.md): setup, environment variables, features, repository map.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how a live room works, room state fields, the classroom screen's landmarks, every place AI is called, the motion system, and known gotchas.
+- [supabase/README.md](supabase/README.md): database scripts, in order, with what is installed.
+
+## Rules that keep things working
+
+- The teacher changes room state only through `mutate()` from `lib/useRoom.ts`. New `RoomState` and `Topic` fields must be optional so older rooms and saved lessons still load. Teacher-only data must be removed in `sharedState()`.
+- In `Classroom.tsx`, board actions take a `surface` (a slide id, or `undefined` for the whiteboard). Never read the global slide inside `renderBoard`; Split view renders two boards at once.
+- Keep AI calls on request where possible. `docs/ARCHITECTURE.md` lists the few automatic ones; don't add more without a reason, because each costs API tokens.
+- New animations go through `components/Motion.tsx` or the motion section at the end of `app/globals.css`, and must turn off under reduced motion (the OS setting and Pacer's own Reduce motion preference).
+- UI text is short, plain English. Messages say what happened and what to do next.
+- SQL in `supabase/` is applied by hand. Make scripts safe to run twice and add them to `supabase/README.md`.
+
+## Before you finish
+
+- `npm run lint` (TypeScript) and `npm test` (unit tests). For UI work also run `npm run build`, then `npm run test:e2e` and `npm run test:a11y` (they start their own production server on port 3199 and need Playwright's Chromium). CI runs all of them on pull requests.
+- Check UI changes in a browser as both teacher (`/room/<code>?role=teacher`) and student (`/room/<code>`). Guests can't test sign-in features (Share, student sticky notes, private annotations); say so if you couldn't.
+- When behavior or structure changes, update `docs/ARCHITECTURE.md` and the README feature list in the same change.

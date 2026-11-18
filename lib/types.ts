@@ -10,7 +10,7 @@ export type StickyStyle = { color?: "yellow" | "pink" | "blue" | "green"; bold?:
 export type BoardTextStyle = { bold?: boolean; fontFamily?: string; fontSize?: number; color?: string };
 export type BoardTextRun = BoardTextStyle & { text: string };
 export interface Block { id: string; topicId: string; kind: BlockKind; content: string; order: number; ts: number; position?: BoardPoint; stickyStyle?: StickyStyle; fontSize?: number; scale?: number; shapeSize?: BoardShapeSize; textWidth?: number; textRuns?: BoardTextRun[]; connector?: BoardConnector; attachedTo?: string; attachmentOrigin?: BoardPoint; surface?: string }
-export interface Topic { id: string; title: string; summary: string; ts: number; auto: boolean; strokeIds?: string[]; inkAspect?: number }
+export interface Topic { id: string; title: string; summary: string; ts: number; auto: boolean; strokeIds?: string[]; inkAspect?: number; /** Slides shown while this topic was live. */ slides?: { deck: string; pages: number[] } }
 export interface Stroke { id: string; pts: [number, number][]; color?: string; width?: number; opacity?: number; surface?: string }
 export interface Archived { id: string; ts: number; blocks: Omit<Block, "ts" | "order">[]; strokes: Stroke[]; inkAspect?: number }
 export interface RoomState {
@@ -27,6 +27,8 @@ export interface RoomState {
   slides?: SlideDeck;
   privateSlidePages?: SlideDeck["pages"];
   showSlides?: boolean;
+  /** With slides showing: put the whiteboard beside the slide. */
+  splitView?: boolean;
   boardPosition?: [number, number];
 }
 export interface FeedbackEvent { id: string; sid: string; kind: "ask" | "confused" | "helped" | "answer"; blockId: string | null; topicId: string | null; ts: number; correct?: boolean; questionId?: string }

@@ -330,3 +330,273 @@ button.notebook-section { display: flex; justify-content: space-between; }
 .nb-rich ul[data-checklist] > li::before { content: ""; position: absolute; left: 0; top: .28em; width: 1.05rem; height: 1.05rem; border: 1.5px solid #8a90a8; border-radius: 4px; background: #fff; cursor: pointer; }
 .nb-rich ul[data-checklist] > li[data-checked="true"]::before { border-color: #2454e8; background: #2454e8 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3.5 8.5 3 3 6-7'/%3E%3C/svg%3E") center / 80% no-repeat; }
 .nb-rich ul[data-checklist] > li[data-checked="true"] { color: #8a90a8; text-decoration: line-through; }
+
+/* Row at the top of the board: topics, board actions and the Share control. */
+.board-topbar { position: relative; z-index: 35; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.topic-strip { display: flex; flex: 1 1 30rem; min-width: 0; align-items: center; gap: .5rem; padding: 4px 6px 4px 12px; border: 1px solid var(--notebook-border, #dcdfee); border-radius: 14px; background: #fff; box-shadow: 0 1px 3px #1823480d; }
+.topic-strip-label { flex: 0 0 auto; font-size: .8125rem; font-weight: 650; color: #4a5272; }
+.topic-strip-list { display: flex; min-width: 0; flex: 1 1 auto; gap: .35rem; overflow-x: auto; scrollbar-width: none; }
+.topic-strip-list::-webkit-scrollbar { display: none; }
+.topic-strip-list { --fade-start: 0px; --fade-end: 0px; scroll-behavior: smooth; scroll-padding-inline: 28px;
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent 100%); }
+@property --fade-start { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --fade-end { syntax: "<length>"; inherits: false; initial-value: 0px; }
+.topic-strip-list { transition: --fade-start .25s ease, --fade-end .25s ease; }
+.topic-strip-list[data-fade-start] { --fade-start: 36px; }
+.topic-strip-list[data-fade-end] { --fade-end: 36px; }
+.topic-card { position: relative; display: flex; flex: 0 0 auto; align-items: flex-start; gap: .5rem; width: 14.5rem; padding: .45rem .4rem .45rem .5rem; border: 1px solid #e6e9f4; border-radius: 12px; background: #f7f8fd; color: #30385b; transition: background-color .15s, border-color .15s, box-shadow .15s; }
+.topic-card:hover { background: #eef1fb; }
+.topic-card[data-live] { width: 17rem; border-color: #b9c8ff; background: #eef3ff; box-shadow: 0 0 0 3px #2454e812; }
+.topic-card[data-editing] { width: 18rem; background: #fff; border-color: #2454e8; }
+.topic-card-empty { align-items: center; color: var(--color-smoke); font-size: .8125rem; }
+.topic-card-num { display: grid; place-items: center; flex: 0 0 auto; width: 1.35rem; height: 1.35rem; margin-top: 1px; border-radius: 999px; background: #fff; color: #4a5272; font-size: .6875rem; font-weight: 700; box-shadow: inset 0 0 0 1px #e3e6f2; }
+.topic-card[data-live] .topic-card-num { background: #2454e8; color: #fff; box-shadow: none; }
+.topic-card-link { display: grid; flex: 1 1 auto; min-width: 0; gap: 1px; border-radius: 6px; }
+.topic-card-title { display: flex; min-width: 0; align-items: center; gap: .4rem; color: #171d38; font-size: .84rem; font-weight: 620; line-height: 1.3; }
+.topic-card[data-live] .topic-card-title { color: #193db1; }
+.topic-card-desc { overflow: hidden; color: #5d6480; font-size: .75rem; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.topic-card-desc[data-placeholder] { color: #5d6480; font-style: italic; }
+.topic-card-live { flex: 0 0 auto; padding: .02rem .4rem; border-radius: 999px; background: #e3f6ea; color: #1d6b3d; font-size: .65rem; font-weight: 700; }
+.topic-card-live::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 4px; border-radius: 999px; background: currentColor; vertical-align: 1px; }
+.topic-card-edit { display: grid; place-items: center; width: 24px; height: 24px; flex: 0 0 auto; border-radius: 999px; color: #7a8099; cursor: pointer; opacity: .7; transition: opacity .15s, background-color .15s; }
+.topic-card:hover .topic-card-edit, .topic-card-edit:focus-visible { opacity: 1; }
+.topic-card-edit svg { width: 13px; height: 13px; }
+.topic-card-edit:hover { background: #fff; color: #2454e8; }
+.topic-card-form { display: grid; flex: 1 1 auto; min-width: 0; gap: 4px; }
+.topic-card-input { width: 100%; height: 26px; padding: 0 .45rem; border: 1px solid #c9d4fb; border-radius: 7px; background: #fff; color: #171d38; font-size: .8125rem; font-weight: 600; }
+.topic-card-input-sub { height: 24px; font-size: .75rem; font-weight: 400; color: #4a5272; }
+.topic-card-input:focus { outline: 2px solid var(--color-sky); outline-offset: 0; }
+
+/* Slides / Board / Split: an iOS-style segmented control whose thumb slides, and can be dragged. */
+.segmented { position: relative; display: inline-grid; flex: 0 0 auto; padding: 4px; border: 1px solid var(--notebook-border, #dcdfee); border-radius: 14px; background: #eef0f8; box-shadow: inset 0 1px 2px #1823480f; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.segmented-thumb { position: absolute; top: 4px; bottom: 4px; left: 4px; border-radius: 10px; background: #2454e8; box-shadow: 0 3px 8px #2454e83d, 0 1px 2px #18234826; transition: transform .38s cubic-bezier(.3, 1.35, .5, 1), scale .2s ease; }
+.segmented[data-dragging="true"] .segmented-thumb { scale: .95; transition: transform .22s cubic-bezier(.3, 1.2, .5, 1), scale .2s ease; }
+.segmented button { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: .35rem; min-height: 32px; padding: 0 .8rem; border-radius: 10px; color: #4a5272; font-size: .8125rem; font-weight: 600; white-space: nowrap; cursor: pointer; transition: color .25s ease; }
+.segmented button svg { width: 15px; height: 15px; }
+.segmented button[data-under="true"] { color: #fff; }
+.segmented button:not([data-under="true"]):hover:not(:disabled) { color: #171d38; }
+.segmented button:focus-visible { outline-offset: -2px; }
+.segmented[aria-disabled="true"] { opacity: .6; }
+.segmented button:disabled { cursor: default; }
+
+/* Tool rails: the active highlight slides between tools. */
+.tool-group-slide { position: relative; }
+.tool-group-slide > button { position: relative; z-index: 1; }
+/* The active tool keeps its own blue, faded in just after the slider arrives, so it can never be left white on white. */
+/* The newly chosen tool drops its hover tint at once (no pale glow over the slider), then fills blue
+   just after the slider arrives, so it is never left white on white. */
+.tool-group-slide > button:is([aria-pressed="true"], [aria-expanded="true"]) { transition: color .15s ease, transform .15s; animation: tool-fill .14s ease .3s both; }
+@keyframes tool-fill { from { background-color: transparent; } to { background-color: var(--notebook-blue); } }
+.tool-group-slide > button:not([aria-pressed="true"], [aria-expanded="true"]) { transition: background-color .1s ease, color .15s ease, transform .15s; }
+/* While dragging, only the tool under the pointer is shown as chosen. */
+.tool-group-slide[data-dragging="true"] > button:is([aria-pressed="true"], [aria-expanded="true"]):not([data-drag-over]) { background: transparent; color: #242c49; transition: none; }
+.tool-group-slide[data-dragging="true"] > button[data-drag-over] { color: #fff; }
+.tool-slider { position: absolute; top: 0; left: 0; z-index: 0; border-radius: 12px; background: var(--notebook-blue); box-shadow: 0 4px 10px #2454e830; pointer-events: none;
+  transition: transform .34s cubic-bezier(.3, 1.3, .5, 1), width .34s cubic-bezier(.3, 1.3, .5, 1), height .34s cubic-bezier(.3, 1.3, .5, 1), opacity .18s ease, scale .22s ease; }
+.tool-slider[data-on="false"] { opacity: 0; scale: .7; }
+.tool-slider[data-jump="true"] { transition: none; opacity: 0; scale: .7; }
+
+/* Height-animated open and close (Motion.tsx Collapse): content below slides instead of jumping. */
+.collapse-motion { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .3s cubic-bezier(.2, .8, .2, 1), margin .3s cubic-bezier(.2, .8, .2, 1), opacity .22s ease; }
+.collapse-motion[data-open="true"] { grid-template-rows: 1fr; opacity: 1; }
+.collapse-motion > div { min-height: 0; overflow: hidden; }
+.collapse-motion[data-settled="true"] > div { overflow: visible; }
+.collapse-motion > div > * { transition: transform .3s cubic-bezier(.2, .8, .2, 1); transform: translateY(-8px) scale(.97); }
+.collapse-motion[data-open="true"] > div > * { transform: none; }
+/* In the board column (gap .75rem), a closed panel also gives back its gap. */
+.ink-collapse { margin-bottom: -.75rem; }
+.ink-collapse[data-open="true"] { margin-bottom: 0; }
+.ink-collapse > div { padding: 2px 6px 6px; margin: -2px -6px -6px; }
+
+/* Pages panel: width and the page list animate open and closed. */
+.notebook-pages { transition: width .3s cubic-bezier(.2, .8, .2, 1); }
+.notebook-pages-caret { display: inline-block; transition: rotate .3s ease; }
+.notebook-pages[data-open="false"] .notebook-pages-caret { rotate: 180deg; }
+@media (prefers-reduced-motion: no-preference) {
+  .notebook-pages { animation: pages-in .3s cubic-bezier(.2, .8, .2, 1); }
+}
+@keyframes pages-in { from { opacity: 0; transform: translateX(-12px); } }
+
+/* Split view: slide on the left, whiteboard on the right; tabs on narrow screens. */
+.board-split { display: grid; gap: .75rem; flex: 0 0 auto; }
+@media (min-width: 1024px) { .board-split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: stretch; } }
+.board-split-pane { position: relative; display: flex; min-width: 0; flex-direction: column; padding: 6px; border: 2px solid transparent; border-radius: 18px; transition: border-color .18s, background-color .18s; }
+.board-split-pane[data-active="true"] { border-color: #c9d4fb; background: #ffffff80; }
+.board-split-tabs { display: none; gap: 2px; padding: 4px; border: 1px solid var(--notebook-border, #dcdfee); border-radius: 12px; background: #fff; }
+.board-split-tabs button { flex: 1 1 0; min-height: 36px; border-radius: 9px; font-size: .875rem; font-weight: 600; color: #4a5272; cursor: pointer; }
+.board-split-tabs button[aria-selected="true"] { background: #2454e8; color: #fff; }
+@media (width < 64rem) {
+  .board-split-tabs { display: flex; }
+  .board-split-pane[data-active="false"] { display: none; }
+}
+
+/* Start new topic / Clear pen / Clear board: the frame hugs the three buttons. */
+.board-actions-wrap { position: relative; flex: 0 0 auto; }
+.board-actions { display: inline-flex; width: max-content; align-items: center; gap: .35rem; padding: 4px; border: 1px solid var(--notebook-border, #dcdfee); border-radius: 14px; background: #fff; box-shadow: 0 1px 3px #1823480d; }
+.board-actions-pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; display: grid; gap: .6rem; width: max-content; max-width: min(22rem, calc(100vw - 2rem)); padding: .75rem; border: 1px solid #dcdfee; border-radius: 14px; background: #fff; box-shadow: 0 12px 30px #18234826; }
+
+/* Zoom-style Share control. */
+.board-share { position: relative; display: inline-flex; flex: 0 0 auto; align-items: center; gap: .5rem; }
+.board-share-avatars { display: flex; }
+.board-share-avatars span { display: grid; place-items: center; width: 28px; height: 28px; margin-left: -8px; border: 2px solid #fff; border-radius: 999px; color: #fff; font-size: .6875rem; font-weight: 700; }
+.board-share-avatars span:first-child { margin-left: 0; }
+.board-share-avatars .board-share-more { background: #e3e7f5; color: #4a5272; }
+.board-share-btn { display: inline-flex; align-items: center; gap: .4rem; min-height: 40px; padding: 0 .9rem; border: 1px solid var(--notebook-border, #dcdfee); border-radius: 12px; background: #fff; color: #242c49; font-size: .875rem; font-weight: 600; cursor: pointer; box-shadow: 0 1px 3px #1823480d; transition: background-color .15s, transform .1s; }
+.board-share-btn svg { width: 16px; height: 16px; }
+.board-share-btn:hover { background: #f3f5fc; }
+.board-share-btn:active { transform: scale(.97); }
+.board-share-primary { border-color: #2454e8; background: #2454e8; color: #fff; }
+.board-share-primary:hover { background: #1d47cc; }
+.board-share-count { min-width: 1.3rem; padding: 0 .35rem; border-radius: 999px; background: #ffffff33; font-size: .75rem; text-align: center; }
+.board-share-btn:not(.board-share-primary) .board-share-count { background: #eef1fb; color: #4a5272; }
+.board-share-pop { position: fixed; z-index: 60; display: grid; gap: .65rem; width: min(22rem, calc(100vw - 2rem)); padding: 1rem; border: 1px solid #dcdfee; border-radius: 16px; background: #fff; box-shadow: 0 16px 40px #1823482e; transform-origin: top right; }
+.board-share-heading { font-size: .9375rem; font-weight: 650; color: #171d38; }
+.board-share-sub { margin-top: -.4rem; font-size: .8125rem; color: var(--color-smoke); }
+.board-share-roles { display: grid; gap: .35rem; }
+.board-share-role { display: flex; align-items: flex-start; gap: .6rem; padding: .55rem .65rem; border: 1px solid #e3e6f2; border-radius: 12px; text-align: left; cursor: pointer; transition: background-color .15s, border-color .15s; }
+.board-share-role b { display: block; font-size: .875rem; font-weight: 600; color: #242c49; }
+.board-share-role small { display: block; font-size: .75rem; color: var(--color-smoke); }
+.board-share-role:hover:not(:disabled) { background: #f7f8ff; }
+.board-share-role[aria-checked="true"] { border-color: #2454e8; background: #f2f5ff; }
+.board-share-role:disabled { opacity: .55; cursor: default; }
+.board-share-radio { flex: 0 0 auto; width: 16px; height: 16px; margin-top: 2px; border: 1.5px solid #8a90a8; border-radius: 999px; transition: border-width .15s, border-color .15s; }
+.board-share-role[aria-checked="true"] .board-share-radio { border: 5px solid #2454e8; }
+.board-share-notes { display: grid; gap: .25rem; max-height: 12rem; overflow-y: auto; }
+.board-share-notes li { display: flex; align-items: center; gap: .5rem; padding: .35rem .5rem; border-radius: 10px; background: #fafbff; }
+.board-share-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 999px; }
+.board-share-add { justify-self: start; }
+.board-share-draft { display: grid; gap: .5rem; }
+.board-share-draft textarea { width: 100%; min-height: 5rem; padding: .6rem .75rem; resize: vertical; border: 1px solid #f0d77b; border-radius: 10px; background: #fff8d6; font-size: .9375rem; line-height: 1.5; box-shadow: 0 4px 12px #b48a0018; }
+.board-share-draft textarea:focus { outline: 3px solid var(--color-sky); outline-offset: 1px; }
+.board-share-foot { padding-top: .55rem; border-top: 1px solid #eef0f7; font-size: .75rem; color: var(--color-smoke); }
+.nb-link.notebook-danger { color: #992f34; }
+.nb-link.notebook-danger:hover:not(:disabled) { background: #fff0ee; }
+@media (width < 40rem) { .board-actions-pop { right: auto; left: 0; } }
+
+/* Pen / highlighter colors: the tray rises in and each swatch pops in turn. */
+.ink-tray { transform-origin: top center; }
+@keyframes swatch-in { from { opacity: 0; transform: translateY(6px) scale(.4); } }
+@keyframes live-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: no-preference) {
+  .ink-swatches .notebook-swatch { animation: swatch-in .32s cubic-bezier(.34, 1.56, .64, 1) both; animation-delay: calc(var(--swatch-i, 0) * 35ms); }
+  .notebook-swatch span { transition: transform .2s cubic-bezier(.34, 1.56, .64, 1); }
+  .notebook-swatch:hover span { transform: scale(1.18); }
+  .notebook-tool { transition: background-color .18s, color .18s, transform .12s; }
+  .topic-card-live::before { animation: live-pulse 1.6s ease-in-out infinite; }
+}
+@media (prefers-reduced-motion: reduce) { .tool-slider, .segmented-thumb, .segmented button, .notebook-pages, .notebook-pages-caret { transition: none; } }
+
+/* Invite: a centered card that pops in with a little spring. */
+.invite-close { position: absolute; top: 12px; right: 12px; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 999px; color: #6b655d; cursor: pointer; transition: background-color .15s; }
+.invite-close svg { width: 14px; height: 14px; }
+.invite-close:hover { background: #f0eeeb; }
+@media (prefers-reduced-motion: no-preference) {
+  .panel-motion[data-motion="dialog"][data-open="true"] > * > .invite-card { animation: invite-pop .34s cubic-bezier(.3, 1.4, .5, 1) both; }
+  .panel-motion[data-motion="dialog"][data-open="false"] > * > .invite-card { animation: invite-pop-out .17s ease-in both; }
+}
+@keyframes invite-pop { from { opacity: 0; transform: scale(.88) translateY(10px); } }
+@keyframes invite-pop-out { to { opacity: 0; transform: scale(.94) translateY(6px); } }
+
+/* Rounded side sheets (Sheet.tsx): board archive and post-class package. */
+.sheet-backdrop { background: #10162e33; backdrop-filter: blur(2px); }
+.sheet { display: flex; flex-direction: column; width: min(460px, calc(100vw - 24px)); height: calc(100% - 24px); margin: 12px; overflow: hidden; border: 1px solid #e3e6f2; border-radius: 28px; background: #fbfbfe; box-shadow: 0 24px 60px #10162e33, 0 2px 8px #10162e14; }
+.sheet-wide { width: min(540px, calc(100vw - 24px)); }
+.sheet-head { display: flex; align-items: flex-start; gap: 1rem; padding: 1.4rem 1.4rem 1rem 1.6rem; border-bottom: 1px solid #eef0f7; background: #fff; }
+.sheet-title { font-size: 1.5rem; font-weight: 650; letter-spacing: -.01em; color: #171d38; }
+.sheet-sub { margin-top: .3rem; font-size: .875rem; line-height: 1.45; color: var(--color-smoke); }
+.sheet-close { display: grid; place-items: center; flex: 0 0 auto; width: 38px; height: 38px; margin-left: auto; border-radius: 999px; background: #f1f3fa; color: #4a5272; cursor: pointer; transition: background-color .15s, transform .15s; }
+.sheet-close svg { width: 15px; height: 15px; }
+.sheet-close:hover { background: #e5e9f7; }
+.sheet-close:active { transform: scale(.94); }
+.sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 1.1rem 1.2rem 1.4rem; }
+.sheet-foot { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .85rem 1.2rem; border-top: 1px solid #eef0f7; background: #fff; }
+.sheet-card { padding: 1rem 1.1rem; border: 1px solid #e8eaf3; border-radius: 22px; background: #fff; box-shadow: 0 1px 3px #1823480a; }
+.sheet-card-title { font-size: .75rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #6a7190; }
+.sheet-card-note { border-color: #cfe3ff; background: #f2f8ff; }
+.sheet-pill { padding: .2rem .65rem; border-radius: 999px; background: #eef2ff; color: #2442a2; font-size: .75rem; font-weight: 650; }
+.sheet-empty { display: grid; justify-items: center; gap: .35rem; padding: 2.5rem 1.5rem; border: 1.5px dashed #dfe3f0; border-radius: 24px; color: var(--color-smoke); font-size: .875rem; text-align: center; }
+.sheet-empty svg { width: 34px; height: 34px; margin-bottom: .35rem; color: #9aa3c4; }
+.sheet .btn { border-radius: 999px; }
+
+.board-preview { overflow: hidden; padding: .6rem; border-radius: 18px; background: #f4f6fb; }
+.board-preview-note { padding: .55rem .8rem; border: 1px solid #e6e9f4; border-radius: 14px; background: #fff; }
+.board-preview-ink { display: block; width: 100%; border: 1px solid #e6e9f4; border-radius: 14px; background: #fff; }
+
+.recap-start { padding: 1.6rem 1.4rem; text-align: center; }
+.recap-start-icon { display: grid; place-items: center; width: 52px; height: 52px; margin: 0 auto .9rem; border-radius: 18px; background: linear-gradient(135deg, #e8eeff, #f3e9ff); color: #2454e8; }
+.recap-start-icon svg { width: 26px; height: 26px; }
+.recap-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem; margin-top: 1rem; }
+.recap-chips li { padding: .3rem .7rem; border-radius: 999px; background: #f1f3fa; color: #4a5272; font-size: .75rem; font-weight: 600; }
+.recap-point { position: relative; padding-left: 1.1rem; line-height: 1.5; }
+.recap-point::before { content: ""; position: absolute; left: .2rem; top: .6em; width: 6px; height: 6px; border-radius: 999px; background: #2454e8; }
+.recap-question { display: flex; gap: .65rem; padding: .7rem .8rem; border-radius: 16px; background: #f6f7fc; line-height: 1.5; }
+.recap-num { display: grid; place-items: center; flex: 0 0 auto; width: 1.5rem; height: 1.5rem; border-radius: 999px; background: #2454e8; color: #fff; font-size: .75rem; font-weight: 700; }
+.recap-answer { margin-top: .35rem; font-size: .875rem; color: var(--color-smoke); }
+.recap-answer summary { width: fit-content; padding: .1rem .55rem; border-radius: 999px; background: #fff; color: #2454e8; font-size: .75rem; font-weight: 650; cursor: pointer; list-style: none; box-shadow: inset 0 0 0 1px #dfe5fb; }
+.recap-answer summary::-webkit-details-marker { display: none; }
+.recap-answer p { margin-top: .35rem; }
+.recap-skeleton { display: grid; gap: .5rem; }
+.recap-skeleton span { height: .7rem; border-radius: 999px; background: linear-gradient(90deg, #eef0f7 25%, #f7f8fc 50%, #eef0f7 75%); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
+.recap-skeleton span:first-child { width: 30%; }
+.recap-skeleton span:last-child { width: 75%; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+@media (width < 40rem) { .sheet { width: 100vw; height: calc(100% - 12px); margin: 12px 0 0; border-radius: 24px 24px 0 0; } }
+
+/* Switching Slides / Board / Split (view transitions): the slide and whiteboard glide to their new
+   place and size, a side that appears slides in, and the rest of the page cross-fades. */
+::view-transition-group(*) { animation-duration: .5s; animation-timing-function: cubic-bezier(.22, .9, .25, 1); }
+::view-transition-old(*), ::view-transition-new(*) { animation-duration: .38s; animation-timing-function: ease; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .3s; }
+::view-transition-old(pacer-slide), ::view-transition-new(pacer-slide),
+::view-transition-old(pacer-board), ::view-transition-new(pacer-board) { height: 100%; object-fit: cover; object-position: top; }
+::view-transition-new(pacer-board):only-child { animation: vt-in-right .5s cubic-bezier(.22, .9, .25, 1) both; }
+::view-transition-old(pacer-board):only-child { animation: vt-out-right .32s ease-in both; }
+::view-transition-new(pacer-slide):only-child { animation: vt-in-left .5s cubic-bezier(.22, .9, .25, 1) both; }
+::view-transition-old(pacer-slide):only-child { animation: vt-out-left .32s ease-in both; }
+::view-transition-new(pacer-pages):only-child { animation: vt-in-left .45s cubic-bezier(.22, .9, .25, 1) both; }
+::view-transition-old(pacer-pages):only-child { animation: vt-out-left .3s ease-in both; }
+@keyframes vt-in-right { from { opacity: 0; transform: translateX(48px) scale(.97); } }
+@keyframes vt-out-right { to { opacity: 0; transform: translateX(48px) scale(.97); } }
+@keyframes vt-in-left { from { opacity: 0; transform: translateX(-48px) scale(.97); } }
+@keyframes vt-out-left { to { opacity: 0; transform: translateX(-48px) scale(.97); } }
+/* Browsers without view transitions still get a soft fade-in of the new layout. */
+@supports not (view-transition-name: none) {
+  @media (prefers-reduced-motion: no-preference) {
+    .board-view, .board-split { animation: vt-fade .35s ease both; }
+  }
+}
+@keyframes vt-fade { from { opacity: 0; transform: translateY(6px); } }
+
+/* Board items (Whiteboard.tsx): text and equations write in from left to right, sticky notes drop in,
+   shapes spring open, edits settle, dragged items lift, and deleted items fade away. */
+.block-card { transition: scale .2s cubic-bezier(.3, 1.3, .5, 1), filter .2s ease, outline-offset .18s ease, outline-color .18s ease; }
+.block-card[data-moving] { scale: 1.03; filter: drop-shadow(0 10px 16px #1823482b); z-index: 30; }
+.block-card[aria-pressed="true"] { animation: block-select .24s ease-out; }
+@keyframes block-select { from { outline-offset: 8px; outline-color: transparent; } }
+@media (prefers-reduced-motion: no-preference) {
+  .block-card[data-motion="enter"]:is([data-kind="text"], [data-kind="equation"]) > :first-child { animation: block-write .6s cubic-bezier(.25, .8, .25, 1) both; }
+  .block-card[data-motion="enter"][data-kind="equation"] > :first-child { animation-duration: .75s; }
+  .block-card[data-motion="enter"][data-kind="sticky"] { animation: block-drop .55s cubic-bezier(.3, 1.45, .5, 1) both; transform-origin: 50% 0; }
+  .block-card[data-motion="enter"]:is([data-kind="rectangle"], [data-kind="circle"], [data-kind="diamond"], [data-kind="arrow"]) { animation: block-spring .5s cubic-bezier(.3, 1.5, .5, 1) both; }
+  .block-card[data-motion="edit"] > :first-child { animation: block-settle .45s ease-out both; }
+  .block-leave { pointer-events: none; animation: block-leave .3s ease-in forwards; }
+  .board-pop { animation: board-pop .24s cubic-bezier(.3, 1.4, .5, 1) both; }
+}
+.block-leave { pointer-events: none; }
+@keyframes block-write { from { clip-path: inset(-20% 100% -20% 0); opacity: .2; filter: blur(2px); translate: -4px 0; } 60% { opacity: 1; filter: blur(0); } to { clip-path: inset(-20% -20% -20% 0); } }
+@keyframes block-drop { from { opacity: 0; scale: .6; rotate: -6deg; translate: 0 -14px; } 70% { opacity: 1; } }
+@keyframes block-spring { from { opacity: 0; scale: .4; } 60% { opacity: 1; } }
+@keyframes block-settle { from { opacity: .45; translate: 0 3px; filter: blur(1px); } }
+@keyframes block-leave { to { opacity: 0; scale: .85; filter: blur(3px); } }
+@keyframes board-pop { from { opacity: 0; scale: .94; } }
+
+/* Slide thumbnails: the blue highlight slides to the slide being presented. */
+.slide-list { position: relative; }
+.slide-list > .notebook-thumbnail { position: relative; z-index: 1; }
+.slide-list > .notebook-thumbnail[aria-current="page"] { background: transparent; }
+.slide-list > .notebook-thumbnail[aria-current="page"] img { border-color: var(--notebook-border); }
+.slide-list-marker { position: absolute; top: 0; left: 0; z-index: 0; border-radius: 12px; background: #e1e7ff; box-shadow: inset 0 0 0 2px var(--notebook-blue); pointer-events: none;
+  transition: transform .42s cubic-bezier(.3, 1.25, .5, 1), width .42s cubic-bezier(.3, 1.25, .5, 1), height .42s cubic-bezier(.3, 1.25, .5, 1); }
+.slide-list-marker[data-jump="true"] { transition: none; }
+@media (prefers-reduced-motion: reduce) { .slide-list-marker { transition: none; } .tool-group-slide > button { animation: none !important; } }

@@ -11,10 +11,10 @@ To see what is installed, run [check_installed.sql](check_installed.sql) (saved 
 | 02 | [saved_teacher_lectures.sql](saved_teacher_lectures.sql) | Pacer 02 - Saved teacher lectures | Lectures a teacher saves to reopen later | Installed |
 | 03 | [pacer_cloud_storage.sql](pacer_cloud_storage.sql) | Pacer 03 - Teacher cloud storage | Backs up teacher rooms and slide images to the account | Installed 2026-11-17 |
 | 04 | [transparent_slide_images.sql](transparent_slide_images.sql) | Pacer 04 - Transparent slide images | Lets the slide bucket accept WebP images (needs 03 first) | Installed 2026-11-17 |
-| 05 | [board_collaboration.sql](board_collaboration.sql) | Pacer 05 - Board collaboration | Shared notepads and private student annotations | Installed |
+| 05 | [board_collaboration.sql](board_collaboration.sql) | Pacer 05 - Board collaboration | Student sticky notes from the Share button (formerly "shared notepads") and private student annotations | Installed |
 | 06 | [room_keys.sql](room_keys.sql) | Pacer 06 - Room lock (room keys) | Signed board updates, so students only trust the real teacher | Installed 2026-11-16 |
 | 07 | [annotation_owner_access.sql](annotation_owner_access.sql) | Pacer 07 - Annotation owner access | Lets the board owner save private annotations (fixes "Board annotations didn't sync" when testing with your own account) | Installed 2026-11-17 |
 | 08 | [launch_readiness.sql](launch_readiness.sql) | Pacer 08 - Launch readiness | Waitlist, AI rate limits, usage events, data requests | Installed 2026-11-17 |
-| 09 | [notepad_owner_post.sql](notepad_owner_post.sql) | Pacer 09 - Teacher notepads | Lets the teacher post shared notepads (fixes "Not posted" for teachers) | Installed 2026-11-17 |
+| 09 | [notepad_owner_post.sql](notepad_owner_post.sql) | Pacer 09 - Teacher notepads | Lets the teacher add sticky notes from the Share button (fixes "Not posted" for teachers) | Installed 2026-11-17 |
 
 Every script is safe to run more than once. Supabase shows a "destructive operations" warning for scripts that contain `drop policy if exists`; that line only replaces an access rule with its new version and does not delete data.

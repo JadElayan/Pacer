@@ -119,6 +119,34 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
   const resizeDrag = useRef<{ pointer: number; origin: Point; start: Point; span: Point; pixels: Point; size: number; next?: { size: number; position: Point } } | undefined>(undefined);
   const blockDrag = useRef<{ id: string; pointer: number; start: Point; origin: Point; position?: Point } | null>(null);
   const ignoreBlockClick = useRef(false);
+  // Motion: items added after the board opened animate in by kind, edited items settle, removed ones fade out.
+  const previousBlocks = useRef(blocks);
+  const [motion, setMotion] = useState<Record<string, "enter" | "edit">>({});
+  const [leaving, setLeaving] = useState<Block[]>([]);
+  useLayoutEffect(() => {
+    const before = new Map(previousBlocks.current.map((block) => [block.id, block]));
+    const now = new Set(blocks.map((block) => block.id));
+    previousBlocks.current = blocks;
+    const changes: Record<string, "enter" | "edit"> = {};
+    for (const block of blocks) {
+      const old = before.get(block.id);
+      if (!old) changes[block.id] = "enter";
+      else if (old.content !== block.content || JSON.stringify(old.textRuns) !== JSON.stringify(block.textRuns)) changes[block.id] = "edit";
+    }
+    const gone = [...before.values()].filter((block) => !now.has(block.id) && block.position && !block.connector);
+    if (Object.keys(changes).length) {
+      setMotion((current) => ({ ...current, ...changes }));
+      window.setTimeout(() => setMotion((current) => {
+        const next = { ...current };
+        for (const id of Object.keys(changes)) if (next[id] === changes[id]) delete next[id];
+        return next;
+      }), 900);
+    }
+    if (gone.length) {
+      setLeaving((current) => [...current.filter((block) => !now.has(block.id)), ...gone]);
+      window.setTimeout(() => setLeaving((current) => current.filter((block) => !gone.some((item) => item.id === block.id))), 320);
+    }
+  }, [blocks]);
   useLayoutEffect(() => {
     setDraft(undefined);
     shapeDrag.current = null;
@@ -450,6 +478,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
     });
     const selected = selectedIds.includes(b.id) || (!placement && !active && selectedSticky === b.id);
     return <div key={b.id} data-block-id={b.id} role="button" tabIndex={0} aria-pressed={selected}
+      data-kind={b.kind} data-motion={motion[b.id]} data-moving={moving?.id === b.id ? "" : undefined}
       aria-label={`${b.kind === "equation" ? "Equation" : "Note"}: ${b.content}`}
       style={{ width: reflow ? resize?.size ?? b.textWidth : undefined, ...(location && (b.position ? { left: `${location[0] * 100}%`, top: `${location[1] * 100}%` } : {
         transform: `translate(${(location[0] - (origin?.[0] ?? location[0])) * width}px, ${(location[1] - (origin?.[1] ?? location[1])) * height}px)`,
@@ -556,13 +585,24 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
           const current = reflow ? event.currentTarget.parentElement!.getBoundingClientRect().width / displayZoom : size;
           commitSize(clampSize(current + (event.key === "ArrowUp" || event.key === "ArrowRight" ? 1 : -1) * (type && !reflow ? 2 : 10)));
         }} />)}
-      {b.kind === "sticky" && editable && selected && !editing && onEditSticky && <div className="absolute left-0 top-full z-10 min-w-64">
+      {b.kind === "sticky" && editable && selected && !editing && onEditSticky && <div className="board-pop absolute left-0 top-full z-10 min-w-64">
         <StickyTools style={b.stickyStyle}
         onChange={(stickyStyle) => onEditSticky(b.id, { stickyStyle })}
         onEdit={() => setEditingSticky(b.id)}
         onDuplicate={() => onDuplicateSticky?.(b)} /></div>}
       {editable && onMoveBlock && !editing && <button type="button" aria-label="Delete note" className="absolute bottom-full left-1/2 mb-1 grid size-6 -translate-x-1/2 place-items-center rounded-full border border-stone bg-eggshell opacity-0 focus:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
         onClick={(event) => { event.stopPropagation(); deleteObject(b.id); }}>×</button>}
+    </div>;
+  };
+
+  const renderLeaving = (b: Block) => {
+    const type = b.kind === "text" || b.kind === "equation";
+    const fontSize = b.fontSize ?? (b.kind === "equation" ? 26 : 20);
+    return <div key={`leaving-${b.id}`} aria-hidden="true" data-kind={b.kind} className="block-card block-leave absolute w-fit max-w-[85%] break-words"
+      style={{ width: b.kind === "text" ? b.textWidth : undefined, left: `${(b.position?.[0] ?? 0) * 100}%`, top: `${(b.position?.[1] ?? 0) * 100}%` }}>
+      {type ? <div style={{ fontSize }}>{b.kind === "equation" ? <MathView tex={b.content} display={false} />
+        : <div className="whitespace-pre-wrap break-words leading-snug"><BoardText content={b.content} runs={b.textRuns} /></div>}</div>
+        : <div style={{ zoom: b.scale ?? 1 }}><BoardObject kind={b.kind} content={b.content} stickyStyle={b.stickyStyle} shapeSize={b.shapeSize} /></div>}
     </div>;
   };
 
@@ -657,9 +697,10 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
         </div>
         <div className={`pointer-events-none absolute inset-0 ${active || placement ? "" : "[&>*]:pointer-events-auto"}`}>
           {blocks.filter((block) => block.position && !block.connector).map(renderBlock)}
+          {leaving.map(renderLeaving)}
         </div>
         {placement === "text" && draft && onEditText && (
-          <div className="absolute z-20 min-w-12 max-w-[70%] outline-2 outline-sky outline-offset-2"
+          <div className="board-pop absolute z-20 min-w-12 max-w-[70%] outline-2 outline-sky outline-offset-2"
             style={{ left: `${draft.position[0] * 100}%`, top: `${draft.position[1] * 100}%`, fontSize: 20 }}>
             <BoardTextEditor content="" baseSize={20} toolbarAbove={(draft.position[1] * displayZoom - viewY) * height > 60}
               onCommit={(content, runs) => {
@@ -674,7 +715,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
           <BoardObject kind={shapePreview.kind} content={shapePreview.kind} shapeSize={shapePreview.size} />
         </div>}
         {placement === "sticky" && draft && (
-          <form data-board-editor className="absolute z-10 w-40 rounded bg-yellow-100 p-2 text-slate-900 shadow-md"
+          <form data-board-editor className="board-pop absolute z-10 w-40 rounded bg-yellow-100 p-2 text-slate-900 shadow-md"
             style={{ left: `${draft.position[0] * 100}%`, top: `${draft.position[1] * 100}%`,
               transform: `translate(${draft.position[0] * displayZoom - viewX > .75 ? "-100%" : "0"}, ${draft.position[1] * displayZoom - viewY > .75 ? "-100%" : "0"})` }}
             onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) saveDraft(); }}
@@ -691,7 +732,7 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
           </form>
         )}
         {placement && draft && placement !== "sticky" && !(placement === "text" && onEditText) && (
-          <form data-board-editor className="absolute z-10 flex max-w-[85%] items-center gap-1 rounded-xl border border-sky bg-eggshell p-1.5 shadow-lg"
+          <form data-board-editor className="board-pop absolute z-10 flex max-w-[85%] items-center gap-1 rounded-xl border border-sky bg-eggshell p-1.5 shadow-lg"
             style={{ left: `${draft.position[0] * 100}%`, top: `${draft.position[1] * 100}%`,
               transform: `translate(${draft.position[0] * displayZoom - viewX > .65 ? "-100%" : "0"}, ${draft.position[1] * displayZoom - viewY > .8 ? "-100%" : "0"})` }}
             onSubmit={(event) => { event.preventDefault(); saveDraft(); }}
