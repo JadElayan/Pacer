@@ -20,7 +20,7 @@ test("older clips are added at the end and deleted clips disappear", () => {
 
 test("every clip or card is followed by a text block to type in", () => {
   const blocks = blocksFor(`${clip("a")}${clip("b")}`, ["a", "b"], []);
-  assert.deepEqual(blocks.map((b) => b.kind), ["clip", "text", "clip", "text"]);
+  assert.deepEqual(blocks.map((b) => b.kind), ["text", "clip", "text", "clip", "text"]);
 });
 
 test("moving a clip above text, and inserting into the middle of text", () => {
@@ -48,4 +48,9 @@ test("clip width survives a round trip", () => {
 
 test("placed clips are found across topics", () => {
   assert.deepEqual([...placedClips({ t1: clip("a"), t2: `<div>x</div>${clip("b")}`, t3: undefined })], ["a", "b"]);
+});
+
+test("an empty topic still has a text block to type in", () => {
+  assert.deepEqual(blocksFor("", [], []), [{ kind: "text", html: "" }]);
+  assert.deepEqual(blocksFor(undefined ?? "", ["c"], ["c"]).map((b) => b.kind), ["text", "clip", "text"]);
 });
