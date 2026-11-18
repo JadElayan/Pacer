@@ -1,10 +1,11 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { accuracy, loadProfile, loadStudy, mergeStudy, saveStudy, type Profile, type StudyEntry } from "@/lib/profile";
+import { accuracy, loadProfile, loadStudy, mergeStudy, saveStudy, subjectOf, type Profile, type StudyEntry } from "@/lib/profile";
+import { PROGRESS_CHANGED } from "@/lib/progress";
 import { mergeProfiles, pullLearning, pushProfile } from "@/lib/cloudProfile";
 import { addSignal, confidence, loadLog, mergeLogs, missedCheckins, retryCheckin, saveLog, topicProgress, upsertCheckin, weekSummary, emptyLog, type CheckinRecord, type ProgressLog } from "@/lib/progress";
-import { planFocus, planMaterial, planSteps, resolveReview, stepsDone, today, type PlanFocus, type PlanProgress, type ReviewItem, type StepId } from "@/lib/studyPlan";
+import { forLessons, isPlaceholderTitle, planFocus, planMaterial, planSteps, resolveReview, stepsDone, today, type PlanFocus, type PlanProgress, type ReviewItem, type StepId } from "@/lib/studyPlan";
 import { lessonName } from "@/lib/lessonList";
 import { isCorrect } from "@/lib/grade";
 import { askAI } from "@/lib/ai";
@@ -42,8 +43,13 @@ export function ProgressBox() {
     if (!ready) return;
     let active = true;
     setSynced(false);
-    setProfile(loadProfile(userId)); setStudy(loadStudy(userId)); setLog(loadLog(userId));
-    setLessons(loadLessons(userId).filter((l) => !l.removed));
+    const readLocal = () => {
+      setProfile(loadProfile(userId)); setStudy(loadStudy(userId)); setLog(loadLog(userId));
+      setLessons(loadLessons(userId).filter((l) => !l.removed));
+    };
+    readLocal();
+    // Removing a lesson on the left purges its progress; re-read so this box updates at once.
+    window.addEventListener(PROGRESS_CHANGED, readLocal);
     try { setPlan(JSON.parse(localStorage.getItem(planKey(userId)) ?? "null")); } catch { setPlan(null); }
     if (userId) void pullLearning(userId).then((remote) => {
       if (!active) return;
@@ -52,7 +58,7 @@ export function ProgressBox() {
       saveLog(nextLog, userId); saveStudy(nextStudy, userId);
       setProfile(mergeProfiles(loadProfile(userId), remote.profile)); setStudy(nextStudy); setLog(nextLog); setSynced(true);
     }).catch(() => {});
-    return () => { active = false; };
+    return () => { active = false; window.removeEventListener(PROGRESS_CHANGED, readLocal); };
   }, [ready, userId]);
 
   // Changes made here (retries, practice, "Got it now") are saved on the device and, once synced, to the account.
@@ -67,15 +73,18 @@ export function ProgressBox() {
   const [retryAll, setRetryAll] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const planRef = useRef<HTMLDivElement>(null);
-  const review = resolveReview(study, lessons, lessonName);
-  const focus = planFocus(log, review, chosen, skip);
-  const week = weekSummary(log, lessons.map((l) => l.ts));
-  const topics = topicProgress(log);
-  const missed = missedCheckins(log);
-  const feel = confidence(log);
+  // Only progress from lessons the student still has (removed lessons leave nothing behind).
+  const shown = forLessons(log, study, lessons);
+  const review = resolveReview(shown.study, lessons, lessonName);
+  const focus = planFocus(shown.log, review, chosen, skip);
+  const week = weekSummary(shown.log, lessons.map((l) => l.ts));
+  const topics = topicProgress(shown.log);
+  const missed = missedCheckins(shown.log);
+  const feel = confidence(shown.log);
   const open = review.filter((entry) => !entry.resolved);
-  const legacy = Object.entries(profile).filter(([, s]) => s.checkRight + s.checkWrong + s.quizRight + s.quizWrong > 0);
-  const nothing = !log.checkins.length && !log.signals.length && !study.length && !legacy.length;
+  const subjects = new Set(lessons.map((l) => subjectOf(l.title, l.subject)));
+  const legacy = Object.entries(profile).filter(([name, s]) => subjects.has(name) && s.checkRight + s.checkWrong + s.quizRight + s.quizWrong > 0);
+  const nothing = !shown.log.checkins.length && !shown.log.signals.length && !shown.study.length && !legacy.length;
 
   const study_ = (topic: string) => {
     setChosen(topic); setSkip([]);
@@ -101,11 +110,11 @@ export function ProgressBox() {
         This week: {week.classes} class{week.classes === 1 ? "" : "es"}{week.answered > 0 && <> · {week.right} of {week.answered} check-ins right</>}
         {week.streak > 1 && <span className="progress-streak ml-2">{week.streak} weeks in a row</span>}
       </p>}
-      <div className="mt-4 min-h-0 flex-1 space-y-5 overflow-y-auto">
+      <div className="-mx-1 mt-4 min-h-0 flex-1 space-y-5 overflow-y-auto px-1 pb-1">
         {nothing && <p className="rounded-2xl bg-taupe p-4 text-sm text-smoke">Answer check-ins and use I&apos;m lost or Got it in class. A study plan will show up here. Only you can see this.</p>}
 
         <div ref={planRef}>
-          {focus ? <StudyPlan key={focus.topic} focus={focus} lessons={lessons} log={log} done={stepsDone(plan, focus.topic)}
+          {focus ? <StudyPlan key={focus.topic} focus={focus} lessons={lessons} log={shown.log} done={stepsDone(plan, focus.topic)}
             onStep={(step) => { markStep(focus.topic, step); setChosen(focus.topic); }}
             onRetry={(id, given) => { const r = retryCheckin(log, id, given, isCorrect); save(r.log, study); return r.correct; }}
             onPractice={(record) => save(upsertCheckin(log, record), study)}
@@ -137,7 +146,7 @@ export function ProgressBox() {
         {!topics.length && legacy.length > 0 && <div className="space-y-3">
           <p className="text-xs text-smoke">Check-in results from earlier classes. Topics show up here after your next check-in.</p>
           {legacy.map(([name, s]) => { const a = accuracy(s); return <div key={name}>
-            <div className="flex items-baseline justify-between"><p className="font-medium">{name}</p><p className="text-xs text-smoke">{s.checkRight + s.quizRight} right · {s.checkWrong + s.quizWrong} wrong</p></div>
+            <div className="flex items-baseline justify-between"><p className="font-medium">{isPlaceholderTitle(name) ? "Earlier classes" : name}</p><p className="text-xs text-smoke">{s.checkRight + s.quizRight} right · {s.checkWrong + s.quizWrong} wrong</p></div>
             <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-[#fde8e8]" role="img" aria-label={a === null ? "No answers yet" : `${a} percent right`}><div className="h-2.5 rounded-full bg-[#2fbf71] transition-[width] duration-500" style={{ width: `${a ?? 0}%` }} /></div>
           </div>; })}
         </div>}

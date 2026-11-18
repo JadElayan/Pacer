@@ -89,8 +89,9 @@ export function handwritingImage(strokes: Stroke[], w: number, h: number) {
   return strokesImage(strokes, { left: left - 12, right: right + 12, top: top - 12, bottom: bottom + 12 }, w, h);
 }
 
-export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, canEraseStroke, connectorMode, onConnector, canEditBlock, selectedIds, spotlightId, onSelect, snipActive, onSnip, tool, ink, zoom = 1, position, onZoom, onStroke, onErase, onDelete, onEditSticky, onDuplicateSticky, onResizeBlock, onEditText, placement, modeIcon, onPlace, onCancelPlacement, onMoveBlock, children, slide }: {
+export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, canEraseStroke, connectorMode, onConnector, canEditBlock, selectedIds, spotlightId, onSelect, snipActive, onSnip, tool, ink, zoom = 1, position, onZoom, onStroke, onErase, onDelete, onEditSticky, onDuplicateSticky, onResizeBlock, onEditText, placement, modeIcon, onPlace, onCancelPlacement, onMoveBlock, children, slide, empty }: {
   boardRef: React.RefObject<HTMLDivElement | null>; blocks: Block[]; strokes: Stroke[]; isTeacher: boolean; selectedIds: string[]; spotlightId?: string;
+  /** Whether the teacher has put nothing here yet. A student's own annotations don't count, so the waiting hint stays. */ empty?: boolean;
   onSelect: (a: Anchor) => void; snipActive: boolean; onSnip: (a: Anchor | null) => void; tool: BoardTool;
   ink: Pick<Stroke, "color" | "width" | "opacity">;
   zoom?: number;
@@ -765,8 +766,8 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
         <div className={`absolute inset-0 ${slide ? "overflow-hidden" : "overflow-auto p-5 md:p-8"} ${active || placement ? "pointer-events-none" : ""}`}
           role="region" aria-label={slide ? "Presentation slide" : "Whiteboard"} tabIndex={0}>
           {slide && <img src={slide.url} alt="Lecture slide" className="absolute inset-0 h-full w-full" draggable={false} />}
-          {!slide && !placement && blocks.length === 0 && strokes.length === 0 && !(isTeacher && (live?.length || connectorMode || modeIcon)) && (
-            <p className="grid h-full place-items-center text-center text-smoke">
+          {!slide && !placement && (empty ?? (blocks.length === 0 && strokes.length === 0)) && !(isTeacher && (live?.length || connectorMode || modeIcon)) && (
+            <p className="pointer-events-none grid h-full place-items-center text-center text-smoke">
               {isTeacher ? "Choose Text or Equation to add a note to the board." : "Waiting for your teacher to write something…"}
             </p>
           )}

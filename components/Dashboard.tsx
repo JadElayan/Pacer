@@ -5,6 +5,10 @@ import { useEffect, useState } from "react";
 import { loadLessons, markLessonEnded, mergeLessons, pullLessons, removeLesson, storeLessons, type Lesson } from "@/lib/lessons";
 import { groupByClass, groupLessons, isEmptyLesson, lessonName, LESSONS_SHOWN, matchesSearch, SEARCH_AFTER } from "@/lib/lessonList";
 import { isLive, joinClass, myClasses, type PacerClass } from "@/lib/classes";
+import { loadLog, PROGRESS_CHANGED, saveLog } from "@/lib/progress";
+import { loadProfile, loadStudy, saveStudy } from "@/lib/profile";
+import { purgeLesson } from "@/lib/studyPlan";
+import { pushProfile } from "@/lib/cloudProfile";
 import { authEnabled } from "@/lib/supabase";
 import { LIVE_WINDOW_MS, probeLesson, type LessonStatus } from "@/lib/lessonStatus";
 import { LessonPreview, type LessonView } from "./LessonPreview";
@@ -63,7 +67,15 @@ export function LearnedBox() {
   const groups = groupLessons(shown);
   const remove = async (code: string) => {
     setConfirming(undefined); setOpen(null); setRemoveError("");
+    const lesson = lessons.find((item) => item.code === code);
     setLessons((items) => items.filter((item) => item.code !== code));
+    // Its questions, review marks and check-ins go too, so Your progress and My profile stop showing them.
+    if (lesson) {
+      const purged = purgeLesson(loadLog(userId), loadStudy(userId), lesson, lessons.filter((item) => item.code !== code && !item.removed));
+      saveLog(purged.log, userId); saveStudy(purged.study, userId);
+      window.dispatchEvent(new Event(PROGRESS_CHANGED));
+      if (userId) void pushProfile(userId, loadProfile(userId), purged.study, purged.log).catch(() => { /* the account copy is hidden on the dashboard anyway */ });
+    }
     try { setLessons(await removeLesson(code, userId)); }
     catch { setRemoveError("Removed here, but your account copy couldn't be updated. Try again later."); }
   };
@@ -150,7 +162,7 @@ export function LearnedBox() {
         options={[{ value: "class", label: "By class" }, { value: "all", label: "All lessons" }] as const} /></div>}
       {worth.length > SEARCH_AFTER && <input type="search" aria-label="Search your lessons" placeholder="Search lessons" className="input mt-4 py-2 text-sm" value={query} onChange={(e) => setQuery(e.target.value)} />}
       {removeError && <p role="alert" className="mt-2 text-sm">{removeError}</p>}
-      <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
+      <div className="-mx-1 mt-4 min-h-0 flex-1 overflow-y-auto px-1 pb-1">
         {ordered.length === 0 && <p className="rounded-2xl bg-taupe p-4 text-sm text-smoke">No lessons yet. Join a meeting and your notes will show up here.</p>}
         {searching && !matching.length && <p className="rounded-2xl bg-taupe p-4 text-sm text-smoke">No lessons match &ldquo;{query.trim()}&rdquo;.</p>}
         {byClass && <ul className="space-y-2">{classGroups.map((g) => {

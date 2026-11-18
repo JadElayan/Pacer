@@ -1164,3 +1164,14 @@ svg g[color] { transition: color .45s ease-in-out; }
 .class-card[data-open="true"] > button .lesson-card-toggle { rotate: 180deg; }
 .class-card[data-open="true"] > button .lesson-card-toggle-v { scale: 1 0; }
 .class-code { padding: 2px 8px; border-radius: 8px; background: #eef1fb; color: #1f2540; font: 600 .875rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .12em; }
+
+/* Write mode: clips sit on the lined page like pictures in a notebook. */
+.nb-page-clip { position: absolute; z-index: 2; margin: 0; border: 1px solid #c9d3f3; border-radius: 12px; background: #fff; box-shadow: 0 6px 18px #1823481a; transition: box-shadow .2s; }
+.nb-page-clip[data-moving] { box-shadow: 0 14px 30px #18234833; transition: none; }
+.nb-page-clip-bar { display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 4px; border-bottom: 1px solid #eef0f7; border-radius: 12px 12px 0 0; background: #f7f9ff; color: #4a5272; font-size: .75rem; font-weight: 600; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.nb-page-clip-bar:active { cursor: grabbing; }
+.nb-page-clip-bar svg { flex: 0 0 auto; width: 10px; height: 15px; fill: #8d94ad; }
+.nb-page-clip .nb-clip-media { position: relative; }
+.nb-page-clip .nb-clip-media img { display: block; width: 100%; height: auto; max-height: none; border-radius: 0 0 12px 12px; }
+.nb-page-clip p { padding: .45rem .6rem .6rem; font-size: .875rem; line-height: 1.5; white-space: pre-wrap; }
+.nb-page-clip .nb-clip-resize { opacity: .75; }

@@ -141,3 +141,6 @@ export function confidence(log: ProgressLog): { turnedAround: string[]; stillLos
   }
   return { turnedAround, stillLost };
 }
+
+/** Window event fired after progress is changed outside the progress box (a lesson removed). */
+export const PROGRESS_CHANGED = "pacer:progress-changed";

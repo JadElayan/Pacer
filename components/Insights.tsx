@@ -76,7 +76,7 @@ export function Insights({ state, events, connected, demo }: { state: RoomState;
             {open === r.key && <p className="mt-2 rounded-xl bg-sky-soft p-2 text-xs">{tip[r.key] ?? "Thinking…"}<br /><span className="text-smoke">A suggestion only. You decide.</span></p>}
           </li>))}
       </ul>
-      {hidden > 0 && <p className="mt-2 text-xs text-smoke">{hidden} item(s) hidden: fewer than {MIN_GROUP} students, to protect privacy. (Turn on "Small class" in the header for a small demo.)</p>}
+      {hidden > 0 && <p className="mt-2 text-xs text-smoke">{hidden} item(s) hidden: fewer than {MIN_GROUP} students, to protect privacy. Turn on "Small group insights" in the header for tutoring or groups of 1 or 2.</p>}
     </aside>
   );
 }

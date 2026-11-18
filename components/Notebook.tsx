@@ -6,7 +6,7 @@ import { FormatBar, RichNote } from "./NoteEditor";
 import { InkCanvas } from "./InkCanvas";
 import { SegmentedControl } from "./Motion";
 import { LiquidSwatches } from "./LiquidSwatches";
-import { INK_COLORS, PAGE_START, hasInk, inkBottom, inkOverImage, inkPageImage, type InkPage, type InkTool } from "@/lib/ink";
+import { INK_COLORS, PAGE_START, hasInk, inkBottom, inkOverImage, inkPageImage, type ClipPlace, type InkPage, type InkTool } from "@/lib/ink";
 import { GENERAL_NOTES, clipInkKey, type NoteClip, type NoteInk, type NotesStatus, type TopicNotes } from "@/lib/useTopicNotes";
 import { blocksFor, cardToText, normalizeBlocks, placedClips, removeBlock, serializeBlocks, type NoteBlock } from "@/lib/noteBlocks";
 
@@ -176,12 +176,67 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
     setTimeout(() => page.print(), 300);
   };
 
+  // ---- Write mode: clips sit on the lined page. Drag the top bar to move, the corner to resize (positions in INK_WIDTH units). ----
+  type PageDrag = { topic: string; id: string; mode: "move" | "resize"; pointer: number; x0: number; y0: number; from: ClipPlace; now: ClipPlace; scale: number };
+  // The ref is read by the pointer handlers (a quick drag can end before React re-renders); the state draws the clip while it moves.
+  const [pageDrag, setPageDragState] = useState<PageDrag | null>(null);
+  const pageDragRef = useRef<PageDrag | null>(null);
+  const setPageDrag = (next: PageDrag | null) => { pageDragRef.current = next; setPageDragState(next); };
+  const placeOf = (topic: string, id: string, index: number): ClipPlace => ink[topic]?.c?.[id] ?? { x: 24, y: 24 + index * 380, w: 460 };
+  /** The page grows to fit its clips, so a clip never hangs off the bottom. */
+  const pageWithClips = (topic: string): InkPage => {
+    const page = pageFor(topic);
+    const lowest = clipsFor(topic).reduce((max, clip, i) => Math.max(max, placeOf(topic, clip.id, i).y + 400), 0);
+    return writing && lowest > (page.h ?? PAGE_START) ? { ...page, h: lowest + 80 } : page;
+  };
+  const commitPlace = (topic: string, id: string, place: ClipPlace, el?: Element | null) => {
+    const page = pageWithClips(topic);
+    const box = el?.closest(".nb-ink-page")?.getBoundingClientRect();
+    const tall = el && box?.width ? ((el as HTMLElement).offsetHeight * 1000) / box.width : 320;
+    const h = Math.max(page.h ?? PAGE_START, place.y + tall + 60);
+    changeInk(topic, { ...page, h, c: { ...page.c, [id]: { x: Math.round(place.x), y: Math.round(place.y), w: Math.round(place.w) } } });
+  };
+  const startPageDrag = (e: React.PointerEvent<HTMLElement>, topic: string, id: string, index: number, mode: "move" | "resize") => {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* capture is a nicety */ }
+    const width = e.currentTarget.closest(".nb-ink-page")?.getBoundingClientRect().width || 1000;
+    const from = placeOf(topic, id, index);
+    setPageDrag({ topic, id, mode, pointer: e.pointerId, x0: e.clientX, y0: e.clientY, from, now: from, scale: 1000 / width });
+  };
+  const movePageDrag = (e: React.PointerEvent<HTMLElement>) => {
+    const pageDrag = pageDragRef.current;
+    if (pageDrag?.pointer !== e.pointerId) return;
+    const dx = (e.clientX - pageDrag.x0) * pageDrag.scale, dy = (e.clientY - pageDrag.y0) * pageDrag.scale;
+    const f = pageDrag.from;
+    const now = pageDrag.mode === "move"
+      ? { ...f, x: Math.min(1000 - f.w, Math.max(0, f.x + dx)), y: Math.max(0, f.y + dy) }
+      : { ...f, w: Math.min(1000 - f.x, Math.max(200, f.w + dx)) };
+    setPageDrag({ ...pageDrag, now });
+  };
+  const endPageDrag = (e: React.PointerEvent<HTMLElement>) => {
+    movePageDrag(e);
+    const pageDrag = pageDragRef.current;
+    if (pageDrag?.pointer !== e.pointerId) return;
+    const { topic, id, now, from } = pageDrag;
+    setPageDrag(null);
+    if (now.x !== from.x || now.y !== from.y || now.w !== from.w) commitPlace(topic, id, now, e.currentTarget.closest("figure"));
+  };
+
   // ---- Moving clips and cards: drag the ⋮⋮ handle, use Alt+↑ / Alt+↓, or the block menu. ----
   const [menu, setMenu] = useState<{ topic: string; index: number } | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const [drag, setDrag] = useState<{ topic: string; index: number; label: string; x: number; y: number; moved: boolean; pointer: number } | null>(null);
+  type BlockDrag = { topic: string; index: number; label: string; x: number; y: number; moved: boolean; pointer: number };
+  // Pointer handlers read refs: a quick drag can finish before React re-renders with the new state.
+  const [drag, setDragState] = useState<BlockDrag | null>(null);
+  const dragRef = useRef<BlockDrag | null>(null);
+  const setDrag = (next: BlockDrag | null) => { dragRef.current = next; setDragState(next); };
+  const dropRef = useRef<Drop | null>(null);
   const [drop, setDrop] = useState<Drop | null>(null);
-  const [resize, setResize] = useState<{ topic: string; index: number; w: number; pointer: number } | null>(null);
+  type BlockResize = { topic: string; index: number; w: number; pointer: number };
+  const [resize, setResizeState] = useState<BlockResize | null>(null);
+  const resizeRef = useRef<BlockResize | null>(null);
+  const setResize = (next: BlockResize | null) => { resizeRef.current = next; setResizeState(next); };
   const focusBlock = (key: string) => requestAnimationFrame(() => scroller.current?.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"] .nb-handle`)?.focus());
   const keyOf = (topic: string, b: NoteBlock, i: number) => b.kind === "clip" ? `clip-${b.id}` : `card-${topic}-${i}`;
   const move = (from: { topic: string; index: number }, to: { topic: string; at: number; split?: [string, string] }) => {
@@ -256,20 +311,26 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
     aria-label={`Move or change: ${label}. Alt+Up or Alt+Down moves it.`} aria-haspopup="menu" aria-expanded={menu?.topic === topic && menu.index === index}
     onPointerDown={(e) => {
       if (e.button !== 0) return;
-      e.currentTarget.setPointerCapture(e.pointerId);
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* capture is a nicety */ }
       setDrag({ topic, index, label, x: e.clientX, y: e.clientY, moved: false, pointer: e.pointerId });
     }}
     onPointerMove={(e) => {
+      const drag = dragRef.current;
       if (drag?.pointer !== e.pointerId) return;
       const moved = drag.moved || Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6;
       if (!moved) return;
       setDrag({ ...drag, x: e.clientX, y: e.clientY, moved });
-      setDrop(findDrop(e.clientX, e.clientY));
+      dropRef.current = findDrop(e.clientX, e.clientY);
+      setDrop(dropRef.current);
       setMenu(null);
     }}
     onPointerUp={(e) => {
+      const drag = dragRef.current;
       if (drag?.pointer !== e.pointerId) return;
-      if (drag.moved) { if (drop) move({ topic, index }, drop); }
+      const moved = drag.moved || Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6;
+      const drop = moved ? findDrop(e.clientX, e.clientY) ?? dropRef.current : null;
+      dropRef.current = null;
+      if (moved) { if (drop) move({ topic, index }, drop); }
       else setMenu(menu?.topic === topic && menu.index === index ? null : { topic, index });
       setDrag(null); setDrop(null);
     }}
@@ -367,7 +428,7 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
                 </div>;
               }
               const clip = clipById.get(b.id);
-              if (!clip) return null;
+              if (!clip || writing) return null;
               const width = resize?.topic === section.id && resize.index === i ? resize.w : b.w;
               return <div key={key} data-key={key} className="nb-block" data-kind="clip" data-block-index={i}
                 data-dragging={drag?.moved && drag.topic === section.id && drag.index === i ? true : undefined}>
@@ -383,23 +444,28 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
                     <span className="min-w-0 flex-1 truncate">{clipLabel(clip)}</span>
                     <button type="button" className="nb-clip-remove" aria-label="Remove this clip from your notes" onClick={() => remove(section.id, i)}>×</button>
                   </figcaption>
-                  {clip.image && !writing && <span className="nb-clip-resize" role="slider" tabIndex={0} aria-label={`Width of ${clipLabel(clip)}`} aria-valuemin={30} aria-valuemax={100} aria-valuenow={Math.round(width ?? 100)}
+                  {!writing && <span className="nb-clip-resize" role="slider" tabIndex={0} aria-label={`Width of ${clipLabel(clip)}`} aria-valuemin={30} aria-valuemax={100} aria-valuenow={Math.round(width ?? 100)}
                     onKeyDown={(e) => {
                       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
                       e.preventDefault();
                       const w = Math.min(100, Math.max(30, (b.w ?? 100) + (e.key === "ArrowLeft" ? -10 : 10)));
                       setBlocks(section.id, blocks.map((x, j) => j === i ? { ...b, w: w >= 100 ? undefined : w } : x));
                     }}
-                    onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); setResize({ topic: section.id, index: i, w: width ?? 100, pointer: e.pointerId }); }}
+                    onPointerDown={(e) => { e.preventDefault(); try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* capture is a nicety */ } setResize({ topic: section.id, index: i, w: width ?? 100, pointer: e.pointerId }); }}
                     onPointerMove={(e) => {
+                      const resize = resizeRef.current;
                       if (resize?.pointer !== e.pointerId) return;
                       const figure = e.currentTarget.closest("figure")!.getBoundingClientRect();
                       const box = e.currentTarget.closest(".nb-blocks")!.getBoundingClientRect();
                       setResize({ ...resize, w: Math.min(100, Math.max(30, ((e.clientX - figure.left) / box.width) * 100)) });
                     }}
                     onPointerUp={(e) => {
+                      const resize = resizeRef.current;
                       if (resize?.pointer !== e.pointerId) return;
-                      setBlocks(section.id, blocks.map((x, j) => j === i ? { ...b, w: resize.w >= 98 ? undefined : resize.w } : x));
+                      const figure = e.currentTarget.closest("figure")!.getBoundingClientRect();
+                      const box = e.currentTarget.closest(".nb-blocks")!.getBoundingClientRect();
+                      const w = Math.min(100, Math.max(30, ((e.clientX - figure.left) / box.width) * 100));
+                      setBlocks(section.id, blocks.map((x, j) => j === i ? { ...b, w: w >= 98 ? undefined : w } : x));
                       setResize(null);
                     }} />}
                 </figure>
@@ -410,11 +476,46 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
           {(writing || hasInk(ink[section.id])) && <div className="nb-ink-page" data-writing={writing || undefined}
             onPointerDown={() => setFocused(section.id)}>
             {writing && !hasInk(ink[section.id]) && <span className="nb-ink-hint" aria-hidden="true">Write here with a pen, finger or mouse</span>}
-            <InkCanvas page={pageFor(section.id)} editable={writing} tool={tool} label={`Handwritten notes for ${section.title}`}
+            <InkCanvas page={pageWithClips(section.id)} editable={writing} tool={tool} label={`Handwritten notes for ${section.title}`}
               onChange={(page) => {
                 const h = page.h ?? PAGE_START;
                 changeInk(section.id, inkBottom(page.s) > h - 140 ? { ...page, h: h + GROW } : page);
               }} />
+            {writing && clipsFor(section.id).map((clip, i) => {
+              const live = pageDrag?.topic === section.id && pageDrag.id === clip.id ? pageDrag.now : undefined;
+              const place = live ?? placeOf(section.id, clip.id, i);
+              return <figure key={clip.id} className="nb-page-clip" data-clip={clip.id} data-moving={live ? true : undefined}
+                style={{ left: `${place.x / 10}cqw`, top: `${place.y / 10}cqw`, width: `${place.w / 10}cqw` }}>
+                <div className="nb-page-clip-bar" role="button" tabIndex={0} aria-label={`Move ${clipLabel(clip)} on the page. Arrow keys move it.`}
+                  onPointerDown={(e) => startPageDrag(e, section.id, clip.id, i, "move")}
+                  onPointerMove={movePageDrag} onPointerUp={endPageDrag} onPointerCancel={() => setPageDrag(null)}
+                  onKeyDown={(e) => {
+                    const step = e.shiftKey ? 60 : 20;
+                    const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+                    if (!d) return;
+                    e.preventDefault();
+                    commitPlace(section.id, clip.id, { ...place, x: Math.min(1000 - place.w, Math.max(0, place.x + d[0])), y: Math.max(0, place.y + d[1]) }, e.currentTarget.parentElement);
+                  }}>
+                  <svg viewBox="0 0 12 18" aria-hidden="true"><circle cx="3.5" cy="4" r="1.4" /><circle cx="8.5" cy="4" r="1.4" /><circle cx="3.5" cy="9" r="1.4" /><circle cx="8.5" cy="9" r="1.4" /><circle cx="3.5" cy="14" r="1.4" /><circle cx="8.5" cy="14" r="1.4" /></svg>
+                  <span className="min-w-0 flex-1 truncate">{clipLabel(clip)}</span>
+                  <button type="button" className="nb-clip-remove" aria-label="Remove this clip from your notes" onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => { const at = blocksOf(section.id).findIndex((b) => b.kind === "clip" && b.id === clip.id); if (at >= 0) remove(section.id, at); else onRemoveClip(clip.id); }}>×</button>
+                </div>
+                {clip.image ? <div className="nb-clip-media">
+                  <img src={clip.image} alt={clip.text ? "" : "Saved from the board"} draggable={false} />
+                  <InkCanvas fill page={ink[clipInkKey(clip.id)] ?? EMPTY} editable tool={tool}
+                    label={`Your writing on ${clipLabel(clip)}`} onChange={(page) => changeInk(clipInkKey(clip.id), page)} />
+                </div> : clip.text && <p>{clip.text}</p>}
+                <span className="nb-clip-resize" role="slider" tabIndex={0} aria-label={`Width of ${clipLabel(clip)}`} aria-valuemin={20} aria-valuemax={100} aria-valuenow={Math.round(place.w / 10)}
+                  onPointerDown={(e) => startPageDrag(e, section.id, clip.id, i, "resize")} onPointerMove={movePageDrag} onPointerUp={endPageDrag} onPointerCancel={() => setPageDrag(null)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+                    e.preventDefault();
+                    const w = Math.min(1000 - place.x, Math.max(200, place.w + (e.key === "ArrowLeft" ? -50 : 50)));
+                    commitPlace(section.id, clip.id, { ...place, w }, e.currentTarget.parentElement);
+                  }} />
+              </figure>;
+            })}
           </div>}
           {writing && <button type="button" className="nb-link nb-more-space" onClick={() => { const page = pageFor(section.id); changeInk(section.id, { ...page, h: (page.h ?? PAGE_START) + GROW }); }}>
             More space

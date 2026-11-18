@@ -60,3 +60,16 @@ test("plan progress resets on a new day or topic", () => {
   assert.deepEqual(stepsDone(saved, "Limits", now), []);
   assert.deepEqual(stepsDone(saved, "Factoring", now + day), []);
 });
+
+test("progress from removed lessons is hidden and purged", async () => {
+  const { forLessons, purgeLesson } = await import("../lib/studyPlan.ts");
+  const log = { checkins: [check("q1", "Factoring", false), { ...check("q2", "X", false), lesson: "999999" }, { ...check("p", "Y", true), lesson: "" }], signals: [{ id: "s", ts: 1, lesson: "999999", topic: "X", kind: "lost" }] };
+  const study = [{ id: "a", ts: 1, lecture: "Untitled lecture", topic: "t", code: "111111" }, { id: "b", ts: 1, lecture: "Gone class", topic: "t" }, { id: "c", ts: 1, lecture: "Untitled lecture", topic: "t" }];
+  const shown = forLessons(log, study, [{ code: "111111", title: "Untitled lecture" }]);
+  assert.deepEqual(shown.log.checkins.map((c) => c.id), ["q1", "p"]);
+  assert.equal(shown.log.signals.length, 0);
+  assert.deepEqual(shown.study.map((e) => e.id), ["a", "c"]);
+  const purged = purgeLesson(log, study, { code: "111111", title: "Untitled lecture" }, []);
+  assert.deepEqual(purged.study.map((e) => e.id), ["b"]);
+  assert.deepEqual(purged.log.checkins.map((c) => c.id), ["q2", "p"]);
+});

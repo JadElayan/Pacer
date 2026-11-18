@@ -11,6 +11,7 @@ import { GENERAL_NOTES, useTopicNotes } from "@/lib/useTopicNotes";
 import { privateNoteKey } from "@/lib/privateNoteKey";
 import { boardRpc, useBoardCollaboration, usePrivateAnnotations } from "@/lib/useBoardCollaboration";
 import { publishAiState } from "@/lib/aiPause";
+import { suggestionsForSlide } from "@/lib/slideQuestions";
 import { planCheckins, savePlan, savedPlan, setSuggestionsEnabled, suggestionsEnabled, type CheckinPlan } from "@/lib/checkins";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -26,6 +27,7 @@ import { TopicStrip } from "./TopicStrip";
 import { checkinStats, computeRows, MIN_GROUP } from "@/lib/insights";
 import { Insights } from "./Insights";
 import { joinClass, setClassLive } from "@/lib/classes";
+import { forLessons } from "@/lib/studyPlan";
 import { addSignal, emptyLog, loadLog, mergeLogs, saveLog, upsertCheckin, type ProgressLog } from "@/lib/progress";
 import { bump, loadProfile, loadStudy, mergeStudy, saveProfile, saveStudy, subjectOf, type Profile, type Stats, type StudyEntry } from "@/lib/profile";
 import { ProfileSheet } from "./ProfileSheet";
@@ -441,14 +443,17 @@ export function Classroom({ code, review }: { code: string; review?: {
     setCheckinPlan(plan && { ...plan, deckId: deck.id });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isTeacher, deck?.id]);
-  // A suggestion shows only while its own slide is on screen, and goes away once asked or skipped.
-  const offered = suggestOn && state?.showSlides && deck && checkinPlan && !checkinPlan.done.includes(deck.current)
-    ? checkinPlan.suggestions.find((item) => item.slide === deck.current) : undefined;
-  const finishCheckin = (slide: number) => {
+  // A suggestion shows only while its own slide is on screen, and goes away once asked or skipped. Questions written
+  // on the slide itself are suggested too (no AI), so a slide that asks the class something always offers it.
+  const offered = isTeacher && suggestOn && state?.showSlides && deck && !checkinPlan?.done.includes(deck.current)
+    ? suggestionsForSlide(deck.current, deck.pages[deck.current]?.text ?? "", checkinPlan?.suggestions ?? []).find((item) => !checkinPlan?.done.includes(item.id))
+    : undefined;
+  const finishCheckin = (id: string) => {
+    if (!deck) return;
     setCheckinPlan((plan) => {
-      if (!plan) return plan;
-      const next = { ...plan, done: [...new Set([...plan.done, slide])] };
-      savePlan(plan.deckId, next);
+      const base = plan ?? { suggestions: [], answerSlides: [], done: [], source: "demo" as const, deckId: deck.id };
+      const next = { ...base, done: [...new Set([...base.done, id])] };
+      savePlan(base.deckId, next);
       return next;
     });
   };
@@ -1041,6 +1046,7 @@ export function Classroom({ code, review }: { code: string; review?: {
     const addPrivate = (items: Partial<Block>[]) => addPrivateBlocks(items, surface);
     return (
     <Whiteboard key={surface ?? (browseTopic ? browsedTopicId : "live")} boardRef={ref} spotlightId={browseTopic ? undefined : spotBlock?.id}
+      empty={blocksFor(sp).length === 0 && (sp || !sharedNotepads.length) && (sp ? slideInk : visibleInk).length === 0}
       blocks={[...blocksFor(sp), ...(sp ? [] : sharedNotepads), ...(!isTeacher && annotationVisible ? privateNotes.data.blocks.filter((block) => block.surface === surface) : [])]}
       strokes={[...(sp ? slideInk : visibleInk), ...(!isTeacher && annotationVisible ? privateNotes.data.strokes.filter((stroke) => stroke.surface === surface) : [])]} isTeacher={isTeacher} selectedIds={anchor?.ids ?? []}
       privateInk={privateEditing}
@@ -1260,7 +1266,7 @@ export function Classroom({ code, review }: { code: string; review?: {
             <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M2.5 6V2.5H6M13.5 6V2.5H10M2.5 10v3.5H6M13.5 10v3.5H10" /></svg>Focus
           </button>
           {!review && <button className="btn btn-outline btn-sm" onClick={() => { setShowClassTools(false); setShowArchive(true); }}>Board archive{state.archive?.length ? ` (${state.archive.length})` : ""}</button>}
-          {isTeacher ? <button className="btn btn-outline btn-sm" onClick={toggleDemo} aria-pressed={demoMode} title="Show insights in classes with only one or two students">Small class: {demoMode ? "on" : "off"}</button> : <>
+          {isTeacher ? <button className="btn btn-outline btn-sm" onClick={toggleDemo} aria-pressed={demoMode} title="Insights normally wait until 3 students share a struggle, so no one can be singled out. Turn this on for tutoring or groups of 1 or 2.">Small group insights: {demoMode ? "on" : "off"}</button> : <>
             {!wantTeacher && authReady && <button className="btn btn-outline btn-sm max-lg:!hidden notes-toggle" aria-pressed={notesOpen} aria-controls="student-notebook" onClick={toggleNotes}>
               <svg aria-hidden="true" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2" /><path d="M10 2.5v11" /></svg>{notesOpen ? "Hide notes" : "Show notes"}
             </button>}
@@ -1494,13 +1500,13 @@ export function Classroom({ code, review }: { code: string; review?: {
           </Collapse>
           {browseTopic && (
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-2 text-sm">
-                Topic
-                <ChoiceMenu label="Topic" value={browsedTopicId ?? ""}
+              {state.topics.length > 1 && !slidePage && <div className="flex items-center gap-2 text-sm" title="Each topic has its own whiteboard. Pick one to look back at it.">
+                Board for
+                <ChoiceMenu label="Whiteboard to browse, by topic" value={browsedTopicId ?? ""}
                   onChange={(value) => { setBrowsedTopicId(value); setStudentView({ zoom: 1 }); setAnchor(null); setSnip(false); }}>
                   {state.topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.title}</option>)}
                 </ChoiceMenu>
-              </div>
+              </div>}
               <button type="button" className="btn btn-sm btn-outline" aria-label="Zoom out" disabled={studentView.zoom <= 0.5}
                 onClick={() => setStudentView((view) => ({ ...view, zoom: Math.max(0.5, view.zoom - 0.25) }))}>−</button>
               <button type="button" className="btn btn-sm btn-outline" aria-label="Reset browse view"
@@ -1629,12 +1635,12 @@ export function Classroom({ code, review }: { code: string; review?: {
               {giveaway && <p className="checkin-card-warn">Slide {giveaway} may show the answer.
                 <button type="button" className="nb-link" onClick={() => mutate((room) => room.slides ? { ...room, slides: { ...room.slides, hidden: [...new Set([...(room.slides.hidden ?? []), giveaway])] } } : room)}>Hide it from students until you present it</button></p>}
               <div className="flex flex-wrap gap-2">
-                {offered.answer ? <button type="button" className="btn btn-primary btn-sm" onClick={() => { postQuestion(offered.question, offered.answer); finishCheckin(offered.slide); }}>Ask class</button> : null}
+                {offered.answer ? <button type="button" className="btn btn-primary btn-sm" onClick={() => { postQuestion(offered.question, offered.answer); finishCheckin(offered.id); }}>Ask class</button> : null}
                 <button type="button" className={`btn btn-sm ${offered.answer ? "btn-outline" : "btn-primary"}`} onClick={() => {
-                  setQText(offered.question); setQAnswer(offered.answer); finishCheckin(offered.slide);
+                  setQText(offered.question); setQAnswer(offered.answer); finishCheckin(offered.id);
                   window.setTimeout(() => document.getElementById(offered.answer ? "q-text" : "q-ans")?.focus(), 50);
                 }}>{offered.answer ? "Edit first" : "Add an answer"}</button>
-                <button type="button" className="btn btn-outline btn-sm" onClick={() => finishCheckin(offered.slide)}>Skip</button>
+                <button type="button" className="btn btn-outline btn-sm" onClick={() => finishCheckin(offered.id)}>Skip</button>
               </div>
             </section>;
           })()}
@@ -1696,7 +1702,12 @@ export function Classroom({ code, review }: { code: string; review?: {
       )}
       {popup && !isTeacher && <Popup p={popup} onDismiss={() => setPopup(null)} onNever={() => { update({ popups: false }); setPopup(null); }} />}
       <AnimatedPanel open={showProfile && !isTeacher} motion="drawer" reduced={prefs.reduceMotion}>
-        <ProfileSheet profile={profile} study={study} syncError={syncError} onClose={() => setShowProfile(false)} onReset={() => { saveProfile({}, userId); saveStudy([], userId); saveLog(emptyLog(), userId); setProfile({}); setStudy([]); setPlog(emptyLog()); }} />
+        <ProfileSheet {...(() => {
+          // Only what belongs to lessons the student still has (plus this one), so removed lectures don't linger here.
+          const kept = [...loadLessons(userId).filter((l) => !l.removed && l.code !== code), { code, title: state.title, subject: state.subject }];
+          const subjects = new Set(kept.map((l) => subjectOf(l.title, l.subject)));
+          return { profile: Object.fromEntries(Object.entries(profile).filter(([name]) => subjects.has(name))), study: forLessons(emptyLog(), study, kept).study };
+        })()} syncError={syncError} onClose={() => setShowProfile(false)} onReset={() => { saveProfile({}, userId); saveStudy([], userId); saveLog(emptyLog(), userId); setProfile({}); setStudy([]); setPlog(emptyLog()); }} />
       </AnimatedPanel>
       <AnimatedPanel open={showArchive} motion="drawer" reduced={prefs.reduceMotion}>
         <ArchiveSheet boards={state.archive ?? []} onClose={() => setShowArchive(false)} />

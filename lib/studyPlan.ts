@@ -87,3 +87,26 @@ export function stepsDone(saved: PlanProgress | null, topic: string, now = Date.
   return saved && saved.topic === topic && saved.day === today(now) ? saved.done : [];
 }
 export { DAY };
+
+/**
+ * Progress only for lessons the student still has. Removing a lesson used to leave its questions, review marks
+ * and check-ins behind; anything tied to a lesson that's gone is hidden. Practice with no lesson is kept.
+ */
+export function forLessons(log: ProgressLog, study: StudyEntry[], lessons: Pick<Lesson, "code" | "title" | "removed">[]): { log: ProgressLog; study: StudyEntry[] } {
+  const kept = lessons.filter((l) => !l.removed);
+  const codes = new Set(kept.map((l) => l.code));
+  const titles = new Set(kept.map((l) => l.title));
+  return {
+    log: { checkins: log.checkins.filter((c) => !c.lesson || codes.has(c.lesson)), signals: log.signals.filter((s) => !s.lesson || codes.has(s.lesson)) },
+    study: study.filter((e) => e.code ? codes.has(e.code) : titles.has(e.lecture)),
+  };
+}
+
+/** Deletes a removed lesson's progress: entries with its code, and older entries (no code) whose lecture title no other lesson shares. */
+export function purgeLesson(log: ProgressLog, study: StudyEntry[], lesson: Pick<Lesson, "code" | "title">, others: Pick<Lesson, "title">[]): { log: ProgressLog; study: StudyEntry[] } {
+  const shared = others.some((l) => l.title === lesson.title);
+  return {
+    log: { checkins: log.checkins.filter((c) => c.lesson !== lesson.code), signals: log.signals.filter((s) => s.lesson !== lesson.code) },
+    study: study.filter((e) => e.code ? e.code !== lesson.code : shared || e.lecture !== lesson.title),
+  };
+}
