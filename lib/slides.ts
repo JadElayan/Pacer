@@ -8,12 +8,20 @@ export interface SlideDeck {
   presented: number[];
   pages: Record<number, SlidePage>;
   ink: Record<number, Stroke[]>;
+  /** Slides the teacher hid from students (they may show an answer); presenting one un-hides it. */
+  hidden?: number[];
 }
 export interface LocalSlide extends SlidePage { image: Blob }
 
 export const slideUrl = (page: SlidePage) => page.sharedUrl ?? `/api/slides/${page.id}`;
 export function shareableDeck(deck: SlideDeck): SlideDeck {
-  if (deck.access === "all") return deck;
+  const hidden = new Set(deck.hidden ?? []);
+  if (deck.access === "all") {
+    if (!hidden.size) return deck;
+    // Hidden slides never reach students, even with "Entire deck" access.
+    return { ...deck, pages: Object.fromEntries(Object.entries(deck.pages).filter(([n]) => !hidden.has(Number(n)))),
+      ink: Object.fromEntries(Object.entries(deck.ink).filter(([n]) => !hidden.has(Number(n)))) };
+  }
   return { ...deck, pages: Object.fromEntries(deck.presented.flatMap((n) => deck.pages[n] ? [[n, deck.pages[n]]] : [])),
     ink: Object.fromEntries(deck.presented.map((n) => [n, deck.ink[n] ?? []])) };
 }
@@ -39,6 +47,9 @@ export function captureSlide(image: HTMLImageElement, strokes: Stroke[], crop?: 
   canvas.height = Math.ceil(h * scale);
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
+  // Slides can be transparent; JPEG has no transparency, so paint white first (otherwise the clip turns black).
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.scale(scale, scale);
   ctx.translate(-left, -top);
   ctx.drawImage(image, 0, 0);

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 
 const motionOff = (reduced?: boolean) => reduced || (typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
@@ -223,4 +224,45 @@ export function useFlip(selector = ":scope > *") {
     measure();
     return () => { resize.disconnect(); children.disconnect(); };
   }, [selector]);
+}
+
+/**
+ * Runs a React state change inside a view transition, so the old screen morphs into the new one.
+ * Elements with a `view-transition-name` glide between their old and new spots; the rest cross-fades.
+ * `settle` can delay the "after" snapshot briefly (for example until an image decodes).
+ * Falls back to an instant change without the API or under reduced motion.
+ */
+export function runViewTransition(update: () => void, { reduced, settle }: { reduced?: boolean; settle?: () => Promise<unknown> } = {}) {
+  const doc = document as Document & { startViewTransition?: (update: () => void | Promise<void>) => { finished?: Promise<void>; ready?: Promise<void> } };
+  // A hidden page can't animate (the browser would abort the transition), so just apply the change.
+  if (!doc.startViewTransition || motionOff(reduced) || document.hidden) { update(); return; }
+  // Tells useFlip to stay out of the way while the browser animates.
+  document.documentElement.setAttribute("data-view-transition", "");
+  const transition = doc.startViewTransition(async () => {
+    flushSync(update);
+    if (settle) await Promise.race([settle(), new Promise((done) => setTimeout(done, 250))]);
+  });
+  const done = () => window.setTimeout(() => document.documentElement.removeAttribute("data-view-transition"), 50);
+  // A skipped transition rejects "ready"; the state change itself still happened, so there is nothing to report.
+  transition?.ready?.catch(() => {});
+  if (transition?.finished) transition.finished.then(done, done); else done();
+}
+
+/** Fades and lifts its content in the first time it scrolls into view. `delay` (ms) staggers siblings. */
+export function Reveal({ children, delay = 0, className = "", as: Tag = "div" }: {
+  children: ReactNode; delay?: number; className?: string; as?: "div" | "section" | "li" | "article";
+}) {
+  const ref = useRef<HTMLElement>(null);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (motionOff() || typeof IntersectionObserver === "undefined") { setShown(true); return; }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) { setShown(true); observer.disconnect(); }
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.12 });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return <Tag ref={ref as never} className={`reveal ${className}`} data-shown={shown} style={{ "--reveal-delay": `${delay}ms` } as CSSProperties}>{children}</Tag>;
 }

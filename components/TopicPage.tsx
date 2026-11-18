@@ -34,10 +34,11 @@ export function TopicPage({ code, id }: { code: string; id: string }) {
     ? topic.slides.pages.filter((n) => deck.pages[n]) : [];
   const blocks = [...(state?.archive ?? []).flatMap((a) => a.blocks), ...(state?.blocks ?? [])].filter((b) => b.topicId === id).filter((b, i, arr) => arr.findIndex((x) => x.id === b.id) === i);
 
+  const aiOff = !teacher && (!!state?.aiPaused || (state?.aiAutoPause !== false && !!state?.question?.open));
   const go = async () => {
     setBusy(true); setErr("");
     try {
-      const r = await askAI({ kind: "deeper", selected: blocks.map((b) => b.content), context: [], image,
+      const r = await askAI({ kind: "deeper", room: teacher ? undefined : code, selected: blocks.map((b) => b.content), context: [], image,
         topicTitle: topic?.title, topics: topic?.summary ? [{ title: topic.title, summary: topic.summary }] : undefined, mode: prefs.mode });
       setDeep({ text: r.text, source: r.source });
     }
@@ -78,7 +79,8 @@ export function TopicPage({ code, id }: { code: string; id: string }) {
             {deep ? (<><p className="mt-1 text-xs text-smoke">{deep.source === "demo" ? "Demo response (no AI key set)" : "Extra explanation from AI, not from your teacher"}</p><p className="mt-2 whitespace-pre-wrap"><RichText text={deep.text} /></p></>)
               : <p className="mt-1 text-sm text-smoke">Get a fuller explanation of this topic, with an example.</p>}
             {err && <p role="alert" className="mt-2 text-sm text-sky-deep">{err}</p>}
-            <button className="btn btn-primary mt-4" disabled={busy} onClick={go}>{busy ? "Thinking…" : deep ? "Explain again" : "Explain deeper"}</button>
+            {aiOff ? <p className="mt-4 text-sm text-smoke">Your teacher has paused AI help for now.</p>
+              : <button className="btn btn-primary mt-4" disabled={busy} onClick={go}>{busy ? "Thinking…" : deep ? "Explain again" : "Explain deeper"}</button>}
           </div>
         </>
       )}

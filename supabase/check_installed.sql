@@ -16,6 +16,8 @@ select step, script, installed from (values
   ('08', 'launch_readiness.sql', to_regclass('public.waitlist') is not null
         and exists (select 1 from pg_proc where proname = 'rate_limit_hit')),
   ('09', 'notepad_owner_post.sql', exists (select 1 from pg_proc
-        where proname = 'pacer_write_notepad' and prosrc like '%owner := %'))
+        where proname = 'pacer_write_notepad' and prosrc like '%owner := %')),
+  ('10', 'room_ai_pause.sql', to_regclass('public.pacer_room_ai_signals') is not null),
+  ('11', 'ai_token_budget.sql', exists (select 1 from pg_proc where proname = 'ai_budget_add'))
 ) as checks(step, script, installed)
 order by step;

@@ -16,5 +16,7 @@ To see what is installed, run [check_installed.sql](check_installed.sql) (saved 
 | 07 | [annotation_owner_access.sql](annotation_owner_access.sql) | Pacer 07 - Annotation owner access | Lets the board owner save private annotations (fixes "Board annotations didn't sync" when testing with your own account) | Installed 2026-11-17 |
 | 08 | [launch_readiness.sql](launch_readiness.sql) | Pacer 08 - Launch readiness | Waitlist, AI rate limits, usage events, data requests | Installed 2026-11-17 |
 | 09 | [notepad_owner_post.sql](notepad_owner_post.sql) | Pacer 09 - Teacher notepads | Lets the teacher add sticky notes from the Share button (fixes "Not posted" for teachers) | Installed 2026-11-17 |
+| 10 | [room_ai_pause.sql](room_ai_pause.sql) | Pacer 10 - Teacher AI pause | Signed record of when a teacher pauses student AI; the AI route checks it | Installed 2026-11-18 |
+| 11 | [ai_token_budget.sql](ai_token_budget.sql) | Pacer 11 - AI token budgets | Shared daily token budgets per device, class and site, and the abuse penalty box (without it, each server instance counts on its own) | Installed 2026-11-18 |
 
 Every script is safe to run more than once. Supabase shows a "destructive operations" warning for scripts that contain `drop policy if exists`; that line only replaces an access rule with its new version and does not delete data.

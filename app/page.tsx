@@ -9,14 +9,20 @@ import { CopyLinkButton } from "@/components/CopyLinkButton";
 import { recordLecture } from "@/lib/cloudProfile";
 import { useAuth } from "@/lib/useAuth";
 import { createMeeting } from "@/lib/useRoom";
-import { LearnedBox, ProgressBox, SignIn } from "@/components/Dashboard";
+import { LearnedBox, ProgressBox } from "@/components/Dashboard";
 import { authEnabled } from "@/lib/supabase";
 import { TeachingDashboard } from "@/components/TeachingDashboard";
 import { continueLecture, type SavedLecture } from "@/lib/savedLectures";
+import { SegmentedControl, runViewTransition, useFlip } from "@/components/Motion";
+import { Onboarding } from "@/components/Onboarding";
+import { DeskScene, HomeArt, RotatingSubject } from "@/components/HomeArt";
+import { usePrefs } from "@/lib/usePrefs";
 
 export default function Home() {
   const router = useRouter();
   const { user, ready } = useAuth();
+  const reduceMotion = usePrefs().prefs.reduceMotion;
+  const flipFooter = useFlip(":scope > .home-footer");
   const [guest, setGuest] = useState(false);
   useEffect(() => { try { setGuest(localStorage.getItem("pacer:guest") === "1"); } catch { /* ignore */ } }, []);
   const [code, setCode] = useState("");
@@ -40,6 +46,8 @@ export default function Home() {
     if (next) url.searchParams.set("view", "teaching");
     else url.searchParams.delete("view");
     window.history.pushState(null, "", url);
+    // No view transition here: its snapshot pauses the page for a frame, which made the switch stutter.
+    // The new view's pieces animate in with CSS instead (the home section in globals.css), and the footer glides.
     setTeaching(next);
   };
 
@@ -69,23 +77,26 @@ export default function Home() {
   };
 
   return (
-    <main className="relative min-h-screen overflow-hidden">
-      <div aria-hidden className="glow pointer-events-none absolute left-1/2 top-[42%] h-[720px] w-[720px] rounded-full bg-sky opacity-30 blur-3xl" style={{ transform: "translate(-50%,-50%)" }} />
+    <main ref={flipFooter} className="relative min-h-screen overflow-hidden">
+      <div aria-hidden className="home-glow pointer-events-none absolute" data-view={!ready || (authEnabled() && !user && !guest) ? "welcome" : teaching ? "teaching" : "learning"} />
+      <div aria-hidden className="home-glow home-glow-2 pointer-events-none absolute" data-view={!ready || (authEnabled() && !user && !guest) ? "welcome" : teaching ? "teaching" : "learning"} />
+      <div aria-hidden className="home-glow home-glow-blue pointer-events-none absolute" data-view={!ready || (authEnabled() && !user && !guest) ? "welcome" : teaching ? "teaching" : "learning"} />
+      <HomeArt view={!ready || (authEnabled() && !user && !guest) ? "welcome" : teaching ? "teaching" : "learning"} />
       <header className="relative mx-auto flex h-16 max-w-[1280px] items-center justify-between px-6"><Logo />{(!authEnabled() || user || guest) && <AuthBar />}</header>
       {!ready ? <p role="status" className="relative px-6 py-8 text-center text-smoke">Opening Pacer…</p> :
-        authEnabled() && !user && !guest ? <div className="relative px-6"><SignIn onGuest={() => { try { localStorage.setItem("pacer:guest", "1"); } catch { /* ignore */ } setGuest(true); }} /></div> : (
+        authEnabled() && !user && !guest ? <Onboarding onGuest={() => { try { localStorage.setItem("pacer:guest", "1"); } catch { /* ignore */ } runViewTransition(() => setGuest(true), { reduced: reduceMotion }); }} /> : (
       <>
-      <nav aria-label="Homepage view" className="relative mx-auto flex w-fit gap-1 rounded-xl border border-stone bg-eggshell p-1">
-        <button type="button" className={`btn btn-sm btn-outline ${!teaching ? "chip-on" : ""}`} aria-pressed={!teaching} onClick={() => switchView(false)}>Learning</button>
-        <button type="button" className={`btn btn-sm btn-outline ${teaching ? "chip-on" : ""}`} aria-pressed={teaching} onClick={() => switchView(true)}>Teaching</button>
+      <nav aria-label="Homepage view" className="home-switch relative mx-auto w-fit">
+        <SegmentedControl label="Homepage view" value={teaching ? "teaching" : "learning"} onChange={(value) => switchView(value === "teaching")}
+          options={[{ value: "learning", label: "Learning" }, { value: "teaching", label: "Teaching" }] as const} />
       </nav>
-      <div className={`relative mx-auto grid max-w-[1280px] items-start gap-6 px-6 pb-8 pt-6 ${teaching ? "max-w-xl" : "lg:grid-cols-[minmax(0,1fr)_minmax(0,440px)_minmax(0,1fr)]"}`}>
+      <div key={teaching ? "teaching" : "learning"} data-view={teaching ? "teaching" : "learning"} className={`home-view relative mx-auto grid max-w-[1280px] items-start gap-6 px-6 pb-8 pt-6 ${teaching ? "max-w-xl" : "lg:grid-cols-[minmax(0,1fr)_minmax(0,440px)_minmax(0,1fr)]"}`}>
       <section className={`relative flex flex-col items-center text-center ${teaching ? "" : "lg:col-start-2 lg:row-start-1"}`}>
-        <h1 className="display text-[34px] md:text-[44px]">{teaching ? "Teaching dashboard" : <>{user ? `Hi, ${user.name.split(" ")[0]}.` : "The classroom,"}<br />{user ? "Ready to learn?" : "in sync."}</>}</h1>
-        {!teaching && <p className="mt-3 text-base text-graphite">One lesson, with every student moving through it their own way.</p>}
+        <h1 className="home-title display text-[34px] md:text-[44px]">{teaching ? "Teaching dashboard" : <>{user ? `Hi, ${user.name.split(" ")[0]}.` : "The classroom,"}<br />{user ? <>Ready to learn<br /><RotatingSubject /></> : "in sync."}</>}</h1>
+        {!teaching && <p className="home-sub mt-3 text-base text-graphite">One lesson, with every student moving through it their own way.</p>}
 
         {!teaching || !lobby ? (
-          <div className="mt-5 w-full space-y-4 text-left md:mt-8">
+          <div className="home-card mt-5 w-full space-y-4 text-left md:mt-8">
             {!teaching ? <form onSubmit={join} className="card rounded-[24px] border border-stone bg-eggshell/90 p-6 shadow-[var(--shadow-whisper)]">
               <label htmlFor="code" className="block text-sm font-medium">Meeting code</label>
               <input id="code" inputMode="numeric" autoComplete="off" className="input mt-2 text-center text-2xl tracking-[0.4em]" placeholder="000000" value={code} onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setErr(""); }} aria-invalid={!!err} aria-describedby={err ? "code-err" : undefined} />
@@ -104,7 +115,7 @@ export default function Home() {
             )}
           </div>
         ) : (
-          <div className="mt-10 w-full rounded-[24px] border border-stone bg-eggshell/90 p-6 text-center shadow-[var(--shadow-whisper)]">
+          <div className="home-card pop-in mt-10 w-full rounded-[24px] border border-stone bg-eggshell/90 p-6 text-center shadow-[var(--shadow-whisper)]">
             <p className="text-sm text-smoke">Share this code with your class</p>
             <p className="my-2 text-5xl font-light tracking-[0.2em]" aria-label={`Meeting code ${lobby.split("").join(" ")}`}>{lobby}</p>
             <div className="mx-auto my-4 w-fit rounded-2xl border border-stone bg-white p-3"><QRCodeSVG value={link} size={160} /></div>
@@ -115,14 +126,15 @@ export default function Home() {
             </div>
           </div>
         )}
+        {!teaching && <DeskScene />}
       </section>
-      {!teaching && <><div className="min-w-0 lg:col-start-1 lg:row-start-1"><LearnedBox /></div>
-        <div className="min-w-0 lg:col-start-3 lg:row-start-1"><ProgressBox /></div></>}
+      {!teaching && <><div className="home-left min-w-0 lg:col-start-1 lg:row-start-1"><LearnedBox /></div>
+        <div className="home-right min-w-0 lg:col-start-3 lg:row-start-1"><ProgressBox /></div></>}
       </div>
-      {teaching && !lobby && <TeachingDashboard key={user?.id ?? "guest"} userId={user?.id} continuing={continuing} error={hostError} onContinue={(lecture) => void host(lecture)} />}
+      {teaching && !lobby && <div className="home-below"><TeachingDashboard key={user?.id ?? "guest"} userId={user?.id} continuing={continuing} error={hostError} onContinue={(lecture) => void host(lecture)} /></div>}
       </>
       )}
-      <SiteFooter />
+      <div className="home-footer relative"><SiteFooter /></div>
     </main>
   );
 }

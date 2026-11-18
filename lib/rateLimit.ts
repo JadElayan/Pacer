@@ -31,7 +31,11 @@ async function remoteHit(key: string, windowSec: number, limit: number): Promise
   } catch { return null; }
 }
 
-async function hit(key: string, windowSec: number, limit: number): Promise<boolean> {
+// Counter names carry a server-only salt, so nobody calling the public counter function can inflate them.
+const salt = () => createHash("sha256").update(`pacer-rl:${process.env.ANTHROPIC_API_KEY ?? "demo"}`).digest("hex").slice(0, 10);
+
+async function hit(name: string, windowSec: number, limit: number): Promise<boolean> {
+  const key = `${salt()}:${name}`;
   const remote = await remoteHit(key, windowSec, limit);
   return remote ?? memoryHit(key, windowSec, limit);
 }

@@ -1,6 +1,6 @@
 # Pacer
 
-Pacer is a live classroom whiteboard with student-controlled explanations and anonymous class insights. The Teaching dashboard hosts and resumes lectures. The Learning dashboard joins meetings and reviews saved lessons.
+Pacer is a live classroom whiteboard with student-controlled explanations and anonymous class insights. The Teaching dashboard hosts and resumes lectures. The Learning dashboard joins meetings and reviews saved lessons. Signed-out visitors first see an onboarding page that explains what Pacer does for students and teachers, with Google sign-in or Continue as guest.
 
 ## Start here
 
@@ -12,31 +12,40 @@ Use Node.js 22 and npm. Run `npm ci` and `npm run dev`, then open http://localho
 | `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Enables Supabase Realtime for live rooms across devices. Use the public anon key. |
 | `NEXT_PUBLIC_AUTH_ENABLED=1` | Enables Google sign-in after OAuth is configured. See [account setup](AUTH_SETUP.md). |
 | `ANTHROPIC_API_KEY` and optional `ANTHROPIC_MODEL` | Enables server-side AI. Without a key, replies use labeled demo content. |
+| Optional `ANTHROPIC_LIGHT_MODEL` | A cheaper model (for example `claude-haiku-5-5`) for topic titles, practice questions and teacher tips. Unset, everything uses `ANTHROPIC_MODEL`. |
+| Optional `AI_UNITS_PER_DEVICE_DAY`, `AI_UNITS_PER_ROOM_DAY`, `AI_UNITS_GLOBAL_DAY` | Daily AI budgets in token units (defaults 600,000 / 4,000,000 / 40,000,000). See [AI cost and abuse controls](docs/ARCHITECTURE.md#ai-cost-and-abuse-controls). |
 | `NEXT_PUBLIC_TEACHER_STORAGE_ENABLED=1` | Enables optional teacher room and slide backups. Requires the storage migration. |
 
 ## Current features
 
-- Teachers can rename live lectures, edit and format text in place, add equations, ink, shapes, sticky notes and templates, and pan or zoom the board. Connectors snap to objects and can be reattached. Archived boards and saved lectures preserve teaching materials. Continuing a saved lecture starts a new meeting.
-- A row above the board holds the lecture's topics (title and short description, editable), a **Slides / Board / Split** switch, and Start new topic / Clear pen / Clear board. A first topic exists as soon as the room opens. Split shows the slide and the whiteboard side by side; on phones it becomes two tabs. Clearing acts on whatever is on screen (the slide, or the side used last in Split).
+- Teachers can rename live lectures, edit and format text in place, add equations (powers and fractions format while typing: `x^2`, `a/b`), ink, shapes and sticky notes in any color, and templates, and pan or zoom the board. Selecting a sticky note or shape shows a floating toolbar (Miro style); shapes and notes resize to any width and height (corners and edges, Shift keeps proportions). Every color picker uses the same "liquid" swatches that flow from one color to the next. Connectors snap to objects and can be reattached. Archived boards and saved lectures preserve teaching materials. Continuing a saved lecture starts a new meeting.
+- A row above the board holds the lecture's topics (title and short description, editable), a **Slides / Board / Split** switch, and Start new topic / Clear pen / Clear board. A first topic exists as soon as the room opens. Split shows the slide and the whiteboard side by side, or stacked when space is narrow or a student's notes are open; a handle resizes them and either arrangement can be pinned. On phones it becomes two tabs. Focus mode (F) hides everything but the board. Clearing acts on whatever is on screen (the slide, or the side used last in Split).
 - Topics remember the slides shown while they were live. A topic's page shows those slides with the teacher's ink, plus its whiteboard notes. Topics made only of slides are titled from the slide text.
 - The post-class package (recap, practice questions, catch-up note) is generated only when the teacher presses Generate, and is kept for the room so reopening it doesn't use the AI again.
 - Students can follow the teacher or browse independently, ask questions about notes or a snip, catch up, and answer check-ins. Signed-in students can save lessons and learning progress.
 - The **Share** button works like Zoom Whiteboard sharing: the teacher sets students to View only or Can add notes, and signed-in students can then add sticky notes to the board and edit their own. Private annotation data uses separate per-account storage and is excluded from shared room updates.
 - Teachers can upload PDFs, images, and plain text notes. Export slides and documents to PDF to preserve their layout. Production uploads require teacher sign-in, teacher storage, and the slide image migrations; development can use local disk and supports Office imports when LibreOffice is installed.
-- Students can write private notes in each classroom and save them in the current browser, including when the board is view only.
+- Students can write private notes in each classroom and save them in the current browser, including when the board is view only. They can hide or show the notebook, copy any part of a slide or board into their notes with **Clip** (no AI, trimmed to just what was boxed), and switch the notebook between **Type** and **Write**. Write gives each topic a lined page for a pen or finger and lets students write over clips. Pens draw with pressure, and a resting palm leaves no marks.
+- **Catch me up** lists the topics without using AI; a student presses Explain to ask for one.
+- Teachers can pause student AI at any time, and it pauses itself while a check-in is open. The AI route also refuses paused rooms (needs [room_ai_pause.sql](supabase/room_ai_pause.sql)). The teacher sees how many tries were blocked, without names.
+- After a deck upload, AI reads it once and suggests check-ins. A suggestion shows only while its own slide is on screen. Answer keys come only from the slides, stay visible to the teacher while the question is open, and slides that would give the answer away can be hidden until presented. In the Pages list, arrow keys move through slides.
+- AI spending is controlled: low effort for short answers, no thinking for titles, answers shared between students and cached, fewer automatic calls, smaller images, and daily token budgets per device, class and site with abuse logging (see [AI cost and abuse controls](docs/ARCHITECTURE.md#ai-cost-and-abuse-controls)).
+- Pacer can be installed to a tablet or phone home screen, with larger touch targets and a portrait layout.
 - Layout switches, board items, tool rails, slide thumbnails and panels are animated; everything respects reduced-motion settings.
 
 ## Repository map
 
 | Area | Entry points |
 | --- | --- |
-| Home, roles, and classroom | [Home](app/page.tsx), [room route](app/room), [Classroom](components/Classroom.tsx) |
-| Board editing | [Whiteboard](components/Whiteboard.tsx), [textbox editor](components/BoardTextEditor.tsx), [connectors](components/BoardConnectors.tsx) |
+| Home, roles, and classroom | [Home](app/page.tsx), [onboarding](components/Onboarding.tsx), [home art](components/HomeArt.tsx), [room route](app/room), [Classroom](components/Classroom.tsx) |
+| Board editing | [Whiteboard](components/Whiteboard.tsx), [textbox editor](components/BoardTextEditor.tsx), [connectors](components/BoardConnectors.tsx), [shapes, sticky notes and their toolbars](components/BoardObjects.tsx), [color swatches](components/LiquidSwatches.tsx), [equation input](lib/mathInput.ts) |
 | Topics and slides | [Topic cards](components/TopicStrip.tsx), [topic page](components/TopicPage.tsx), [Pages list](components/TeacherSlidePreviews.tsx), [slides](lib/slides.ts) |
 | Panels and motion | [Motion helpers](components/Motion.tsx), [panel animation](components/AnimatedPanel.tsx), [side sheet](components/Sheet.tsx) |
 | Live sync and collaboration | [Room state](lib/useRoom.ts), [transport](lib/transport.ts), [account collaboration](lib/useBoardCollaboration.ts), [Share button](components/BoardShare.tsx) |
 | Saved work | [Student lessons](lib/lessons.ts), [teacher lectures](lib/savedLectures.ts), [SQL migrations](supabase/) |
-| AI | [Server route](app/api/ai/route.ts), [prompt](lib/prompt.ts) |
+| AI | [Server route](app/api/ai/route.ts), [prompt](lib/prompt.ts), [cost and abuse controls](lib/aiBudget.ts), [request limits](lib/rateLimit.ts), [client and cache](lib/ai.ts), [AI pause](lib/aiPause.ts), [check-in suggestions](lib/checkins.ts) |
+| App install (PWA) | [manifest](app/manifest.ts), [icons](lib/appIcon.tsx) |
+| Layout and notes | [Split layout](components/SplitBoards.tsx), [notebook](components/Notebook.tsx), [handwriting](components/InkCanvas.tsx), [clip clean-up](lib/clipImage.ts) |
 
 **[How Pacer works](docs/ARCHITECTURE.md)** explains room state, the classroom screen, where AI is called, the motion system and known gotchas. Read it before changing the classroom. Before editing Next.js code, follow [AGENTS.md](AGENTS.md) and read the relevant installed guides in `node_modules/next/dist/docs/`.
 
@@ -44,7 +53,7 @@ Use Node.js 22 and npm. Run `npm ci` and `npm run dev`, then open http://localho
 
 Deploy this Next.js repository to Vercel and configure the environment variables above for the target environment. The public Supabase settings are read at build time. Add the deployment URL to Google sign-in redirects as described in [account setup](AUTH_SETUP.md). Keep the Anthropic key in server-side environment settings.
 
-Supabase SQL is applied separately from Git and Vercel. For a new environment, configure the existing account tables described in the account setup, then apply [student lessons](supabase/student_lessons.sql), [saved teacher lectures](supabase/saved_teacher_lectures.sql), [teacher storage](supabase/pacer_cloud_storage.sql), [transparent slide support](supabase/transparent_slide_images.sql), and [board collaboration](supabase/board_collaboration.sql) with its [annotation owner access](supabase/annotation_owner_access.sql) follow-up, and [room keys](supabase/room_keys.sql). Confirm which scripts are already applied before setting up an existing project: [supabase/README.md](supabase/README.md) lists every script in order with its status, and [check_installed.sql](supabase/check_installed.sql) reports what a project has.
+Supabase SQL is applied separately from Git and Vercel. For a new environment, configure the existing account tables described in the account setup, then apply [student lessons](supabase/student_lessons.sql), [saved teacher lectures](supabase/saved_teacher_lectures.sql), [teacher storage](supabase/pacer_cloud_storage.sql), [transparent slide support](supabase/transparent_slide_images.sql), and [board collaboration](supabase/board_collaboration.sql) with its [annotation owner access](supabase/annotation_owner_access.sql) follow-up, [room keys](supabase/room_keys.sql), and [AI pause](supabase/room_ai_pause.sql). Confirm which scripts are already applied before setting up an existing project: [supabase/README.md](supabase/README.md) lists every script in order with its status, and [check_installed.sql](supabase/check_installed.sql) reports what a project has.
 
 ## Verification and open work
 
@@ -54,4 +63,4 @@ After applying the collaboration migration, verify with a signed-in teacher and 
 
 ## Launch readiness
 
-Rate limits on the AI route, anonymous usage metrics, a waitlist, privacy/terms/data-request pages and the post-class package are in this repository. See [launch checklist](docs/LAUNCH_CHECKLIST.md) (do this first), [outreach kit](docs/OUTREACH_KIT.md), [pricing](docs/PRICING.md) and [acquisition readiness](docs/ACQUISITION_READINESS.md). Run `supabase/launch_readiness.sql` once in the Supabase SQL editor. `npm test`, `npm run test:e2e` and `npm run test:a11y` run the unit, smoke and accessibility checks; CI runs all of them on every pull request. Optional variables: `NEXT_PUBLIC_CONTACT_EMAIL`, `AI_LIMIT_PER_MINUTE`, `AI_LIMIT_PER_DAY`, `AI_GLOBAL_DAILY_CAP`.
+Rate limits on the AI route, anonymous usage metrics, a waitlist, privacy/terms/data-request pages and the post-class package are in this repository. See [launch checklist](docs/LAUNCH_CHECKLIST.md) (do this first), [outreach kit](docs/OUTREACH_KIT.md), [pricing](docs/PRICING.md) and [acquisition readiness](docs/ACQUISITION_READINESS.md). Run `supabase/launch_readiness.sql` once in the Supabase SQL editor. `npm test`, `npm run test:e2e` and `npm run test:a11y` run the unit, smoke and accessibility checks; CI runs all of them on every pull request. Optional variables: `NEXT_PUBLIC_CONTACT_EMAIL`, `AI_LIMIT_PER_MINUTE`, `AI_LIMIT_PER_DAY`, `AI_GLOBAL_DAILY_CAP`, and the token budgets above. Run `supabase/ai_token_budget.sql` so budgets are shared across server instances.

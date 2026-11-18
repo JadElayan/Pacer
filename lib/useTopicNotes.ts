@@ -1,6 +1,11 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { hasNoteText, noteHtml, textToHtml } from "./noteHtml";
+import { hasInk, isInkPage, type InkPage } from "./ink";
+
+/** Handwriting, keyed by topic id (a topic's page) or `clip:<id>` (writing over a clip). */
+export type NoteInk = Record<string, InkPage>;
+export const clipInkKey = (id: string) => `clip:${id}`;
 
 /** A student's notes for one lesson, one entry per topic. GENERAL holds notes written before any topic existed. */
 export type TopicNotes = Record<string, string>;
@@ -23,6 +28,12 @@ function read(key: string): TopicNotes {
   } catch { /* Older versions stored one plain-text note. */ }
   return { [GENERAL_NOTES]: raw };
 }
+function readInk(key: string): NoteInk {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) ?? "{}") as unknown;
+    return value && typeof value === "object" ? Object.fromEntries(Object.entries(value).filter(([, page]) => isInkPage(page))) as NoteInk : {};
+  } catch { return {}; }
+}
 function readClips(key: string): NoteClip[] {
   try {
     const value = JSON.parse(localStorage.getItem(key) ?? "[]") as unknown;
@@ -33,6 +44,10 @@ function readClips(key: string): NoteClip[] {
 /** Notes save to this browser shortly after each change; `fallback` fills an empty notebook (e.g. notes synced from the account). */
 export function useTopicNotes(key: string, fallback?: { notes?: TopicNotes; clips?: NoteClip[] }) {
   const clipKey = `${key}:clips`;
+  const inkKey = `${key}:ink`;
+  const [ink, setInkState] = useState<NoteInk>({});
+  const latestInk = useRef<NoteInk>({});
+  const inkTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [notes, setNotes] = useState<TopicNotes>({});
   const [clips, setClips] = useState<NoteClip[]>([]);
   const [ready, setReady] = useState(false);
@@ -56,7 +71,7 @@ export function useTopicNotes(key: string, fallback?: { notes?: TopicNotes; clip
   useEffect(() => {
     let loaded: TopicNotes = {};
     let loadedClips: NoteClip[] = [];
-    try { loaded = read(key); loadedClips = readClips(clipKey); } catch { setStatus("error"); }
+    try { loaded = read(key); loadedClips = readClips(clipKey); latestInk.current = readInk(inkKey); setInkState(latestInk.current); } catch { setStatus("error"); }
     if (!Object.values(loaded).some(hasNoteText) && !loadedClips.length && fallbackRef.current) {
       loaded = { ...fallbackRef.current.notes };
       loadedClips = [...(fallbackRef.current.clips ?? [])];
@@ -65,7 +80,27 @@ export function useTopicNotes(key: string, fallback?: { notes?: TopicNotes; clip
     setNotes(loaded); setClips(loadedClips);
     setReady(true);
     return () => { if (timer.current) flush(); };
-  }, [key, clipKey, flush]);
+  }, [key, clipKey, inkKey, flush]);
+
+  const flushInk = useCallback(() => {
+    clearTimeout(inkTimer.current);
+    inkTimer.current = undefined;
+    try {
+      const kept = Object.fromEntries(Object.entries(latestInk.current).filter(([, page]) => hasInk(page)));
+      if (Object.keys(kept).length) localStorage.setItem(inkKey, JSON.stringify(kept)); else localStorage.removeItem(inkKey);
+      setStatus("saved");
+    } catch { setStatus("error"); }
+  }, [inkKey]);
+  /** Saves a page of handwriting (or removes it with `null`), shortly after the last stroke. */
+  const setInk = useCallback((id: string, page: InkPage | null) => {
+    const next = { ...latestInk.current };
+    if (page) next[id] = page; else delete next[id];
+    latestInk.current = next;
+    setInkState(next);
+    setStatus("saving");
+    clearTimeout(inkTimer.current);
+    inkTimer.current = setTimeout(flushInk, 500);
+  }, [flushInk]);
 
   const write = useCallback((next: TopicNotes) => {
     latest.current = next;
@@ -100,13 +135,17 @@ export function useTopicNotes(key: string, fallback?: { notes?: TopicNotes; clip
     if (!image && !text) return;
     writeClips([...latestClips.current, { ...clip, text, image, id: crypto.randomUUID(), ts: Date.now() }].slice(-MAX_CLIPS));
   }, [writeClips]);
-  const removeClip = useCallback((id: string) => writeClips(latestClips.current.filter((clip) => clip.id !== id)), [writeClips]);
+  const removeClip = useCallback((id: string) => {
+    writeClips(latestClips.current.filter((clip) => clip.id !== id));
+    if (latestInk.current[clipInkKey(id)]) setInk(clipInkKey(id), null);
+  }, [writeClips, setInk]);
 
   useEffect(() => {
-    const save = () => { if (timer.current) flush(); };
+    const save = () => { if (timer.current) flush(); if (inkTimer.current) flushInk(); };
     window.addEventListener("pagehide", save);
     return () => window.removeEventListener("pagehide", save);
-  }, [flush]);
+  }, [flush, flushInk]);
+  useEffect(() => () => { if (inkTimer.current) flushInk(); }, [flushInk]);
 
-  return { notes, clips, ready, status, update, append, addClip, removeClip };
+  return { notes, clips, ink, ready, status, update, append, addClip, removeClip, setInk };
 }

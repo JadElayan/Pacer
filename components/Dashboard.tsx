@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { Collapse } from "./Motion";
 import { useEffect, useState } from "react";
 import { accuracy, loadProfile, loadStudy, mergeStudy, summarize, type Profile, type StudyEntry } from "@/lib/profile";
 import { loadLessons, markLessonEnded, mergeLessons, pullLessons, storeLessons, type Lesson } from "@/lib/lessons";
@@ -59,10 +60,12 @@ export function LearnedBox() {
       <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto">
         {lessons.length === 0 && <p className="rounded-2xl bg-taupe p-4 text-sm text-smoke">No lessons yet. Join a meeting and your notes will show up here.</p>}
         {ordered.map((l) => (
-          <div key={l.code} className={`rounded-[20px] border p-4 ${statusOf(l) === "live" ? "border-emerald-300 bg-emerald-50/40" : "border-stone"}`}>
+          // The whole card opens and closes the preview; links, buttons and the preview itself keep their own clicks.
+          <div key={l.code} data-open={open === l.code} className={`lesson-card rounded-[20px] border p-4 ${statusOf(l) === "live" ? "border-emerald-300 bg-emerald-50/40" : "border-stone"}`}
+            onClick={(event) => { if (!(event.target as Element).closest("a, button, [data-lesson-preview]")) setOpen(open === l.code ? null : l.code); }}>
             <button className="flex w-full items-center justify-between gap-3 text-left" aria-expanded={open === l.code} onClick={() => setOpen(open === l.code ? null : l.code)}>
               <span><span className="flex flex-wrap items-center gap-2 font-medium">{l.title}<LessonBadge status={statusOf(l)} /></span><span className="text-xs text-smoke">{l.subject ? `${l.subject} · ` : ""}{when(l.ts)} · {l.topics.length} topic{l.topics.length === 1 ? "" : "s"}</span></span>
-              <span aria-hidden className="text-smoke">{open === l.code ? "–" : "+"}</span>
+              <span aria-hidden className="lesson-card-toggle"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M3.5 8h9" /><path className="lesson-card-toggle-v" d="M8 3.5v9" /></svg></span>
             </button>
             <div className="mt-3 flex flex-wrap gap-2">
               {statusOf(l) === "live" && <Link href={`/room/${encodeURIComponent(l.code)}`} className="btn btn-primary btn-sm">Rejoin live class</Link>}
@@ -70,15 +73,17 @@ export function LearnedBox() {
                 {statusOf(l) === "live" ? "Review so far" : "Open lesson"}
               </Link>
             </div>
-            {open === l.code && (() => {
-              const live = statusOf(l) === "live";
-              const room = live ? rooms[l.code] : undefined;
-              const view = viewOf(l, room);
-              return <div className="mt-3">
-                {view ? <LessonPreview view={view} live={live} userId={userId} topic={room ? room.topics.find((t) => t.id === room.currentTopicId)?.title : l.currentTopic} />
-                  : <p className="rounded-xl bg-taupe p-3 text-sm text-smoke">{live ? "Connecting to the live class…" : "Nothing was on the board or slides."}</p>}
-              </div>;
-            })()}
+            <Collapse open={open === l.code}>
+              {(() => {
+                const live = statusOf(l) === "live";
+                const room = live ? rooms[l.code] : undefined;
+                const view = viewOf(l, room);
+                return <div className="pt-3" data-lesson-preview>
+                  {view ? <LessonPreview view={view} live={live} userId={userId} topic={room ? room.topics.find((t) => t.id === room.currentTopicId)?.title : l.currentTopic} />
+                    : <p className="rounded-xl bg-taupe p-3 text-sm text-smoke">{live ? "Connecting to the live class…" : "Nothing was on the board or slides."}</p>}
+                </div>;
+              })()}
+            </Collapse>
           </div>))}
       </div>
     </section>
@@ -149,18 +154,5 @@ export function ProgressBox() {
       </div>
       <StudyHistory entries={studyEntries} />
     </section>
-  );
-}
-
-export function SignIn({ onGuest }: { onGuest: () => void }) {
-  const { signIn } = useAuth();
-  return (
-    <div className="mx-auto mt-16 w-full max-w-md rounded-[28px] border border-stone bg-eggshell/95 p-8 text-center shadow-[var(--shadow-whisper)]">
-      <h1 className="display text-4xl">Welcome to Pacer</h1>
-      <p className="mt-2 text-smoke">Sign in to keep your notes and progress.</p>
-      <button className="btn btn-dark mt-6 w-full text-base" onClick={() => void signIn()}>Sign in with Google</button>
-      <button className="mt-3 text-sm text-smoke underline" onClick={onGuest}>Continue as guest</button>
-      <p className="mt-6 text-xs text-smoke">Schools will sign in with their own accounts later. <Link href="/" className="hidden">home</Link></p>
-    </div>
   );
 }

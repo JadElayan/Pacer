@@ -22,13 +22,14 @@ Pacer is a live classroom whiteboard (Next.js, React 19, Supabase Realtime, Clau
 
 - The teacher changes room state only through `mutate()` from `lib/useRoom.ts`. New `RoomState` and `Topic` fields must be optional so older rooms and saved lessons still load. Teacher-only data must be removed in `sharedState()`.
 - In `Classroom.tsx`, board actions take a `surface` (a slide id, or `undefined` for the whiteboard). Never read the global slide inside `renderBoard`; Split view renders two boards at once.
-- Keep AI calls on request where possible. `docs/ARCHITECTURE.md` lists the few automatic ones; don't add more without a reason, because each costs API tokens.
+- Keep AI calls on request where possible. `docs/ARCHITECTURE.md` lists the few automatic ones; don't add more without a reason, because each costs API tokens. Every call goes through `askAI` (`lib/ai.ts`) and `/api/ai`; give a new AI kind its settings in `lib/aiBudget.ts` (effort, thinking, output cap) rather than sending defaults, and keep automatic calls behind a cooldown.
+- Colors are picked with `LiquidSwatches` (`components/LiquidSwatches.tsx`) everywhere; objects blend to a new color with a CSS transition.
 - New animations go through `components/Motion.tsx` or the motion section at the end of `app/globals.css`, and must turn off under reduced motion (the OS setting and Pacer's own Reduce motion preference).
 - UI text is short, plain English. Messages say what happened and what to do next.
 - SQL in `supabase/` is applied by hand. Make scripts safe to run twice and add them to `supabase/README.md`.
 
 ## Before you finish
 
-- `npm run lint` (TypeScript) and `npm test` (unit tests). For UI work also run `npm run build`, then `npm run test:e2e` and `npm run test:a11y` (they start their own production server on port 3199 and need Playwright's Chromium). CI runs all of them on pull requests.
+- `npm run lint` (TypeScript) and `npm test` (unit tests). For UI work also run `npm run build` (stop `next dev` first: building while it runs breaks the dev server until it restarts), then `npm run test:e2e` and `npm run test:a11y` (they start their own production server on port 3199 and need Playwright's Chromium). CI runs all of them on pull requests.
 - Check UI changes in a browser as both teacher (`/room/<code>?role=teacher`) and student (`/room/<code>`). Guests can't test sign-in features (Share, student sticky notes, private annotations); say so if you couldn't.
 - When behavior or structure changes, update `docs/ARCHITECTURE.md` and the README feature list in the same change.

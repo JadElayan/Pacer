@@ -1,5 +1,6 @@
 "use client";
 import type { Mode, Prefs } from "@/lib/types";
+import { Sheet } from "./Sheet";
 
 const MODES: { id: Mode; name: string; desc: string }[] = [
   { id: "standard", name: "Standard", desc: "See the full lecture." },
@@ -7,25 +8,44 @@ const MODES: { id: Mode; name: string; desc: string }[] = [
   { id: "guided", name: "Guided", desc: "Explanations in numbered steps." },
   { id: "example", name: "Example", desc: "Examples and analogies first." },
 ];
+
+function Toggle({ label, help, checked, onChange }: { label: string; help: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return <label className="settings-toggle">
+    <span><b>{label}</b><small>{help}</small></span>
+    <input type="checkbox" role="switch" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+    <span className="settings-switch" aria-hidden="true" />
+  </label>;
+}
+
 export function SettingsSheet({ prefs, update, reset, onClose }: { prefs: Prefs; update: (p: Partial<Prefs>) => void; reset: () => void; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/20" onClick={onClose}>
-      <aside role="dialog" aria-label="Learning settings" className="h-full w-[min(380px,100vw)] overflow-y-auto bg-eggshell p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between"><h2 className="display text-3xl">My view</h2><button className="btn btn-outline btn-sm" onClick={onClose}>Done</button></div>
-        <fieldset className="mt-6"><legend className="mb-2 text-sm font-medium">Learning mode</legend>
-          <div className="space-y-2">{MODES.map((m) => (
-            <label key={m.id} className={`flex cursor-pointer gap-3 rounded-[20px] border p-3 ${prefs.mode === m.id ? "border-sky bg-sky-soft" : "border-stone"}`}>
-              <input type="radio" name="mode" className="mt-1 accent-black" checked={prefs.mode === m.id} onChange={() => update({ mode: m.id })} />
-              <span><span className="block font-medium">{m.name}</span><span className="text-sm text-smoke">{m.desc}</span></span>
-            </label>))}</div>
-        </fieldset>
-        <label className="mt-6 block text-sm font-medium" htmlFor="ts">Text size: {prefs.textSize}%</label>
-        <input id="ts" type="range" min={90} max={150} step={10} className="w-full accent-black" value={prefs.textSize} onChange={(e) => update({ textSize: Number(e.target.value) })} />
-        <label className="mt-5 flex items-center gap-3"><input type="checkbox" className="h-5 w-5 accent-black" checked={prefs.reduceMotion} onChange={(e) => update({ reduceMotion: e.target.checked })} /> Reduce motion</label>
-        <label className="mt-3 flex items-center gap-3"><input type="checkbox" className="h-5 w-5 accent-black" checked={prefs.popups} onChange={(e) => update({ popups: e.target.checked })} /> Show AI suggestions</label>
-        <p className="mt-6 text-xs text-smoke">Settings are saved only on this device. Helpful/not-helpful taps adjust a simple preference score; it shows what you liked, not what you understood.</p>
-        <button className="btn btn-outline mt-4" onClick={reset}>Reset my settings</button>
-      </aside>
-    </div>
+    <Sheet title="My view" label="Learning settings" onClose={onClose} subtitle="How Pacer looks and explains things for you. Saved on this device."
+      footer={<button className="btn btn-outline btn-sm" onClick={reset}>Reset my settings</button>}>
+      <section className="sheet-card">
+        <h3 className="sheet-card-title">Learning mode</h3>
+        <div role="radiogroup" aria-label="Learning mode" className="mt-2 grid gap-2">
+          {MODES.map((m) => (
+            <button key={m.id} type="button" role="radio" aria-checked={prefs.mode === m.id} className="settings-mode" onClick={() => update({ mode: m.id })}>
+              <span className="settings-radio" aria-hidden="true" />
+              <span><b>{m.name}</b><small>{m.desc}</small></span>
+            </button>
+          ))}
+        </div>
+      </section>
+      <section className="sheet-card mt-3">
+        <div className="flex items-baseline justify-between">
+          <h3 className="sheet-card-title"><label htmlFor="ts">Text size</label></h3>
+          <span className="text-sm font-semibold text-[#2442a2]">{prefs.textSize}%</span>
+        </div>
+        <input id="ts" type="range" min={90} max={150} step={10} className="settings-range mt-3 w-full" value={prefs.textSize}
+          style={{ ["--fill" as string]: `${((prefs.textSize - 90) / 60) * 100}%` }} onChange={(e) => update({ textSize: Number(e.target.value) })} />
+        <div className="mt-1 flex justify-between text-xs text-smoke"><span>Smaller</span><span>Larger</span></div>
+      </section>
+      <section className="sheet-card mt-3 grid gap-1">
+        <Toggle label="Reduce motion" help="Turn off animations in the classroom." checked={prefs.reduceMotion} onChange={(value) => update({ reduceMotion: value })} />
+        <Toggle label="Show AI suggestions" help="Short tips like “Want a simpler explanation?”." checked={prefs.popups} onChange={(value) => update({ popups: value })} />
+      </section>
+      <p className="mt-4 px-1 text-xs leading-relaxed text-smoke">Helpful and not-helpful taps adjust a simple preference score. It shows what you liked, not what you understood.</p>
+    </Sheet>
   );
 }
