@@ -32,7 +32,12 @@ export async function POST(req: Request) {
   while (b.history?.length && b.history[0].role !== "user") b.history = b.history.slice(1);
 
   const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return NextResponse.json(demoAnswer(b));
+  if (!key) {
+    // Demo answers cost nothing, but the request limits still apply so the route can't be flooded.
+    const limited = await checkAiLimits(req);
+    if (limited) return refuse(limited, 429, { "retry-after": "60" });
+    return NextResponse.json(demoAnswer(b));
+  }
 
   const model = modelFor(b.kind);
   const prompt = b.kind === "summarize" ? buildSummarize(b) : JSON_KINDS.includes(b.kind) ? buildJson(b) : buildUser(b);
