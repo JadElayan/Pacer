@@ -1175,3 +1175,10 @@ svg g[color] { transition: color .45s ease-in-out; }
 .nb-page-clip .nb-clip-media img { display: block; width: 100%; height: auto; max-height: none; border-radius: 0 0 12px 12px; }
 .nb-page-clip p { padding: .45rem .6rem .6rem; font-size: .875rem; line-height: 1.5; white-space: pre-wrap; }
 .nb-page-clip .nb-clip-resize { opacity: .75; }
+
+/* Shared class recap: teacher note in the package, student banner, and the recap saved with a lesson. */
+.recap-share-note { padding: .55rem .75rem; border-radius: 12px; background: #f3f5fb; color: #4a5272; font-size: .8125rem; }
+.recap-share-note-on { background: #effaf3; color: #2d6a47; }
+.recap-banner { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; padding: .7rem .9rem; border: 1px solid #cfe3d6; border-radius: 16px; background: #f2fbf5; font-size: .875rem; }
+.recap-card { border: 1px solid #dfe6fb; background: #f7f9ff; }
+.recap-view-title { color: #2442a2; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }

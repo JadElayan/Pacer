@@ -38,7 +38,10 @@ export interface RoomState {
   teacherName?: string;
   /** The class this meeting was started for (teacher-made classes, supabase/classes.sql). */
   classRef?: ClassRef;
+  /** The post-class package the teacher shared with students (never the teacher note). */
+  sharedRecap?: SharedRecap;
 }
+export interface SharedRecap { recap: string; keyPoints: string[]; practice: { question: string; answer: string }[]; catchup: string; ts: number }
 export interface ClassRef { id: string; name: string; color?: string; /** Lets a signed-in student join the class from a meeting. */ joinCode?: string }
 export interface FeedbackEvent { id: string; sid: string; kind: "ask" | "confused" | "helped" | "answer" | "blocked"; blockId: string | null; topicId: string | null; ts: number; correct?: boolean; questionId?: string }
 export type Mode = "standard" | "focus" | "guided" | "example";

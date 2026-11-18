@@ -12,6 +12,7 @@ import { pushProfile } from "@/lib/cloudProfile";
 import { authEnabled } from "@/lib/supabase";
 import { LIVE_WINDOW_MS, probeLesson, type LessonStatus } from "@/lib/lessonStatus";
 import { LessonPreview, type LessonView } from "./LessonPreview";
+import { RecapView } from "./SharedRecap";
 import type { RoomState } from "@/lib/types";
 import { useAuth } from "@/lib/useAuth";
 
@@ -45,6 +46,14 @@ export function LearnedBox() {
       if (!active) return;
       setStatus((old) => ({ ...old, [code]: result }));
       if (room) setRooms((old) => ({ ...old, [code]: room }));
+      // A recap the teacher shared after this student left still reaches their saved lesson while the room is open.
+      if (room?.sharedRecap) {
+        const all = loadLessons(userId);
+        if (all.some((l) => l.code === code && l.recap?.ts !== room.sharedRecap!.ts)) {
+          const next = all.map((l) => l.code === code ? { ...l, recap: room.sharedRecap } : l);
+          storeLessons(next, userId); setLessons(next);
+        }
+      }
       if (result === "ended") setLessons(markLessonEnded(code, userId));
     }));
     check();
@@ -98,6 +107,11 @@ export function LearnedBox() {
                     const topics = (room ? room.topics.map((t) => ({ title: t.title, summary: t.summary })) : l.topics).filter((t) => t.title.trim());
                     const mine = Object.keys(l.myNotes ?? {}).length + (l.myClips?.length ?? 0);
                     return <div className="space-y-3 pt-3" data-lesson-preview>
+                      {l.recap && <div className="recap-card rounded-xl p-3">
+                        <p className="text-xs font-medium uppercase tracking-wide text-sky-deep">Class recap from your teacher</p>
+                        <div className="mt-1"><RecapView recap={l.recap} compact /></div>
+                        <p className="mt-1.5 text-xs text-smoke">Open the lesson for key points and practice questions.</p>
+                      </div>}
                       {topics.length > 0 && <div className="rounded-xl bg-sky-soft/60 p-3 text-sm">
                         <p className="text-xs font-medium uppercase tracking-wide text-sky-deep">{live ? "Covered so far" : "What was covered"}</p>
                         <ul className="mt-1.5 space-y-1.5">

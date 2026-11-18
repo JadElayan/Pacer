@@ -38,6 +38,7 @@ import { ArchiveSheet } from "./ArchiveSheet";
 import { Sheet } from "./Sheet";
 import { SplitBoards } from "./SplitBoards";
 import { PostClassSheet } from "./PostClassSheet";
+import { RecapView, recapDate } from "./SharedRecap";
 import { track, trackOnce } from "@/lib/track";
 import { Logo } from "./Logo";
 import { RichText } from "./RichText";
@@ -250,6 +251,9 @@ export function Classroom({ code, review }: { code: string; review?: {
   const toggleInsights = (open: boolean) => runViewTransition(() => setShowInsights(open), { reduced: prefs.reduceMotion });
   const [showFinish, setShowFinish] = useState(false);
   const [showRecap, setShowRecap] = useState(false);
+  // Students: the class recap the teacher shared. The banner can be hidden; a newer share shows it again.
+  const [recapOpen, setRecapOpen] = useState(false);
+  const [recapHidden, setRecapHidden] = useState<number>();
   const [savingLecture, setSavingLecture] = useState(false);
   const [lectureMessage, setLectureMessage] = useState("");
   const [showPages, setShowPages] = useState(true);
@@ -781,8 +785,8 @@ export function Classroom({ code, review }: { code: string; review?: {
   const lessonContent = useMemo(() => state && ({
     code: state.code, title: state.title, subject: state.subject, blocks: state.blocks,
     topics: state.topics, strokes: state.strokes, archive: state.archive, slides: state.slides, collaborationId: state.collaborationId, ended: state.ended,
-    showSlides: state.showSlides, currentTopicId: state.currentTopicId, teacherName: state.teacherName, classRef: state.classRef,
-  }), [state?.code, state?.title, state?.subject, state?.blocks, state?.topics, state?.strokes, state?.archive, state?.slides, state?.collaborationId, state?.ended, state?.showSlides, state?.currentTopicId, state?.teacherName, state?.classRef]);
+    showSlides: state.showSlides, currentTopicId: state.currentTopicId, teacherName: state.teacherName, classRef: state.classRef, sharedRecap: state.sharedRecap,
+  }), [state?.code, state?.title, state?.subject, state?.blocks, state?.topics, state?.strokes, state?.archive, state?.slides, state?.collaborationId, state?.ended, state?.showSlides, state?.currentTopicId, state?.teacherName, state?.classRef, state?.sharedRecap]);
   const myNotes = topicNotes.ready ? topicNotes.notes : undefined;
   useEffect(() => {
     if (review || !authReady || isTeacher || wantTeacher || !lessonContent || !myNotes) return;
@@ -1464,6 +1468,11 @@ export function Classroom({ code, review }: { code: string; review?: {
                 onAccessChange={(allowed) => { if (isTeacher) mutate((room) => ({ ...room, studentStickyPermission: allowed ? "open" : "closed" })); }} />}
             </div>
           )}
+          {!isTeacher && state.sharedRecap && recapHidden !== state.sharedRecap.ts && <div role="status" className="recap-banner pop-in">
+            <span className="min-w-0 flex-1"><b>Your teacher shared the class recap.</b> Key points, practice questions and a catch-up note.</span>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => setRecapOpen(true)}>Open recap</button>
+            <button type="button" className="nb-link" onClick={() => setRecapHidden(state.sharedRecap!.ts)}>Hide</button>
+          </div>}
           {!isTeacher && authReady && state.question && <CheckIn key={checkInKey} storageKey={checkInKey} text={state.question.text} open={state.question.open} answer={state.question.answer} correct={state.question.correct} total={state.question.total} grade={grades[state.question.id]} onSubmit={(v) => { myAnswers.current[state.question!.id] = v; submitAnswer(state.question!.id, v); }} />}
           {offTeacherSlide && deck && state.showSlides && !review && (
             <div role="status" className="flex flex-wrap items-center gap-3 rounded-[16px] border border-sky bg-sky-soft px-3 py-2 text-sm">
@@ -1713,7 +1722,13 @@ export function Classroom({ code, review }: { code: string; review?: {
         <ArchiveSheet boards={state.archive ?? []} onClose={() => setShowArchive(false)} />
       </AnimatedPanel>
       <AnimatedPanel open={isTeacher && showRecap} motion="drawer" reduced={prefs.reduceMotion}>
-        <PostClassSheet state={state} onClose={() => setShowRecap(false)} />
+        <PostClassSheet state={state} onClose={() => setShowRecap(false)}
+          onShare={(recap) => mutate((room) => { const { sharedRecap: _old, ...rest } = room; void _old; return recap ? { ...rest, sharedRecap: recap } : rest; })} />
+      </AnimatedPanel>
+      <AnimatedPanel open={!isTeacher && recapOpen && !!state.sharedRecap} motion="drawer" reduced={prefs.reduceMotion}>
+      {state.sharedRecap && <Sheet title="Class recap" label="Class recap" subtitle={`Shared by your teacher on ${recapDate(state.sharedRecap.ts)}. It's also saved with this lesson on your dashboard.`} wide onClose={() => setRecapOpen(false)}>
+        <div className="sheet-card"><RecapView recap={state.sharedRecap} /></div>
+      </Sheet>}
       </AnimatedPanel>
       <AnimatedPanel open={showSettings} motion="drawer" reduced={prefs.reduceMotion}>
         <SettingsSheet prefs={prefs} update={update} reset={reset} onClose={() => setShowSettings(false)} />

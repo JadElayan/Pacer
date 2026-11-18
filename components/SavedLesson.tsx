@@ -11,6 +11,7 @@ import type { Block, RoomState } from "@/lib/types";
 import { Classroom } from "./Classroom";
 import { ChoiceMenu } from "./ChoiceMenu";
 import { GuidedReview } from "./GuidedReview";
+import { RecapView, recapDate } from "./SharedRecap";
 import { guideSteps } from "@/lib/guide";
 import { lessonName } from "@/lib/lessonList";
 import { usePrefs } from "@/lib/usePrefs";
@@ -135,6 +136,10 @@ function LessonReview({ lesson, userId }: { lesson: Lesson; userId?: string }) {
       {prefs.guide && guideClosed && steps.length > 0 && <button type="button" className="btn btn-sm btn-outline" onClick={() => setGuideClosed(false)}>Guided review</button>}
       {guideOpen && <GuidedReview code={lesson.code} lessonTitle={lessonName(lesson)} steps={steps} userId={userId}
         onGo={(page) => { if (options.some((o) => o.value === page)) selectPage(page); }} onClose={() => setGuideClosed(true)} />}
+      {lesson.recap && <details open className="recap-card w-full rounded-xl px-3 py-2 text-sm">
+        <summary className="cursor-pointer font-medium">Class recap from your teacher · {recapDate(lesson.recap.ts)}</summary>
+        <div className="mt-2"><RecapView recap={lesson.recap} /></div>
+      </details>}
       {lesson.topics.length > 0 && <details className="w-full rounded-xl border border-stone bg-eggshell px-3 py-2 text-sm">
         <summary className="cursor-pointer font-medium">Topic summaries</summary>
         <ul className="mt-2 space-y-2">{lesson.topics.map((topic, index) => <li key={index}>
