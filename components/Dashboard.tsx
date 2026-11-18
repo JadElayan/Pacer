@@ -88,30 +88,42 @@ export function LearnedBox() {
               const live = statusOf(l) === "live";
               const name = lessonName(l);
               return <li key={l.code} data-open={open === l.code} className={`lesson-card lesson-row rounded-2xl border px-3 py-2.5 ${live ? "border-emerald-300 bg-emerald-50/40" : "border-stone"}`}>
-                <div className="flex items-center gap-2">
-                  <Link href={`/lesson/${encodeURIComponent(l.code)}`} className="min-w-0 flex-1 rounded-lg" aria-label={`${live ? "Review so far" : "Open lesson"}: ${name}`}>
+                {/* The whole row opens a summary and preview, so students know what's inside before opening or rejoining. */}
+                <button className="flex w-full items-center gap-2 text-left" aria-expanded={open === l.code} onClick={() => { setConfirming(undefined); setOpen(open === l.code ? null : l.code); }}>
+                  <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2 font-medium"><span className="truncate">{name}</span>{live && <LessonBadge status="live" />}</span>
                     <span className="block truncate text-xs text-smoke">{name.endsWith(when(l.ts)) ? (isEmptyLesson(l) ? "Nothing saved" : "Notes saved") : <>{l.subject && !name.startsWith(l.subject) ? `${l.subject} · ` : ""}{when(l.ts)}{l.topics.length ? ` · ${l.topics.length} topic${l.topics.length === 1 ? "" : "s"}` : ""}</>}</span>
-                  </Link>
-                  {live && <Link href={`/room/${encodeURIComponent(l.code)}`} className="btn btn-primary btn-sm shrink-0">Rejoin</Link>}
-                  <button className="lesson-card-toggle" aria-expanded={open === l.code} aria-label={`Preview ${name}`} onClick={() => setOpen(open === l.code ? null : l.code)}>
-                    <svg aria-hidden viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M3.5 8h9" /><path className="lesson-card-toggle-v" d="M8 3.5v9" /></svg>
-                  </button>
-                </div>
+                  </span>
+                  <span aria-hidden className="lesson-card-toggle"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M3.5 8h9" /><path className="lesson-card-toggle-v" d="M8 3.5v9" /></svg></span>
+                </button>
                 <Collapse open={open === l.code}>
                   {(() => {
                     const room = live ? rooms[l.code] : undefined;
                     const view = viewOf(l, room);
-                    return <div className="pt-3" data-lesson-preview>
+                    const topics = (room ? room.topics.map((t) => ({ title: t.title, summary: t.summary })) : l.topics).filter((t) => t.title.trim());
+                    const mine = Object.keys(l.myNotes ?? {}).length + (l.myClips?.length ?? 0);
+                    return <div className="space-y-3 pt-3" data-lesson-preview>
+                      {topics.length > 0 && <div className="rounded-xl bg-sky-soft/60 p-3 text-sm">
+                        <p className="text-xs font-medium uppercase tracking-wide text-sky-deep">{live ? "Covered so far" : "What was covered"}</p>
+                        <ul className="mt-1.5 space-y-1.5">
+                          {topics.slice(0, 3).map((t, i) => <li key={i}><span className="font-medium">{t.title}</span>{t.summary && <span className="block text-smoke">{t.summary}</span>}</li>)}
+                        </ul>
+                        {topics.length > 3 && <p className="mt-1.5 text-xs text-smoke">and {topics.length - 3} more topic{topics.length - 3 === 1 ? "" : "s"}</p>}
+                        {mine > 0 && <p className="mt-1.5 text-xs text-smoke">You saved {mine} note{mine === 1 ? "" : "s"} or clip{mine === 1 ? "" : "s"}.</p>}
+                      </div>}
                       {view ? <LessonPreview view={view} live={live} userId={userId} topic={room ? room.topics.find((t) => t.id === room.currentTopicId)?.title : l.currentTopic} />
-                        : <p className="rounded-xl bg-taupe p-3 text-sm text-smoke">{live ? "Connecting to the live class…" : "Nothing was on the board or slides."}</p>}
-                      {!live && <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-                        {confirming === l.code ? <>
-                          <span>Remove this lesson from your list?</span>
+                        : !topics.length && <p className="rounded-xl bg-taupe p-3 text-sm text-smoke">{live ? "Connecting to the live class…" : "Nothing was saved from this class."}</p>}
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        {live && <Link href={`/room/${encodeURIComponent(l.code)}`} className="btn btn-primary btn-sm">Rejoin live class</Link>}
+                        <Link href={`/lesson/${encodeURIComponent(l.code)}`} className={`btn btn-sm ${live ? "btn-outline" : "btn-primary"}`}>{live ? "Review so far" : "Open lesson"}</Link>
+                        {!live && (confirming === l.code ? <span className="ml-auto flex flex-wrap items-center gap-2">
+                          <span>Remove from your list?</span>
                           <button className="btn btn-outline btn-sm" onClick={() => void remove(l.code)}>Remove</button>
                           <button className="btn btn-outline btn-sm" onClick={() => setConfirming(undefined)}>Cancel</button>
-                        </> : <button className="text-smoke underline-offset-2 hover:underline" onClick={() => setConfirming(l.code)}>Remove from my lessons</button>}
-                      </div>}
+                        </span> : <button className="lesson-remove ml-auto" onClick={() => setConfirming(l.code)} aria-label={`Remove ${name} from your lessons`}>
+                          <svg aria-hidden viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 4.5h11M6.5 4.5V3h3v1.5M4 4.5l.7 8.5h6.6l.7-8.5" /></svg>Remove
+                        </button>)}
+                      </div>
                     </div>;
                   })()}
                 </Collapse>
