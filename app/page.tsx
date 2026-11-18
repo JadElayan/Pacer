@@ -12,7 +12,7 @@ import { createMeeting } from "@/lib/useRoom";
 import { LearnedBox, ProgressBox } from "@/components/Dashboard";
 import { authEnabled } from "@/lib/supabase";
 import { TeachingDashboard } from "@/components/TeachingDashboard";
-import { continueLecture, type SavedLecture } from "@/lib/savedLectures";
+import { clearGuestLectures, continueLecture, type SavedLecture } from "@/lib/savedLectures";
 import { SegmentedControl, runViewTransition, useFlip } from "@/components/Motion";
 import { Onboarding } from "@/components/Onboarding";
 import { DeskScene, HomeArt, RotatingSubject } from "@/components/HomeArt";
@@ -84,7 +84,7 @@ export default function Home() {
       <HomeArt view={!ready || (authEnabled() && !user && !guest) ? "welcome" : teaching ? "teaching" : "learning"} />
       <header className="relative mx-auto flex h-16 max-w-[1280px] items-center justify-between px-6"><Logo />{(!authEnabled() || user || guest) && <AuthBar />}</header>
       {!ready ? <p role="status" className="relative px-6 py-8 text-center text-smoke">Opening Pacer…</p> :
-        authEnabled() && !user && !guest ? <Onboarding onGuest={() => { try { localStorage.setItem("pacer:guest", "1"); } catch { /* ignore */ } runViewTransition(() => setGuest(true), { reduced: reduceMotion }); }} /> : (
+        authEnabled() && !user && !guest ? <Onboarding onGuest={() => { try { localStorage.setItem("pacer:guest", "1"); } catch { /* ignore */ } clearGuestLectures(); runViewTransition(() => setGuest(true), { reduced: reduceMotion }); }} /> : (
       <>
       <nav aria-label="Homepage view" className="home-switch relative mx-auto w-fit">
         <SegmentedControl label="Homepage view" value={teaching ? "teaching" : "learning"} onChange={(value) => switchView(value === "teaching")}
