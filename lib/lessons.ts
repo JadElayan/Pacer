@@ -4,10 +4,12 @@ import { getSupabase } from "./supabase";
 import { backUpSavedDeck } from "./teacherStorage";
 import type { SlideDeck } from "./slides";
 import { hasNoteText } from "./noteHtml";
+import type { NotebookSection } from "./useTopicNotes";
 export interface LessonTopic { id?: string; title: string; summary: string; notes: string[] }
 /** A board clip saved in the student's notes. Pictures stay on the device; the account keeps the text. */
 export interface LessonClip { id: string; topicId: string; text?: string; label?: string; ts: number }
 export interface Lesson { code: string; title: string; subject?: string; ts: number; topics: LessonTopic[]; boards?: Archived[]; slides?: SlideDeck; collaborationId?: string; myNotes?: Record<string, string>; myClips?: LessonClip[];
+  mySections?: NotebookSection[];
   /** True once the student saw the teacher end the lecture (or a later check found the room closed). */ ended?: boolean;
   /** What was on screen when the lesson was last saved: a slide (showSlides) or the board, and its topic. */ showSlides?: boolean; currentTopic?: string;
   /** The student removed it from their list. Kept as a small marker so an older account copy doesn't bring it back. */ removed?: boolean;
@@ -33,8 +35,9 @@ export function buildLesson(s: LessonContent, myNotes?: Record<string, string>, 
     ...(s.sharedRecap ? { recap: s.sharedRecap } : {}),
     ...(s.teacherName ? { teacherName: s.teacherName } : {}), ...(s.classRef ? { classRef: { id: s.classRef.id, name: s.classRef.name, color: s.classRef.color } } : {}) };
 }
-export function saveLesson(s: LessonContent, userId?: string, myNotes?: Record<string, string>, myClips?: LessonClip[]): Lesson | null {
+export function saveLesson(s: LessonContent, userId?: string, myNotes?: Record<string, string>, myClips?: LessonClip[], mySections?: NotebookSection[]): Lesson | null {
   const l = buildLesson(s, myNotes, myClips); if (!l) return null;
+  if (mySections) l.mySections = mySections;
   storeLessons([l, ...loadLessons(userId).filter((x) => x.code !== s.code)], userId);
   return l;
 }

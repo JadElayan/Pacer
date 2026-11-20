@@ -5,7 +5,7 @@ import AxeBuilder from "@axe-core/playwright";
 
 const PORT = process.env.PORT ?? "3198";
 const BASE = `http://localhost:${PORT}`;
-const server = spawn("npx", ["next", "start", "-p", PORT], { stdio: "ignore", env: { ...process.env, NEXT_PUBLIC_SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_ANON_KEY: "" } });
+const server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "-p", PORT], { stdio: "ignore", env: { ...process.env, NEXT_PUBLIC_SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_ANON_KEY: "" } });
 for (let i = 0; i < 60; i++) { try { if ((await fetch(BASE)).ok) break; } catch { /* waiting */ } await new Promise((r) => setTimeout(r, 1000)); }
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });

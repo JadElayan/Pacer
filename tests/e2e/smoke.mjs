@@ -1,10 +1,11 @@
 // Smoke test: starts the production server, checks pages, the AI route guards, and one teacher + student round trip.
 import { spawn } from "node:child_process";
 import { chromium } from "playwright";
+import { checkNotebookUX } from "./notebook-ux.mjs";
 
 const PORT = process.env.PORT ?? "3199";
 const BASE = `http://localhost:${PORT}`;
-const server = spawn("npx", ["next", "start", "-p", PORT], { stdio: "ignore", env: { ...process.env, ANTHROPIC_API_KEY: "", NEXT_PUBLIC_SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_ANON_KEY: "" } });
+const server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "-p", PORT], { stdio: "ignore", env: { ...process.env, ANTHROPIC_API_KEY: "", NEXT_PUBLIC_SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_ANON_KEY: "" } });
 const fail = (m) => { console.error("FAIL:", m); server.kill(); process.exit(1); };
 const ok = (m) => console.log("ok  ", m);
 
@@ -39,6 +40,8 @@ try {
   await t.fill('input[placeholder^="Ask the class"]', "What is x?"); await t.fill('input[placeholder^="Answer key"]', "4"); await t.click('button:has-text("Ask class")');
   await s.waitForSelector("text=What is x?", { timeout: 10000 });
   await s.fill('input[placeholder="Type your answer"]', "4"); await s.click('button:has-text("Send answer")'); await s.waitForSelector("text=Correct", { timeout: 10000 }); ok("check-in answer is graded");
+  await t.getByRole("button", { name: "Close question", exact: true }).click();
+  await checkNotebookUX(t, s); ok("notebook, palettes, formatting, settings and snip panel regression checks");
   // When the header can't fit on one row, class tools sit behind the ⋯ (More) button.
   if (!(await t.locator('button:has-text("Post-class package")').isVisible())) await t.click(".header-more");
   await t.click('button:has-text("Post-class package")'); await t.waitForSelector("text=Recap", { timeout: 10000 }); ok("post-class package renders");
