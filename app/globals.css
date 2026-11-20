@@ -1219,3 +1219,29 @@ svg g[color] { transition: color .45s ease-in-out; }
 .clip-annotator-stage > img { display: block; width: 100%; height: 100%; object-fit: fill; user-select: none; -webkit-user-select: none; pointer-events: none; }
 .clip-annotator-hint { color: #dfe4f5; font-size: .8125rem; }
 @media (prefers-reduced-motion: no-preference) { .clip-annotator { animation: guide-in .2s ease both; } .clip-annotator-stage { animation: board-pop .25s cubic-bezier(.3, 1.2, .5, 1) both; } }
+
+/* Phones: Board / Notes is a bottom tab bar, the More menu slides open, and switching panes fades in. */
+.pane-switch { display: none; }
+@media (max-width: 63.99rem) {
+  .pane-switch { position: fixed; inset: auto 0 0; z-index: 40; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px max(10px, env(safe-area-inset-left)) calc(6px + env(safe-area-inset-bottom)); border-top: 1px solid #e3e6f2; background: #ffffffeb; backdrop-filter: blur(10px); box-shadow: 0 -6px 18px #1823480d; }
+  .pane-switch button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 46px; border-radius: 12px; color: #4a5272; font-size: .875rem; font-weight: 600; transition: background-color .25s, color .25s; }
+  .pane-switch button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .pane-switch button[aria-pressed="true"] { background: #e8eeff; color: #2442a2; }
+  .notebook:has(.pane-switch) { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .class-tools.flex { animation: class-tools-in .22s cubic-bezier(.3, 1.1, .5, 1) both; }
+  @media (max-width: 63.99rem) {
+    .classroom-stage, .student-notebook { animation: pane-in .26s cubic-bezier(.22, .9, .25, 1) both; }
+    .pane-switch button:active { scale: .97; }
+  }
+}
+@media (min-width: 48rem) { .class-tools.flex { animation: none; } }
+@keyframes class-tools-in { from { opacity: 0; transform: translateY(-6px); } }
+@keyframes pane-in { from { opacity: 0; transform: translateY(8px); } }
+@media (max-width: 39.99rem) {
+  .notebook-header { row-gap: .5rem; }
+  .notebook-header [role="group"][aria-label="Study tools"] { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+  .notebook-header [role="group"][aria-label="Study tools"]::-webkit-scrollbar { display: none; }
+  .notebook-header [role="group"][aria-label="Study tools"] > * { flex: 0 0 auto; }
+}

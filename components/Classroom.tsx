@@ -251,6 +251,14 @@ export function Classroom({ code, review }: { code: string; review?: {
   const toggleInsights = (open: boolean) => runViewTransition(() => setShowInsights(open), { reduced: prefs.reduceMotion });
   const [showFinish, setShowFinish] = useState(false);
   const [showRecap, setShowRecap] = useState(false);
+  // Phones get shorter labels so the header stays on one or two rows.
+  const [phone, setPhone] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 39.99rem)");
+    const read = () => setPhone(query.matches);
+    read(); query.addEventListener("change", read);
+    return () => query.removeEventListener("change", read);
+  }, []);
   // Students: the class recap the teacher shared. The banner can be hidden; a newer share shows it again.
   const [recapOpen, setRecapOpen] = useState(false);
   const [recapHidden, setRecapHidden] = useState<number>();
@@ -1165,7 +1173,7 @@ export function Classroom({ code, review }: { code: string; review?: {
       </button>}
       <header className="notebook-header flex flex-wrap items-center gap-2 border-b px-3 py-2 md:gap-3 md:px-6 md:py-3">
         <Link href={isTeacher ? "/?view=teaching" : "/"} aria-label="Pacer home"
-          onClick={(event) => { if (isTeacher && !state.ended) { event.preventDefault(); setShowFinish(true); } }}><Logo height={24} /></Link>
+          onClick={(event) => { if (isTeacher && !state.ended) { event.preventDefault(); setShowFinish(true); } }}><Logo height={24} compact /></Link>
         <div className="min-w-0 flex-1 basis-[25%] border-l border-stone pl-2 text-base font-semibold md:basis-auto">
           <h1 className={isTeacher && !state.ended && titleDraft !== null ? "sr-only" : "truncate"}>
             {isTeacher && !state.ended && titleDraft === null ? (
@@ -1198,7 +1206,7 @@ export function Classroom({ code, review }: { code: string; review?: {
         </div>
         <span className={`inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs md:px-3 ${state.ended ? "bg-taupe text-smoke" : isTeacher || status === "live" ? "notebook-live" : "bg-amber-50 text-amber-800"}`}>
           <span aria-hidden className={`size-2 rounded-full bg-current`} />
-          {review ? "Saved lesson" : isTeacher ? `${state.ended ? "Ended" : "Live"} · ${connected} connected` : pill}
+          {review ? "Saved lesson" : isTeacher ? <>{state.ended ? "Ended" : "Live"}<span className="max-sm:hidden"> · {connected} connected</span><span className="sm:hidden" aria-label={`${connected} connected`}> · {connected}</span></> : pill}
         </span>
         <div className="md:hidden">
           <button type="button" className="btn btn-outline btn-sm" aria-controls="classroom-more"
@@ -1209,14 +1217,16 @@ export function Classroom({ code, review }: { code: string; review?: {
         <div className="basis-full md:hidden" aria-hidden="true" />
         {isTeacher ? (
           <>
-            <button className="btn btn-outline btn-sm" aria-expanded={showInvite} onClick={() => setShowInvite((v) => !v)}>Invite · {code}</button>
+            <button className="btn btn-outline btn-sm" aria-expanded={showInvite} onClick={() => setShowInvite((v) => !v)}>Invite<span className="max-sm:hidden"> · {code}</span></button>
           </>
         ) : (
           <div role="group" aria-label="Study tools" className="flex flex-wrap items-center gap-2">
-            {!wantTeacher && authReady && <div className="pane-switch lg:hidden">
-              <SegmentedControl label="Show" value={mobilePane} onChange={setMobilePane}
-                options={[{ value: "board", label: "Board" }, { value: "notes", label: "Notes" }] as const} />
-            </div>}
+            {!wantTeacher && authReady && <nav aria-label="Show board or notes" className="pane-switch lg:hidden">
+              {(["board", "notes"] as const).map((pane) => <button key={pane} type="button" aria-pressed={mobilePane === pane} onClick={() => setMobilePane(pane)}>
+                <svg aria-hidden="true" viewBox="0 0 20 20">{pane === "board" ? <><rect x="2.5" y="3.5" width="15" height="11" rx="2" /><path d="M7 17.5h6M10 14.5v3" /></> : <><rect x="4" y="2.5" width="12" height="15" rx="2" /><path d="M7 7h6M7 10h6M7 13h4" /></>}</svg>
+                {pane === "board" ? "Board" : "Notes"}
+              </button>)}
+            </nav>}
             {/* No separate "Return to live" here: Follow teacher does that, and the slide notice offers "Go to slide N".
                 An extra button made this row wrap and pushed the whole header down. */}
             {!review && <SegmentedControl label="Board view" value={browseTopic ? "browse" : "follow"} disabled={!live}
@@ -1227,7 +1237,7 @@ export function Classroom({ code, review }: { code: string; review?: {
                 setAnchor(null);
                 setSnip(false);
               }}
-              options={[{ value: "follow", label: "Follow teacher" }, { value: "browse", label: "Browse notes" }] as const} />}
+              options={[{ value: "follow", label: phone ? "Follow" : "Follow teacher" }, { value: "browse", label: phone ? "Browse" : "Browse notes" }] as const} />}
             <button className={`btn btn-sm ${snip && !clipMode ? "btn-primary" : "btn-outline"} ${aiOff ? "ai-locked" : ""}`} aria-pressed={snip && !clipMode}
               title={aiOff ? "AI help is paused by your teacher" : "Draw a box to get an explanation"}
               onClick={() => {
@@ -1251,7 +1261,9 @@ export function Classroom({ code, review }: { code: string; review?: {
           </div>
         )}
         <span aria-hidden="true" className="hidden h-6 w-px bg-stone md:block" />
-        <div id="classroom-more" role="group" aria-label="Class tools" className={`${showClassTools ? "flex" : "hidden"} w-full flex-wrap items-center gap-2 rounded-xl bg-white/70 p-2 md:flex md:w-auto md:bg-transparent md:p-0`}>
+        <div id="classroom-more" role="group" aria-label="Class tools" className={`class-tools ${showClassTools ? "flex" : "hidden"} max-md:order-last w-full flex-wrap items-center gap-2 rounded-xl bg-white/70 p-2 md:flex md:w-auto md:bg-transparent md:p-0`}>
+          {isTeacher && !state.ended && <button className="btn btn-outline btn-sm md:!hidden" disabled={slideBusy || !uploadEnabled}
+            onClick={() => { setShowClassTools(false); uploadInput.current?.click(); }}>Upload slides or notes</button>}
           {isTeacher && !state.ended && <button className={`btn btn-sm ai-toggle ${aiOff ? "is-off" : ""}`} aria-pressed={!!state.aiPaused}
             aria-label={`Student AI: ${state.aiPaused ? "paused" : aiOff ? "paused while your question is open" : "on"}${aiOff && blockedEvents ? `, ${blockedEvents} blocked` : ""}`}
             title={state.aiPaused ? "Students can't use AI help. Click to turn it back on."
