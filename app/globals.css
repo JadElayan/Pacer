@@ -1232,7 +1232,8 @@ svg g[color] { transition: color .45s ease-in-out; }
 @media (prefers-reduced-motion: no-preference) {
   .class-tools.flex { animation: class-tools-in .22s cubic-bezier(.3, 1.1, .5, 1) both; }
   @media (max-width: 63.99rem) {
-    .classroom-stage, .student-notebook { animation: pane-in .26s cubic-bezier(.22, .9, .25, 1) both; }
+    /* backwards, not both: a held transform would trap the fixed dock tray and toast inside the stage. */
+    .classroom-stage, .student-notebook { animation: pane-in .26s cubic-bezier(.22, .9, .25, 1) backwards; }
     .pane-switch button:active { scale: .97; }
   }
 }
@@ -1295,6 +1296,11 @@ svg g[color] { transition: color .45s ease-in-out; }
   .board-actions[data-open] .btn { justify-content: flex-start; min-height: 44px; border: 0; }
   .board-actions-pop { right: 0; left: auto; }
 
+  /* Slide pages: a short strip of small thumbnails, so the slide itself stays in view. */
+  .notebook-pages { padding: 4px 10px 6px; }
+  .notebook-pages .notebook-section { padding: 2px 4px; font-size: .8125rem; }
+  .notebook-pages .slide-list { margin-top: 2px; }
+  .notebook-thumbnail { width: 104px; min-width: 104px; padding: 4px; gap: 4px; }
   /* Teacher dock: every tool in one labeled row at the bottom that slides sideways. */
   .notebook[data-dock] .teacher-dock {
     position: fixed; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 45; translate: -50% 0;
@@ -1308,7 +1314,7 @@ svg g[color] { transition: color .45s ease-in-out; }
   .notebook[data-dock] .teacher-dock .notebook-tool svg { width: 18px; height: 18px; }
   .notebook[data-dock] .classroom-stage { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
   /* Pen tray: floats just above the dock. */
-  .notebook[data-dock] .ink-collapse { position: fixed; left: 10px; right: 10px; bottom: calc(70px + env(safe-area-inset-bottom)); z-index: 44; margin: 0; }
+  .notebook[data-dock] .ink-collapse { position: fixed; left: 10px; right: 10px; bottom: calc(78px + env(safe-area-inset-bottom)); z-index: 44; margin: 0; }
   .notebook[data-dock] .ink-collapse:not([data-open="true"]) { pointer-events: none; }
   .notebook[data-dock] .ink-tray { justify-content: center; border: 1px solid #e3e6f2; border-radius: 16px; background: #fff; box-shadow: 0 10px 30px #18234824; }
   .notebook[data-dock] .board-toast { bottom: calc(124px + env(safe-area-inset-bottom)); }
