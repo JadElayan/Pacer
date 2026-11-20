@@ -1449,12 +1449,7 @@ export function Classroom({ code, review }: { code: string; review?: {
         </nav>}
         {isTeacher && !state.ended && (
           <nav aria-label="Teacher whiteboard tools" className="notebook-rail teacher-dock flex shrink-0 gap-2 overflow-x-auto p-2 lg:w-max lg:flex-col lg:overflow-y-auto"
-            data-more={dockMore || undefined}
-            onClick={(event) => {
-              // Phones: picking any tool from the expanded dock folds it back down.
-              const target = (event.target as HTMLElement).closest("button");
-              if (dockMore && target && !target.classList.contains("dock-more")) setDockMore(false);
-            }}>
+            data-more={dockMore || undefined}>
             <ToolGroup>
             {BOARD_TOOLS.map(([value, label]) => <button key={value} type="button" className="notebook-tool"
               aria-label={label} title={label} data-tool={value} data-dock-extra={value === "select" || undefined}
