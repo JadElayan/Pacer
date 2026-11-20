@@ -49,7 +49,7 @@ import { BoardToolIcon } from "./BoardToolIcon";
 import { BoardObjects } from "./BoardObjects";
 import { saveLecture } from "@/lib/savedLectures";
 import { cleanClip } from "@/lib/clipImage";
-import { captureSlide, publishSlide, slideUrl, type LocalSlide } from "@/lib/slides";
+import { captureSlideSafe, publishSlide, slideUrl, type LocalSlide } from "@/lib/slides";
 import { importLecture, lectureFormats, recoverDeck, rememberDeck } from "@/lib/importLecture";
 import { backUpSlide, restoreSlide, saveTeacherRoom, shareStoredSlide, teacherStorageEnabled } from "@/lib/teacherStorage";
 
@@ -967,7 +967,7 @@ export function Classroom({ code, review }: { code: string; review?: {
       right: (bounds.left + rect.right - media.left) / media.width, bottom: (bounds.top + rect.bottom - media.top) / media.height,
     };
     const ownInk = !isTeacher ? privateNotes.data.strokes.filter((stroke) => stroke.surface === slidePage.id) : [];
-    return captureSlide(image, [...slideInk, ...ownInk], crop);
+    return captureSlideSafe(image, [...slideInk, ...ownInk], crop);
   };
   // Clip: copy part of the slide or board into the notebook, no AI involved (so it works even when AI is paused).
   const [clipMode, setClipMode] = useState(false);
@@ -978,11 +978,14 @@ export function Classroom({ code, review }: { code: string; review?: {
   const saveClip = (selection: Anchor, onSlide: boolean) => {
     setSnip(false); setClipMode(false);
     if (onSlide && slidePage) {
-      const image = captureSlideArea(selection);
-      if (!image) { setClipToast("Couldn't copy that part of the slide."); return; }
       const topicId = live ?? GENERAL_NOTES, label = `${deck?.name ?? "Slide"} · Slide ${slideNumber}`;
-      // Trim the empty margin so the clip is just what was boxed (no AI).
-      void cleanClip(image).then((clean) => topicNotes.addClip({ topicId, image: clean, label }));
+      void captureSlideArea(selection)?.then((image) => {
+        if (!image) { setClipToast("Couldn't copy that part of the slide. Try again."); return; }
+        // Trim the empty margin so the clip is just what was boxed (no AI).
+        void cleanClip(image).then((clean) => topicNotes.addClip({ topicId, image: clean, label }));
+        setClipToast(notesOpen || mobilePane === "notes" ? "Copied to your notes" : phone ? "Copied to your notes. Tap Notes to see it." : "Copied to your notes. Show notes to see it.");
+      });
+      return;
     } else {
       const picked = state?.blocks.filter((block) => selection.ids.includes(block.id)) ?? [];
       const text = picked.map((block) => block.content).join("\n");
@@ -991,14 +994,17 @@ export function Classroom({ code, review }: { code: string; review?: {
       if (selection.image) void cleanClip(selection.image).then((image) => topicNotes.addClip({ topicId, image, text, label: "From the board" }));
       else topicNotes.addClip({ topicId, text, label: "From the board" });
     }
-    setClipToast(notesOpen || mobilePane === "notes" ? "Copied to your notes" : "Copied to your notes. Show notes to see it.");
+    setClipToast(notesOpen || mobilePane === "notes" ? "Copied to your notes" : phone ? "Copied to your notes. Tap Notes to see it." : "Copied to your notes. Show notes to see it.");
   };
   const askAboutSlide = (selection?: Anchor) => {
-    const capture = captureSlideArea(selection);
     const rect = selection?.rect;
-    if (!capture || !slidePage) return;
-    openAnchor({ ids: [], source: "snip", rect: rect ?? { left: 12, top: 12, right: 12, bottom: 12 },
-      image: capture, slideText: slidePage.text, slideTitle: `${deck?.name} · Slide ${slideNumber}` });
+    const page = slidePage, title = `${deck?.name} · Slide ${slideNumber}`;
+    setSnip(false);
+    void captureSlideArea(selection)?.then((capture) => {
+      if (!capture || !page) { setClipToast("Couldn't read that part of the slide. Try again."); return; }
+      openAnchor({ ids: [], source: "snip", rect: rect ?? { left: 12, top: 12, right: 12, bottom: 12 },
+        image: capture, slideText: page.text, slideTitle: title });
+    });
   };
   const feedback = (f: "helped" | "confused" | "another") => {
     if (!anchor) return; const sel = selectedBlocks(anchor)[0];
@@ -1388,7 +1394,7 @@ export function Classroom({ code, review }: { code: string; review?: {
                 setSnip(!(snip && clipMode)); setClipMode(!(snip && clipMode));
                 setAnchor(null);
               }}>Clip</button>}
-            {snip && <span role="status" className="snip-hint">{clipMode ? "Drag a box to copy it into your notes" : "Drag a box around what you want explained"} <kbd>Esc</kbd> to cancel</span>}
+            {snip && <span role="status" className="snip-hint">{clipMode ? "Drag a box to copy it into your notes" : "Drag a box around what you want explained"}<span className="snip-hint-esc"> <kbd>Esc</kbd> to cancel</span></span>}
             {!snip && clipToast && <span role="status" className="snip-hint">{clipToast}</span>}
             {!snip && !clipToast && aiNotice && <span role="status" className="snip-hint ai-hint">{aiNotice}</span>}
             {!review && <button className="btn btn-outline btn-sm" onClick={() => openCatchup(null)}><span className="sm:hidden">Catch up</span><span className="max-sm:hidden">Catch me up</span></button>}

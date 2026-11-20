@@ -912,7 +912,13 @@ button.progress-topic[aria-pressed="true"] { border-color: #2454e8; box-shadow: 
 .snip-hint { position: fixed; top: 62px; left: 50%; z-index: 45; display: inline-flex; align-items: center; gap: .3rem; min-height: 32px; padding: 0 .85rem; border: 1px solid #d6dffb; border-radius: 999px; background: #eef2ff; color: #2442a2; font-size: .78rem; font-weight: 600; white-space: nowrap; box-shadow: 0 6px 16px #2454e81f; translate: -50% 0; pointer-events: none; animation: board-pop .24s cubic-bezier(.3, 1.4, .5, 1) both; }
 .snip-hint kbd { padding: .02rem .35rem; border-radius: 6px; background: #fff; font: inherit; font-size: .7rem; }
 .notebook[data-snipping] { user-select: none; -webkit-user-select: none; }
-@media (width < 48rem) { .snip-hint { display: none; } }
+/* Phones: the snip instructions and clip messages sit just above the Board / Notes bar instead of disappearing. */
+@media (width < 48rem) {
+  .snip-hint { top: auto; bottom: calc(74px + env(safe-area-inset-bottom)); max-width: calc(100vw - 32px); white-space: normal; text-align: center; }
+  .snip-hint-esc { display: none; }
+  /* The snip explanation panel opens above the Board / Notes bar, so its question box isn't hidden. */
+  .notebook:has(.pane-switch) aside[aria-label="AI companion"] { bottom: calc(70px + env(safe-area-inset-bottom)); max-height: calc(100dvh - 170px); }
+}
 
 /* Student notebook open/close (laptops and up): the panel slides shut and the board takes the space. */
 .notes-toggle { gap: .4rem; }

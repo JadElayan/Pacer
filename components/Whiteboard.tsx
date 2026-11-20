@@ -848,7 +848,8 @@ export function Whiteboard({ boardRef, blocks, strokes, isTeacher, privateInk, c
             if (!e.isPrimary || e.button !== 0 || !boardRef.current) return;
             const b = boardRef.current.getBoundingClientRect();
             const x = clampTo(e.clientX - b.left, b.width), y = clampTo(e.clientY - b.top, b.height);
-            e.currentTarget.setPointerCapture(e.pointerId);
+            // Capture keeps the box following the finger; if the browser refuses it, the box still works.
+            try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
             setDrag({ pointer: e.pointerId, x0: x, y0: y, x1: x, y1: y });
           }}
           onPointerMove={(e) => {
