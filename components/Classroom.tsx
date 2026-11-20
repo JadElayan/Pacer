@@ -1449,7 +1449,7 @@ export function Classroom({ code, review }: { code: string; review?: {
                   onClick={() => { setTool("select"); setPlacement(undefined); setInsertPanel(undefined); setConnectorMode((value) => !value); }}>
                   <BoardToolIcon tool="arrow" />Connector
                 </button>
-              <button type="button" className="notebook-tool" disabled={slideBusy} data-dock-extra data-unavailable={!uploadEnabled || undefined}
+              <button type="button" className="notebook-tool" disabled={slideBusy} data-dock-extra
                 aria-label="Upload slides or notes" title="Upload slides or notes. PDF preserves layout. Maximum 20 MB and 50 pages."
                 aria-describedby="lecture-upload-help" onClick={startUpload}>
                 <BoardToolIcon tool="upload" />Upload

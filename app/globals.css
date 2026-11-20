@@ -1252,7 +1252,6 @@ svg g[color] { transition: color .45s ease-in-out; }
 .header-more svg { width: 18px; height: 18px; fill: currentColor; }
 .header-more-badge { position: absolute; top: -5px; right: -5px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 999px; background: #2454e8; color: #fff; font-size: .625rem; font-weight: 700; line-height: 17px; text-align: center; }
 .board-toast { position: fixed; left: 50%; bottom: 24px; z-index: 70; width: max-content; max-width: calc(100vw - 32px); translate: -50% 0; padding: .6rem .9rem; border-radius: 12px; background: #171d38; color: #fff; font-size: .8125rem; line-height: 1.4; text-align: center; box-shadow: 0 8px 24px #18234833; cursor: pointer; }
-.notebook-tool[data-unavailable] { opacity: .55; }
 .class-tools-backdrop, .class-tools-grab { display: none; }
 .board-actions-toggle { display: grid; place-items: center; flex: 0 0 auto; width: 40px; height: 40px; border: 1px solid var(--notebook-border, #dcdfee); border-radius: 12px; background: #fff; color: #3a4160; cursor: pointer; transition: background-color .15s, border-color .15s, color .15s; }
 .board-actions-toggle svg { width: 20px; height: 20px; }
