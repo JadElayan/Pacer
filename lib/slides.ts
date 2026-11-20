@@ -32,7 +32,30 @@ export async function publishSlide({ image, sharedUrl: _previousUrl, ...page }: 
   return page;
 }
 
-export function captureSlide(image: HTMLImageElement, strokes: Stroke[], crop?: { left: number; top: number; right: number; bottom: number }) {
+type Crop = { left: number; top: number; right: number; bottom: number };
+
+/**
+ * Like captureSlide, but also works for slides served from another site (teacher cloud storage). Drawing those
+ * straight from the page "taints" the canvas and the browser refuses to read it back, so Snip and Clip did nothing.
+ * Then the slide is fetched again with CORS (Supabase Storage allows it) and drawn from a local copy.
+ */
+export async function captureSlideSafe(image: HTMLImageElement, strokes: Stroke[], crop?: Crop): Promise<string | undefined> {
+  try { return captureSlide(image, strokes, crop); } catch { /* cross-origin image: retry from a local copy */ }
+  const source = image.currentSrc || image.src;
+  if (!source) return;
+  let local: string | undefined;
+  try {
+    const response = await fetch(source, { mode: "cors", credentials: "omit" });
+    if (!response.ok) return;
+    local = URL.createObjectURL(await response.blob());
+    const copy = new Image();
+    copy.src = local;
+    await copy.decode();
+    return captureSlide(copy, strokes, crop, image.clientWidth);
+  } catch { return; } finally { if (local) URL.revokeObjectURL(local); }
+}
+
+export function captureSlide(image: HTMLImageElement, strokes: Stroke[], crop?: Crop, displayWidth = image.clientWidth) {
   if (!image.complete || !image.naturalWidth) return;
   const width = image.naturalWidth;
   const height = image.naturalHeight;
@@ -57,7 +80,7 @@ export function captureSlide(image: HTMLImageElement, strokes: Stroke[], crop?: 
   ctx.lineJoin = "round";
   for (const stroke of strokes) {
     ctx.strokeStyle = stroke.color ?? "#000";
-    ctx.lineWidth = (stroke.width ?? 3) * width / Math.max(1, image.clientWidth);
+    ctx.lineWidth = (stroke.width ?? 3) * width / Math.max(1, displayWidth);
     ctx.globalAlpha = stroke.opacity ?? 1;
     ctx.beginPath();
     for (const [i, [x, y]] of stroke.pts.entries()) {
