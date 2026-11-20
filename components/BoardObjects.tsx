@@ -1,6 +1,8 @@
 "use client";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useContext, useLayoutEffect, useRef, useState } from "react";
+import { PanelOpenContext } from "./AnimatedPanel";
 import { LiquidSwatches } from "./LiquidSwatches";
+import { createPortal } from "react-dom";
 
 import type { Block, BlockKind, BoardShape, StickyStyle } from "@/lib/types";
 
@@ -14,7 +16,7 @@ const templates = {
 type Anchor = { top: number; left: number; right: number; bottom: number };
 
 /** Opens beside the button that opened it (right of a side rail, or below a top bar), kept inside the window. */
-function usePlacement(anchor: Anchor | undefined) {
+function usePlacement(anchor: Anchor | undefined, mounted: boolean) {
   const ref = useRef<HTMLElement>(null);
   const [style, setStyle] = useState<React.CSSProperties>();
   useLayoutEffect(() => {
@@ -33,16 +35,20 @@ function usePlacement(anchor: Anchor | undefined) {
     place();
     window.addEventListener("resize", place);
     return () => window.removeEventListener("resize", place);
-  }, [anchor]);
+  }, [anchor, mounted]);
   return [ref, style] as const;
 }
 
-export function BoardObjects({ panel, anchor, onAdd, onChooseShape, onClose }: {
+export function BoardObjects({ panel, anchor, onAdd, onChooseShape, onClose, reduced = false }: {
   panel: "shapes" | "templates"; anchor?: Anchor; onAdd: (items: Pick<Block, "kind" | "content" | "stickyStyle">[]) => void;
-  onChooseShape: (shape: BoardShape) => void; onClose: () => void;
+  onChooseShape: (shape: BoardShape) => void; onClose: () => void; reduced?: boolean;
 }) {
-  const [ref, style] = usePlacement(anchor);
-  return <section ref={ref} style={style} id="board-insert-panel" aria-label={panel} className="board-insert-panel absolute left-3 top-3 z-50 w-[min(25rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] rounded-2xl border border-stone bg-eggshell p-3 shadow-xl"
+  const [mounted, setMounted] = useState(false);
+  const open = useContext(PanelOpenContext);
+  const [ref, style] = usePlacement(anchor, mounted);
+  useLayoutEffect(() => { setMounted(true); }, []);
+  if (!mounted) return null;
+  return createPortal(<section key={panel} ref={ref} data-open={open} inert={!open} aria-hidden={!open || undefined} data-reduce-motion={reduced} style={style ?? { position: "fixed", left: 12, top: 80 }} id="board-insert-panel" aria-label={panel} className="board-insert-panel z-[100] w-[min(25rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] rounded-2xl border border-stone bg-eggshell p-3 shadow-xl"
     onKeyDown={(event) => { if (event.key === "Escape") onClose(); }}>
     <div className="mb-2 flex items-center justify-between">
       <h2 className="font-semibold capitalize">{panel}</h2>
@@ -65,7 +71,7 @@ export function BoardObjects({ panel, anchor, onAdd, onChooseShape, onClose }: {
         </button>;
       })}
     </div>
-  </section>;
+  </section>, document.body);
 }
 
 const stickyColors = ["yellow", "pink", "blue", "green"] as const;

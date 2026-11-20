@@ -6,6 +6,7 @@ import { hasInk, isInkPage, type InkPage } from "./ink";
 
 /** Handwriting, keyed by topic id (a topic's page) or `clip:<id>` (writing over a clip). */
 export type NoteInk = Record<string, InkPage>;
+export type NotebookSection = { id: string; title: string; reference?: string };
 export const clipInkKey = (id: string) => `clip:${id}`;
 
 /** A student's notes for one lesson, one entry per topic. GENERAL holds notes written before any topic existed. */
@@ -43,7 +44,20 @@ function readClips(key: string): NoteClip[] {
 }
 
 /** Notes save to this browser shortly after each change; `fallback` fills an empty notebook (e.g. notes synced from the account). */
-export function useTopicNotes(key: string, fallback?: { notes?: TopicNotes; clips?: NoteClip[] }) {
+export function useTopicNotes(key: string, fallback?: { notes?: TopicNotes; clips?: NoteClip[]; sections?: NotebookSection[] }) {
+  const [sections, setSections] = useState<NotebookSection[] | undefined>();
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(`${key}:sections`);
+      const value = raw ? JSON.parse(raw) : fallback?.sections;
+      setSections(Array.isArray(value) ? value.filter((item) => typeof item?.id === "string" && typeof item?.title === "string") : undefined);
+    } catch { setSections(fallback?.sections); }
+  }, [key]);
+  const updateSections = (next: NotebookSection[]) => {
+    setSections(next);
+    try { localStorage.setItem(`${key}:sections`, JSON.stringify(next)); }
+    catch { setStatus("error"); }
+  };
   const clipKey = `${key}:clips`;
   const inkKey = `${key}:ink`;
   const [ink, setInkState] = useState<NoteInk>({});
@@ -88,7 +102,7 @@ export function useTopicNotes(key: string, fallback?: { notes?: TopicNotes; clip
     inkTimer.current = undefined;
     try {
       // A page with only clip positions (no strokes yet) is kept too, so placed clips stay where they were put.
-      const kept = Object.fromEntries(Object.entries(latestInk.current).filter(([, page]) => hasInk(page) || Object.keys(page.c ?? {}).length > 0));
+      const kept = Object.fromEntries(Object.entries(latestInk.current).filter(([, page]) => hasInk(page) || !!page.h || Object.keys(page.c ?? {}).length > 0));
       if (Object.keys(kept).length) localStorage.setItem(inkKey, JSON.stringify(kept)); else localStorage.removeItem(inkKey);
       setStatus("saved");
     } catch { setStatus("error"); }
@@ -154,5 +168,5 @@ export function useTopicNotes(key: string, fallback?: { notes?: TopicNotes; clip
   }, [flush, flushInk]);
   useEffect(() => () => { if (inkTimer.current) flushInk(); }, [flushInk]);
 
-  return { notes, clips, ink, ready, status, update, append, appendCard, addClip, removeClip, setInk };
+  return { notes, clips, ink, sections, updateSections, ready, status, update, append, appendCard, addClip, removeClip, setInk };
 }

@@ -5,11 +5,13 @@ import { escapeHtml, hasNoteText, htmlToText, noteHtml, sanitizeNoteHtml } from 
 import { FormatBar, RichNote } from "./NoteEditor";
 import { InkCanvas } from "./InkCanvas";
 import { ClipAnnotator } from "./ClipAnnotator";
-import { SegmentedControl } from "./Motion";
+import { SegmentedControl, runViewTransition } from "./Motion";
+import { ChoiceMenu } from "./ChoiceMenu";
 import { LiquidSwatches } from "./LiquidSwatches";
 import { INK_COLORS, PAGE_START, hasInk, inkBottom, inkOverImage, inkPageImage, type ClipPlace, type InkPage, type InkTool } from "@/lib/ink";
-import { GENERAL_NOTES, clipInkKey, type NoteClip, type NoteInk, type NotesStatus, type TopicNotes } from "@/lib/useTopicNotes";
+import { GENERAL_NOTES, clipInkKey, type NoteClip, type NoteInk, type NotesStatus, type TopicNotes, type NotebookSection } from "@/lib/useTopicNotes";
 import { blocksFor, cardToText, normalizeBlocks, placedClips, removeBlock, serializeBlocks, type NoteBlock } from "@/lib/noteBlocks";
+import { createPortal } from "react-dom";
 
 type Topic = { id: string; title: string };
 type Help = "lost" | "ask" | "catchup";
@@ -31,13 +33,29 @@ const blankHtml = (html: string) => !html.replace(/<br\s*\/?>|<\/?(div|p)>|&nbsp
 type Drop = { topic: string; at: number; split?: [string, string]; y: number };
 const readMode = () => { try { return localStorage.getItem("pacer:notes-input") === "write" ? "write" : "type"; } catch { return "type"; } };
 
-export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, status, ready, review, headerExtra, onChange, onRemoveClip, onInk, onHelp, onBackOnTrack, onViewBoard }: {
+export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, sections: savedSections, onSectionsChange, onSectionFocus, width, onWidthChange, reduced, status, ready, review, headerExtra, onChange, onRemoveClip, onInk, onHelp, onBackOnTrack, onViewBoard }: {
   lessonTitle: string; topics: Topic[]; liveId: string | null; notes: TopicNotes; clips: NoteClip[]; ink?: NoteInk; status: NotesStatus; ready: boolean; review: boolean;
   headerExtra?: ReactNode; onChange: (topic: string, html: string) => void; onRemoveClip: (id: string) => void;
   onInk?: (id: string, page: InkPage | null) => void;
+  sections?: NotebookSection[]; onSectionsChange: (sections: NotebookSection[]) => void; onSectionFocus?: (id: string) => void;
+  width: number; onWidthChange: (width: number) => void;
+  reduced?: boolean;
   onHelp: (kind: Help, topic: Topic | null) => void; onBackOnTrack: (topic: Topic | null) => void; onViewBoard?: (topicId: string) => void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const expandNotebook = (next: boolean) => runViewTransition(() => setExpanded(next), { reduced });
+  const widthDrag = useRef<{ pointer: number; x: number; width: number } | null>(null);
+  const [resizingWidth, setResizingWidth] = useState(false);
+  const [pageMessage, setPageMessage] = useState("");
+  useEffect(() => {
+    if (!expanded) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.stopImmediatePropagation(); expandNotebook(false); }
+    };
+    window.addEventListener("keydown", escape, true);
+    return () => window.removeEventListener("keydown", escape, true);
+  }, [expanded, reduced]);
   // Tablets: when the on-screen keyboard opens, keep the line being typed in view.
   useEffect(() => {
     const view = window.visualViewport;
@@ -54,6 +72,7 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
   useEffect(() => { setModeState(readMode()); }, []);
   const setMode = (next: "type" | "write") => { setModeState(next); try { localStorage.setItem("pacer:notes-input", next); } catch { /* not saved */ } };
   const writing = mode === "write" && !!onInk;
+  const [paperZoom, setPaperZoom] = useState(100);
   const [tool, setTool] = useState<InkTool>({ kind: "pen", color: INK_COLORS[0][1] });
   const history = useRef<{ id: string; page?: InkPage }[]>([]);
   const [canUndo, setCanUndo] = useState(false);
@@ -67,13 +86,26 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
     setCanUndo(history.current.length > 0);
     if (last) onInk?.(last.id, last.page ?? null);
   };
-  const pageFor = (id: string): InkPage => ({ ...(ink[id] ?? EMPTY), h: ink[id]?.h ?? PAGE_START });
+  const pageFor = (id: string): InkPage => ({ ...(ink[id] ?? EMPTY), h: Math.max(1200, ink[id]?.h ?? PAGE_START) });
   const [focused, setFocused] = useState<string | null>(null);
-  const [liveVisible, setLiveVisible] = useState(true);
   const [lost, setLost] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState(false);
 
-  const topicIds = new Set(topics.map((topic) => topic.id));
+  const configured: NotebookSection[] = savedSections?.length ? savedSections : [{ id: GENERAL_NOTES, title: "My notes" }];
+  const previousIds = new Set([
+    ...Object.keys(notes).filter((id) => hasNoteText(notes[id])),
+    ...Object.keys(ink).filter((id) => !id.startsWith("clip:") && hasInk(ink[id])),
+    ...clips.map((clip) => clip.topicId),
+  ]);
+  const sections: (NotebookSection & { general?: boolean })[] = [
+    ...configured,
+    ...[...previousIds].filter((id) => !configured.some((section) => section.id === id)).map((id): NotebookSection => ({
+      id, title: topics.find((topic) => topic.id === id)?.title ?? (id === GENERAL_NOTES ? "My notes" : "Saved notes"),
+    })),
+  ];
+  const changeSection = (id: string, patch: Partial<NotebookSection>) => onSectionsChange(sections.map((section) => section.id === id ? { ...section, ...patch } : section));
+  const focusSection = (id: string) => { setFocused(id); onSectionFocus?.(id); };
+  const topicIds = new Set([...topics, ...sections].map((topic) => topic.id));
   // Clips whose topic no longer exists fall back to the general section.
   const ownClips = (id: string) => clips.filter((clip) => clip.topicId === id || (id === GENERAL_NOTES && !topicIds.has(clip.topicId)));
   // Notes are blocks: text, clips and saved-answer cards. A clip shows where it was placed; one never placed (older notes) shows at the end of its topic.
@@ -82,13 +114,12 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
   const blocksOf = (id: string) => blocksFor(notes[id] ?? "", clips.map((clip) => clip.id), ownClips(id).filter((clip) => !placed.has(clip.id)).map((clip) => clip.id));
   const setBlocks = (id: string, blocks: NoteBlock[]) => onChange(id, serializeBlocks(normalizeBlocks(blocks)));
   const clipsFor = (id: string) => blocksOf(id).flatMap((b) => b.kind === "clip" && clipById.has(b.id) ? [clipById.get(b.id)!] : []);
-  const sections: (Topic & { general?: boolean })[] = [
-    ...(!topics.length || hasNoteText(notes[GENERAL_NOTES]) || clipsFor(GENERAL_NOTES).length ? [{ id: GENERAL_NOTES, title: topics.length ? "General notes" : "Lesson notes", general: true }] : []),
-    ...topics,
-  ];
-  const activeId = focused && sections.some((s) => s.id === focused) ? focused : liveId ?? sections.at(-1)?.id ?? GENERAL_NOTES;
-  const active = topics.find((topic) => topic.id === activeId) ?? null;
-  const activeKey = active?.id ?? GENERAL_NOTES;
+  const activeId = focused && sections.some((s) => s.id === focused) ? focused : sections[0].id;
+  const activeSection = sections.find((section) => section.id === activeId)!;
+  const referenceId = activeSection.reference ?? (topics.some((topic) => topic.id === activeId) ? activeId : undefined);
+  const active = topics.find((topic) => topic.id === referenceId) ?? null;
+  const activeKey = activeId;
+  useEffect(() => { onSectionFocus?.(activeId); }, [activeId]);
   // The format bar works on the editor last typed in (a topic can have several text blocks between clips).
   const lastRich = useRef<HTMLElement | null>(null);
   const editorFor = (id: string) => {
@@ -96,35 +127,6 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
     return lastRich.current && section?.contains(lastRich.current) ? lastRich.current : section?.querySelector<HTMLElement>(".nb-rich") ?? null;
   };
 
-  // Show "Back to live" only while the live topic is scrolled out of view.
-  useEffect(() => {
-    const root = scroller.current;
-    const target = liveId ? root?.querySelector(`[data-topic="${CSS.escape(liveId)}"]`) : null;
-    if (!root || !target) { setLiveVisible(true); return; }
-    // On phones the page scrolls rather than the notebook, so watch the viewport there.
-    const scrolls = getComputedStyle(root).overflowY !== "visible";
-    const observer = new IntersectionObserver(([entry]) => setLiveVisible(entry.isIntersecting), { root: scrolls ? root : null, threshold: 0.01 });
-    observer.observe(target);
-    return () => observer.disconnect();
-  }, [liveId, topics.length]);
-
-  // When the teacher moves on, bring the new topic into view unless the student is busy typing elsewhere.
-  const previousLive = useRef(liveId);
-  useEffect(() => {
-    if (previousLive.current === liveId) return;
-    previousLive.current = liveId;
-    const typing = document.activeElement?.closest?.("[data-topic]");
-    if (!liveId || (typing && scroller.current?.contains(typing))) return;
-    scroller.current?.querySelector(`[data-topic="${CSS.escape(liveId)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [liveId]);
-
-  const jumpToLive = () => {
-    if (!liveId) return;
-    const section = scroller.current?.querySelector<HTMLElement>(`[data-topic="${CSS.escape(liveId)}"]`);
-    // Focus first: focusing after starting a smooth scroll cancels the scroll in some browsers.
-    editorFor(liveId)?.focus({ preventScroll: true });
-    section?.scrollIntoView({ block: "center", behavior: "smooth" });
-  };
   const filled = sections.filter((s) => hasNoteText(notes[s.id]) || clipsFor(s.id).length || hasInk(ink[s.id]));
   const hasNotes = filled.length > 0;
   const clipLabel = (clip: NoteClip) => clip.label ?? "From the board";
@@ -403,11 +405,40 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
   </div>;
 
   const annotated = annotating ? clipById.get(annotating.id) : undefined;
-  return <section aria-label="Your notes" className="nb">
+  const notebook = <section aria-label="Your notes" className="nb" data-expanded={expanded || undefined} data-writing={writing || undefined}
+    data-reduce-motion={reduced || undefined} data-resizing-width={resizingWidth || undefined} style={{ viewTransitionName: "pacer-notebook" }}>
+    {!expanded && <button type="button" role="separator" aria-orientation="vertical" aria-label="Resize notebook"
+      aria-valuemin={340} aria-valuemax={800} aria-valuenow={width}
+      title="Drag to resize the notebook. Arrow keys adjust width. Double-click to reset."
+      className="nb-width-handle hidden lg:grid"
+      onPointerDown={(event) => {
+        if (event.button !== 0 || !event.isPrimary) return;
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        widthDrag.current = { pointer: event.pointerId, x: event.clientX, width: event.currentTarget.parentElement!.getBoundingClientRect().width };
+        setResizingWidth(true);
+      }}
+      onPointerMove={(event) => {
+        const drag = widthDrag.current;
+        if (drag?.pointer === event.pointerId) onWidthChange(Math.round(Math.max(340, Math.min(800, drag.width + drag.x - event.clientX))));
+      }}
+      onPointerUp={() => { widthDrag.current = null; setResizingWidth(false); }}
+      onPointerCancel={() => { widthDrag.current = null; setResizingWidth(false); }}
+      onLostPointerCapture={() => { widthDrag.current = null; setResizingWidth(false); }}
+      onDoubleClick={() => onWidthChange(440)}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          event.preventDefault();
+          onWidthChange(Math.max(340, Math.min(800, width + (event.key === "ArrowLeft" ? 20 : -20))));
+        }
+      }}><span aria-hidden="true" /></button>}
     {annotating && annotated?.image && <ClipAnnotator image={annotated.image} label={clipLabel(annotated)} aspect={annotating.aspect}
       page={ink[clipInkKey(annotated.id)] ?? EMPTY} onChange={(page) => changeInk(clipInkKey(annotated.id), page)} onClose={() => setAnnotating(null)} />}
     <header className="nb-head">
-      <h2 className="text-[.9375rem] font-semibold">Your notes</h2>
+      <h2 className="text-[.9375rem] font-semibold">My notebook</h2>
+      <button type="button" className="nb-link" aria-pressed={expanded} onClick={() => expandNotebook(!expanded)}>
+        {expanded ? "Back to lecture" : "Expand notebook"}
+      </button>
       <span role="status" className={`text-xs ${status === "error" ? "text-amber-800" : "text-smoke"}`}>
         {!ready ? "Loading…" : status === "saving" ? "Saving…" : status === "error" ? "Couldn't save in this browser" : "Saved"}
       </span>
@@ -417,10 +448,35 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
         <button type="button" className="nb-link" disabled={!hasNotes} onClick={print} title="Print or save as PDF">Print</button>
       </span>
     </header>
+    <div className="nb-section-controls">
+      <button type="button" className="nb-link" aria-label="Previous notebook page" disabled={activeId === sections[0].id}
+        onClick={() => runViewTransition(() => focusSection(sections[sections.findIndex((page) => page.id === activeId) - 1].id), { reduced })}>←</button>
+      <ChoiceMenu label="Notebook page" value={activeId} onChange={(value) => runViewTransition(() => focusSection(value), { reduced })}>
+        {sections.map((section) => <option key={section.id} value={section.id}>{section.title || "Untitled section"}</option>)}
+      </ChoiceMenu>
+      <span className="shrink-0 text-xs text-smoke" aria-label="Notebook page position">{sections.findIndex((page) => page.id === activeId) + 1} / {sections.length}</span>
+      <button type="button" className="nb-link" aria-label="Next notebook page" disabled={activeId === sections.at(-1)?.id}
+        onClick={() => runViewTransition(() => focusSection(sections[sections.findIndex((page) => page.id === activeId) + 1].id), { reduced })}>→</button>
+      <button type="button" className="nb-link shrink-0" title="Create a blank notebook page with your own heading" onClick={() => {
+        const section = { id: `my-${crypto.randomUUID()}`, title: `Page ${sections.length + 1}` };
+        runViewTransition(() => {
+          onSectionsChange([...sections, section]);
+          focusSection(section.id);
+          setPageMessage("New blank page. Edit its title below.");
+        }, { reduced });
+      }}>+ New page</button>
+    </div>
+    {pageMessage && <p role="status" className="px-3 py-1 text-xs text-smoke">{pageMessage}</p>}
     <div className="nb-tools" data-mode={writing ? "write" : "type"}>
       {onInk && <SegmentedControl label="Note style" value={mode} onChange={setMode}
         options={[{ value: "type", label: "Type" }, { value: "write", label: "Write" }] as const} />}
       {writing ? <div role="toolbar" aria-label="Pen" className="nb-ink-bar">
+        <label className="inline-flex items-center gap-1 text-xs">Zoom
+          <ChoiceMenu label="Writing page zoom" value={paperZoom}
+            onChange={(value) => setPaperZoom(Number(value))}>
+            {[100, 125, 150, 200].map((zoom) => <option key={zoom} value={zoom}>{zoom}%</option>)}
+          </ChoiceMenu>
+        </label>
         <LiquidSwatches label="Pen color" colors={INK_COLORS} value={tool.color} dot={16} onChange={(color) => setTool({ kind: "pen", color })} />
         <span className="nb-format-sep" aria-hidden="true" />
         <button type="button" className="connector-tool" aria-pressed={tool.kind === "highlighter"} title="Highlighter" aria-label="Highlighter"
@@ -442,16 +498,27 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
       onFocusCapture={(e) => { if ((e.target as HTMLElement).classList?.contains("nb-rich")) lastRich.current = e.target as HTMLElement; }}>
       {drop && <div aria-hidden="true" className="nb-drop-line" style={{ top: drop.y }} />}
       {drag?.moved && <div aria-hidden="true" className="nb-drag-ghost" style={{ left: drag.x, top: drag.y }}>{drag.label}</div>}
-      {sections.map((section) => {
+      {sections.filter((section) => section.id === activeId).map((section) => {
         const index = topics.findIndex((topic) => topic.id === section.id);
         const isLive = !review && section.id === liveId;
-        return <div key={section.id} data-topic={section.id} className={`nb-section ${section.id === activeKey ? "nb-section-active" : ""}`}>
+        return <div key={section.id} data-topic={section.id} className={`nb-section ${section.id === activeKey ? "nb-section-active" : ""}`}
+          style={writing && paperZoom > 100 ? { width: `${paperZoom}%`, maxWidth: "none" } : undefined}>
           <div className="flex items-center gap-2">
             {index >= 0 && <span className="nb-num">{index + 1}</span>}
-            <h3 className="min-w-0 flex-1 truncate text-[.9375rem] font-semibold text-[#171d38]">{section.title}</h3>
+            <input aria-label="Page title" title="Rename this notebook page" className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-2 text-base font-semibold hover:border-stone focus:border-sky"
+              value={section.title} onChange={(event) => { changeSection(section.id, { title: event.target.value }); setPageMessage(""); }} />
             {isLive && <span className="nb-now">Now</span>}
             {onViewBoard && index >= 0 && !isLive && <button type="button" className="nb-link" onClick={() => onViewBoard(section.id)}>View board</button>}
           </div>
+          {topics.length > 0 && <label className="mb-2 flex items-center gap-2 text-xs text-smoke">
+            Reference
+            <ChoiceMenu label="Teacher topic reference"
+              value={section.reference ?? (topics.some((topic) => topic.id === section.id) ? section.id : "")}
+              onChange={(value) => changeSection(section.id, { reference: value })}>
+              <option value="">No teacher topic</option>
+              {topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.title}</option>)}
+            </ChoiceMenu>
+          </label>}
           <div className="nb-canvas" style={{ minHeight: `${clipBottom(section.id) / 10 + 2}cqw` }}
             onPointerDown={(e) => { if (!(e.target as Element).closest(".nb-free")) setSelectedClip(null); }}>
           {!writing && <div className="nb-blocks">{(() => {
@@ -463,8 +530,8 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
                 if (writing && empty && blocks.length === 1) return null;
                 return <div key={`t-${i}`} className="nb-block" data-kind="text" data-block-index={i} data-gap={empty && i > 0 ? true : undefined}>
                   <RichNote value={b.html} label={`Notes for ${section.title}${i > 0 ? ", continued" : ""}`}
-                    placeholder={i === 0 ? (isLive || (section.general && !topics.length) ? "Start typing. “- ” starts a list, “[] ” a checklist, “# ” a heading." : "Add notes for this topic") : ""}
-                    onFocus={() => setFocused(section.id)} onChange={(html) => setBlocks(section.id, blocks.map((x, j) => j === i ? { kind: "text", html } : x))} />
+                    placeholder={i === 0 ? "Start typing. “- ” starts a list, “[] ” a checklist, “# ” a heading." : ""}
+                    onFocus={() => focusSection(section.id)} onChange={(html) => setBlocks(section.id, blocks.map((x, j) => j === i ? { kind: "text", html } : x))} />
                 </div>;
               }
               const key = keyOf(section.id, b, i);
@@ -478,7 +545,7 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
                       <button type="button" className="nb-link" aria-expanded={!shut} onClick={() => setCollapsed((c) => ({ ...c, [key]: !shut }))}>{shut ? "Show" : "Hide"}</button>
                     </div>
                     {!shut && <RichNote value={b.html} label={`${b.label}, saved in ${section.title}`} placeholder=""
-                      onFocus={() => setFocused(section.id)} onChange={(html) => setBlocks(section.id, blocks.map((x, j) => j === i ? { ...b, html } : x))} />}
+                      onFocus={() => focusSection(section.id)} onChange={(html) => setBlocks(section.id, blocks.map((x, j) => j === i ? { ...b, html } : x))} />}
                   </div>
                   {blockMenu(section.id, i, b)}
                 </div>;
@@ -535,8 +602,7 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
       })}
     </div>
 
-    {!review && <footer className="nb-help">
-      {liveId && !liveVisible && <button type="button" className="nb-live btn btn-primary btn-sm" onClick={jumpToLive}>Back to live topic ↓</button>}
+    {!review && !expanded && <footer className="nb-help">
       <p className="truncate text-xs text-smoke">{active ? <>Help with <b className="font-medium text-[#30385b]">{active.title}</b></> : "Help with this lesson"}</p>
       {lost[activeKey] ? <div role="status" className="nb-lost">
         <span>Your teacher was told someone is stuck. Your name wasn&apos;t shared.</span>
@@ -552,4 +618,5 @@ export function Notebook({ lessonTitle, topics, liveId, notes, clips, ink = {}, 
       </div>}
     </footer>}
   </section>;
+  return expanded ? createPortal(notebook, document.body) : notebook;
 }

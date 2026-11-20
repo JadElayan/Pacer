@@ -173,8 +173,8 @@ body { font-family: var(--font-sans); letter-spacing: 0.01em; line-height: 1.5; 
   border: 1px solid #dcdfee; border-radius: 14px; background: #fff;
   color: #242c49; box-shadow: 0 12px 36px #1823482b; font-size: .875rem;
 }
-.choice-popup { opacity: 0; transform: translateY(-3px); }
-.choice-popup:popover-open { opacity: 1; transform: none; }
+.choice-popup { opacity: 0; transform: translateY(-3px); pointer-events: none; }
+.choice-popup:popover-open { opacity: 1; transform: none; pointer-events: auto; }
 @media (prefers-reduced-motion: no-preference) {
   .choice-popup { transition: opacity 140ms ease, transform 140ms ease, display 140ms allow-discrete, overlay 140ms allow-discrete; }
   @starting-style { .choice-popup:popover-open { opacity: 0; transform: translateY(-3px); } }
@@ -214,15 +214,19 @@ body { font-family: var(--font-sans); letter-spacing: 0.01em; line-height: 1.5; 
 button.notebook-section { display: flex; justify-content: space-between; }
 .notebook-thumbnail {
   display: grid; grid-template-columns: 1.25rem minmax(0, 1fr); align-items: center; gap: 6px;
-  flex: 0 0 auto; min-width: 120px; padding: 6px; border-radius: 12px;
+  flex: 0 0 auto; width: 100%; min-width: 0; padding: 6px; border-radius: 12px;
   color: #30385b; font-size: .75rem; font-weight: 650; text-align: center; cursor: pointer;
 }
 .notebook-thumbnail:hover, .notebook-thumbnail[aria-current="page"] { background: #e1e7ff; }
 .notebook-thumbnail img, .notebook-page-placeholder {
-  width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: white;
+  width: 100%; min-width: 0; max-width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: white;
   border: 1px solid var(--notebook-border); border-radius: 8px;
 }
 .notebook-thumbnail[aria-current="page"] img { border-color: var(--notebook-blue); }
+@media (width < 64rem) {
+  .notebook-pages { min-width: 0; max-width: 100%; }
+  .notebook-pages .notebook-thumbnail { width: 144px; }
+}
 .notebook-page-placeholder { display: grid; place-items: center; }
 .notebook-tray, .notebook-pagination {
   border: 1px solid var(--notebook-border); border-radius: 14px; background: #fff;
@@ -241,6 +245,13 @@ button.notebook-section { display: flex; justify-content: space-between; }
 
 /* Student notebook beside the board: one scrolling page with a section per topic. */
 .nb { position: relative; display: flex; min-height: 0; height: 100%; flex-direction: column; background: #fff; }
+.nb-section-controls { display: flex; align-items: center; gap: .4rem; padding: .5rem .75rem; border-bottom: 1px solid #dcdfee; }
+.nb-head { flex-wrap: wrap; }
+.nb[data-expanded] { position: fixed; inset: 8px; z-index: 110; height: auto; min-height: 0; border: 1px solid #dcdfee; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 40px #18234833; }
+.nb[data-expanded] .nb-page { overflow: auto; }
+.nb[data-writing] .nb-page { background: #f0f1f9; }
+.nb[data-writing] .nb-section { max-width: 1000px; margin-inline: auto; }
+.nb[data-expanded] .nb-page { padding-inline: clamp(12px, 5vw, 80px); }
 .nb-head { display: flex; align-items: center; gap: .6rem; padding: .75rem 1rem; border-bottom: 1px solid var(--notebook-border, #dcdfee); }
 .nb-extra { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .5rem 1rem; border-bottom: 1px solid var(--notebook-border, #dcdfee); background: #fafbff; font-size: .8125rem; color: var(--color-smoke); }
 .nb-page { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: .5rem 1rem 1.5rem; scroll-padding-top: .5rem; }
@@ -925,6 +936,7 @@ button.progress-topic[aria-pressed="true"] { border-color: #2454e8; box-shadow: 
 .notes-toggle svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; }
 @media (min-width: 64rem) {
   .student-notebook { overflow: hidden; transition: width .32s cubic-bezier(.2, .8, .2, 1), opacity .22s ease, border-color .32s; }
+  #student-notebook { width: min(var(--notes-width, 440px), 62vw); }
   .student-notebook > * { min-width: clamp(320px, 30vw, 440px); }
   .student-notebook[data-open="false"] { width: 0 !important; opacity: 0; border-left-width: 0; }
 }
@@ -1356,7 +1368,7 @@ svg g[color] { transition: color .45s ease-in-out; }
 @keyframes sheet-up { from { transform: translateY(100%); } }
 @keyframes dock-rise { from { opacity: 0; transform: translateY(6px); } }
 
-/* Tablets and laptops: when the header can't fit on one row (data-compact, measured in Classroom), the class tools
+/* Tablets and laptops: the header stays compact; the class tools
    fold into a ⋯ menu that drops down from the right, and the main buttons stay out. */
 @media (min-width: 40rem) {
   .notebook-header[data-compact] { flex-wrap: nowrap; }
@@ -1383,4 +1395,75 @@ svg g[color] { transition: color .45s ease-in-out; }
 }
 @media (min-width: 40rem) and (prefers-reduced-motion: no-preference) {
   .notebook-header[data-compact] .class-tools.flex { animation: ink-pop-in .18s cubic-bezier(.2, .9, .3, 1) both; }
+}
+
+/* Notebook layout changes share the same motion and reduced-motion rules as the classroom. */
+.nb-section-controls > .choice-menu { flex: 1; min-width: 0; }
+.nb-section-controls .choice-trigger { width: 100%; }
+.nb .choice-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nb-width-handle { position: absolute; left: 0; top: 40%; z-index: 5; width: 14px; height: 64px; padding: 0; place-items: center; border: 0; border-radius: 999px; background: transparent; cursor: col-resize; touch-action: none; }
+.nb-width-handle span { width: 4px; height: 44px; border-radius: 999px; background: #c9cfe4; transition: background-color .15s, scale .15s; }
+.nb-width-handle:is(:hover, :active, :focus-visible) span { background: #2454e8; }
+.nb-width-handle:active span { scale: 1.15; }
+.student-notebook:has(.nb[data-resizing-width]) { transition: none; }
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(pacer-notebook), ::view-transition-new(pacer-notebook) { animation-duration: .24s; animation-timing-function: ease; }
+  ::view-transition-group(pacer-notebook) { animation-duration: .28s; animation-timing-function: cubic-bezier(.2,.8,.2,1); }
+}
+@media (40rem <= width < 64rem) {
+  .notebook[data-dock] .teacher-dock {
+    position: fixed; left: 50%; bottom: 12px; z-index: 45; translate: -50% 0;
+    width: calc(100vw - 24px); flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: flex-start;
+    gap: 2px; padding: 5px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity; scrollbar-width: none;
+    border: 1px solid #e3e6f2; border-radius: 18px; background: #fff; box-shadow: 0 10px 30px #18234824;
+  }
+  .notebook[data-dock] .teacher-dock::-webkit-scrollbar { display: none; }
+  .notebook[data-dock] .teacher-dock .notebook-tool-group { flex: 0 0 auto; flex-direction: row; flex-wrap: nowrap; gap: 2px; padding: 0; border: 0; background: transparent; box-shadow: none; }
+  .notebook[data-dock] .teacher-dock .notebook-tool { min-width: 58px; width: 58px; height: 46px; padding: 0; gap: 2px; font-size: .625rem; border-radius: 12px; scroll-snap-align: start; }
+  .notebook[data-dock] .teacher-dock .notebook-tool svg { width: 18px; height: 18px; }
+  .notebook[data-dock] .classroom-stage { padding-bottom: 88px; }
+  .notebook[data-dock] .board-toast { bottom: 124px; }
+}
+@media (40rem <= width < 64rem) {
+  .notebook-rail:not(.teacher-dock) { flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; overflow-y: hidden; }
+  .notebook-rail:not(.teacher-dock) .notebook-tool-group { flex-direction: row; flex-wrap: nowrap; flex-shrink: 0; }
+}
+/* Transition snapshots are visual only; controls keep receiving clicks while they animate. */
+::view-transition, ::view-transition-group(*), ::view-transition-image-pair(*),
+::view-transition-old(*), ::view-transition-new(*) { pointer-events: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .board-insert-panel[data-open="true"]:not([data-reduce-motion="true"]) { animation: ink-pop-in .2s cubic-bezier(.2,.9,.3,1) both; }
+  .board-insert-panel[data-open="false"]:not([data-reduce-motion="true"]) { animation: ink-pop-out .16s ease both; }
+}
+@keyframes ink-pop-out { to { opacity: 0; transform: scale(.88); } }
+.board-insert-panel[data-open="false"] { pointer-events: none; }
+.ai-companion { isolation: isolate; container-type: inline-size; overflow: clip; }
+.ai-companion-content { display: flex; flex-direction: column; overflow-wrap: anywhere; overscroll-behavior: contain; }
+.ai-companion-summary, .ai-composer { flex: 0 0 auto; }
+.ai-conversation { flex: 1 0 auto; }
+@container (width < 440px) {
+  .ai-companion-summary { flex-direction: column; }
+}
+.ai-companion[data-reduce-motion="true"] { animation: none !important; }
+.ai-companion > button[aria-label="Resize AI panel"] { position: absolute; right: 2px; bottom: 2px; z-index: 2; width: 24px; height: 24px; padding: 0; background: transparent; }
+.ai-composer { padding-bottom: 26px; }
+@media (prefers-reduced-motion: no-preference) {
+  .ai-companion[data-open="true"]:not([data-reduce-motion="true"]) { animation: companion-in .2s ease-out both; }
+  .ai-companion[data-open="false"]:not([data-reduce-motion="true"]) { animation: companion-out .16s ease-in both; }
+}
+@keyframes companion-in { from { opacity: 0; transform: translateY(8px); } }
+@keyframes companion-out { to { opacity: 0; transform: translateY(8px); } }
+.ai-companion[data-open="false"] { pointer-events: none; }
+.ai-question-form { display: flex; align-items: center; gap: 8px; padding: 6px; border: 1px solid #dcdfee; border-radius: 14px; background: #fff; }
+.ai-question-form:focus-within { border-color: #8da8fa; box-shadow: 0 0 0 2px #2454e80d; }
+.ai-question-form input { min-width: 0; width: 100%; flex: 1; padding: 6px 4px; border: 0; outline: none; font-size: .875rem; }
+.ai-question-form button { display: grid; place-items: center; flex: 0 0 34px; width: 34px; height: 34px; border-radius: 10px; background: #2454e8; color: white; }
+.ai-question-form button:disabled { background: #eef0f7; color: #9aa0b8; }
+.ai-question-form svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ai-composer .choice-trigger { min-height: 30px; padding: 4px 8px; font-size: .75rem; border-color: transparent; background: transparent; }
+.ai-composer .ai-tools .choice-trigger { min-height: 34px; padding: 6px 10px; border-color: #2454e8; background: #2454e8; color: #fff; }
+.ai-tools .choice-chevron { color: inherit; }
+@media (width >= 64rem) {
+  .slide-controls[data-split="true"] { padding-inline-end: 80px; }
 }

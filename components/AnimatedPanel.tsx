@@ -1,6 +1,9 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+
+/** React context also reaches portaled children, whose DOM escapes the animation wrapper. */
+export const PanelOpenContext = createContext(true);
 
 export function AnimatedPanel({ open, motion = "rise", reduced, children }: {
   open: boolean;
@@ -27,7 +30,7 @@ export function AnimatedPanel({ open, motion = "rise", reduced, children }: {
   }, [open, retain, reduced]);
 
   if (!open && (!retain || reduced)) return null;
-  return <div className="panel-motion" data-motion={motion} data-open={open} inert={!open} aria-hidden={!open || undefined}>
+  return <PanelOpenContext.Provider value={open}><div className="panel-motion" data-motion={motion} data-open={open} inert={!open} aria-hidden={!open || undefined}>
     {open ? children : previous.current}
-  </div>;
+  </div></PanelOpenContext.Provider>;
 }

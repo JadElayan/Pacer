@@ -17,6 +17,16 @@ Teacher browser ──signed "state" messages──▶ Supabase Realtime channel
 - Room keys ([lib/roomKey.ts](../lib/roomKey.ts), [supabase/room_keys.sql](../supabase/room_keys.sql)) sign each state update so students only accept the real teacher.
 - Signed-in teachers also back the room up to their account (`save_teacher_room`) when teacher storage is on.
 
+## Student notebook and companion panels
+
+`useTopicNotes` stores student-owned section metadata under `<notes key>:sections`; `Lesson.mySections` optionally carries headings, order, and teacher-topic references during account sync. Section IDs retain existing topic IDs when migrating older notebooks, so text, ink and clips keep their keys. New notebooks start with the general section. The selected section receives new clips and saved explanations and does not follow teacher topic changes. The notebook renders one section at a time, supports Previous/Next page navigation, page creation, renaming and optional topic references, and uses a body portal for its expanded view. Write pages start at 1200 page units and grow while writing; zoom changes their display width without changing ink coordinates. Notebook width is a device preference.
+
+`FormatBar` retains a range within the last rich editor and refreshes its toggle states after a formatting command. Semantic formatting tags allow repeated bold/italic/underline/strikethrough commands to toggle cleanly. Teacher Settings reuses the appearance controls in `SettingsSheet`, with student-only learning controls hidden.
+
+`BoardObjects` uses a body portal so animated and scrolling dock containers cannot clip its fixed palette, and opens with the shared ink-pop-in motion (including the portal's own reduced-motion flag). `AskPanel` uses a fixed body portal above classroom panes and the expanded notebook. Its Move bar and bottom-right corner support pointer and keyboard move/resize within viewport bounds, with Reset to restore the initial frame. Split-pane focus changes keep the companion mounted on its source surface so the question draft survives. Whole-slide questions capture the selected slide without ink overlays, show its deck/slide label, and send only that slide image and extracted text with no nearby board context.
+
+Notebook selectors reuse `ChoiceMenu` (top-layer popovers). The width preference is edited by a pointer-capturing left-edge pill separator matching SplitBoards rather than a range input; its arrow keys change width by 20 px and double-click resets to 440 px. `runViewTransition` animates expansion and page selection with the `pacer-notebook` transition name, and skips motion for both the OS and Pacer preference. Writing zoom updates synchronously to keep a following Expand click responsive. Closed popovers and transition snapshots ignore pointer events while fading out. New-page feedback explains where to edit the title. Tablet widths from 640–1023 px use the same fixed single-row teacher dock as phones; the student rail scrolls horizontally instead of wrapping.
+
 ## Room state
 
 Defined in [lib/types.ts](../lib/types.ts) as `RoomState`. The fields that matter most:
@@ -164,3 +174,13 @@ Motion lives in [components/Motion.tsx](../components/Motion.tsx) and the end of
 - An automated browser whose window is hidden pauses CSS transitions and `requestAnimationFrame`, so animation timing measured there is wrong. Measure with the window visible.
 - CI runs without Supabase, so sign-in is off there and the accessibility test never sees the onboarding page. Scan it by hand when you change it.
 - On Windows, `npm run test:e2e` and `npm run test:a11y` fail to start their server (they spawn `npx`, which is `npx.cmd` there). They run in CI on Linux; set `CHROMIUM_PATH` to use an installed Chrome or Edge locally on other systems.
+
+Slide thumbnails have explicit widths: 144 px in the horizontal Pages strip below 1024 px, and the sidebar's available width on desktop. Their grid and images have zero minimum width so full-resolution slide images cannot inflate the Pages tray.
+
+Portaled palettes receive AnimatedPanel's open/closing state through PanelOpenContext; closing palettes are inert and run ink-pop-out during the existing retention window. The AI companion keeps its Move bar and resize corner outside a single bounded scroll area. Its summary stacks below 440 px using a container query, and quick actions wrap so small frames never spill controls onto the board.
+
+The companion now shares PanelOpenContext for retained enter/exit motion. Its composer has one question field/send arrow, an Explain this shortcut and a ChoiceMenu for secondary actions. Close stays on the Move bar. In desktop Split view, slide-controls reserves 80 px at its inline end for the absolutely positioned arrangement toggle; flex wrapping happens before controls can enter that space, including intermediate notebook/window widths.
+
+Composer actions are split into a blue Tools ChoiceMenu with descriptions for the four visual/practice tools and a separate More actions ChoiceMenu for explanation shortcuts; both dispatch only on selection.
+
+Classroom headers stay compact at all widths: Follow/Browse labels remain short and secondary controls live in More. The old width/mutation measurement loop is removed. The companion's message scroller alone moves when answers arrive; its outer frame uses overflow:clip so browser focus or scrolling cannot hide the Move/Close bar. The composer remains outside message scrolling, and the resize grip overlays the corner rather than taking a bottom strip.
