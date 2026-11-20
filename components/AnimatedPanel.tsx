@@ -4,7 +4,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 export function AnimatedPanel({ open, motion = "rise", reduced, children }: {
   open: boolean;
-  motion?: "rise" | "drawer" | "dialog" | "side";
+  motion?: "rise" | "drawer" | "dialog" | "side" | "pop";
   reduced: boolean;
   children: ReactNode;
 }) {

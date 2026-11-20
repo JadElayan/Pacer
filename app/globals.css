@@ -20,6 +20,9 @@
 }
 
 html { background: var(--color-eggshell); color: var(--color-ink); }
+/* Classroom pages: the page behind the classroom matches the board area, so Safari's toolbar strip and any
+   space past the classroom's bottom edge (iPhone and iPad) aren't a white band. */
+html:has(.notebook) { background: #f0f1f9; }
 body { font-family: var(--font-sans); letter-spacing: 0.01em; line-height: 1.5; -webkit-font-smoothing: antialiased; }
 
 .display { font-weight: 300; letter-spacing: -0.02em; line-height: 1.08; }
@@ -401,14 +404,11 @@ button.notebook-section { display: flex; justify-content: space-between; }
 /* Height-animated open and close (Motion.tsx Collapse): content below slides instead of jumping. */
 .collapse-motion { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .3s cubic-bezier(.2, .8, .2, 1), margin .3s cubic-bezier(.2, .8, .2, 1), opacity .22s ease; }
 .collapse-motion[data-open="true"] { grid-template-rows: 1fr; opacity: 1; }
-.collapse-motion > div { min-height: 0; overflow: hidden; }
+.collapse-motion > div { min-width: 0; min-height: 0; overflow: hidden; } /* min-width: a wide child (the slide strip) must not stretch the page */
 .collapse-motion[data-settled="true"] > div { overflow: visible; }
 .collapse-motion > div > * { transition: transform .3s cubic-bezier(.2, .8, .2, 1); transform: translateY(-8px) scale(.97); }
 .collapse-motion[data-open="true"] > div > * { transform: none; }
 /* In the board column (gap .75rem), a closed panel also gives back its gap. */
-.ink-collapse { margin-bottom: -.75rem; }
-.ink-collapse[data-open="true"] { margin-bottom: 0; }
-.ink-collapse > div { padding: 2px 6px 6px; margin: -2px -6px -6px; }
 
 /* Pages panel: width and the page list animate open and closed. */
 .notebook-pages { transition: width .3s cubic-bezier(.2, .8, .2, 1); }
@@ -513,7 +513,20 @@ button.notebook-section { display: flex; justify-content: space-between; }
 @media (width < 40rem) { .board-actions-pop { right: auto; left: 0; } }
 
 /* Pen / highlighter colors: the tray rises in and each swatch pops in turn. */
-.ink-tray { transform-origin: top center; }
+/* Ink popover: opens from the pen or highlighter button that was tapped again (position and origin set inline). */
+.ink-pop { position: fixed; z-index: 46; width: max-content; max-width: calc(100vw - 20px); border: 1px solid #e3e6f2; border-radius: 16px; background: #fff; box-shadow: 0 12px 32px #18234829, 0 1px 3px #1823481a; }
+.ink-pop[data-side="top"], .ink-pop[data-side="bottom"] { width: auto; }
+@keyframes ink-pop-in { from { opacity: 0; transform: scale(.55); } }
+@keyframes ink-pop-out { to { opacity: 0; transform: scale(.55); } }
+@media (prefers-reduced-motion: no-preference) {
+  .panel-motion[data-motion="pop"] > * { animation: ink-pop-in .2s cubic-bezier(.2, .9, .3, 1) both; }
+  .panel-motion[data-motion="pop"][data-open="false"] > * { animation: ink-pop-out .15s ease-in both; }
+}
+/* A small corner mark on the active pen or highlighter: tap it again for colors and widths. */
+.notebook-tool:is([data-tool="pen"], [data-tool="highlight"])[aria-pressed="true"]::after {
+  content: ""; position: absolute; right: 6px; bottom: 6px; width: 0; height: 0;
+  border: 3px solid transparent; border-right-color: currentColor; border-bottom-color: currentColor; opacity: .75;
+}
 @keyframes swatch-in { from { opacity: 0; transform: translateY(6px) scale(.4); } }
 @keyframes live-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: no-preference) {
@@ -950,9 +963,12 @@ button.progress-topic[aria-pressed="true"] { border-color: #2454e8; box-shadow: 
 
 /* Tablets in portrait (iPad and similar): board on top and notebook below, both visible, no Board/Notes switch. */
 @media (min-width: 48rem) and (max-width: 63.99rem) and (orientation: portrait) {
-  .classroom-stage { display: flex !important; max-height: 60dvh; overflow-y: auto; }
+  /* Students only: their notebook takes the rest. A teacher's board fills the whole height. */
+  .notebook:has(#student-notebook) .classroom-stage { display: flex !important; max-height: 60dvh; overflow-y: auto; }
   #student-notebook { display: flex !important; min-height: 38dvh; }
   .pane-switch { display: none !important; }
+  /* No tab bar here, so no room kept for it at the bottom. */
+  .notebook:has(.pane-switch):has(#student-notebook) { padding-bottom: 0; }
 }
 /* Touch screens: bigger targets (at least 40 to 44px) for fingers. */
 @media (pointer: coarse) {
@@ -1272,7 +1288,9 @@ svg g[color] { transition: color .45s ease-in-out; }
   .notebook-header [role="group"][aria-label="Study tools"] { gap: 6px; }
   .notebook-header [role="group"][aria-label="Study tools"] .btn-sm { padding-inline: .7rem; }
   .notebook-header [role="group"][aria-label="Study tools"] .segmented button { padding: 0 .65rem; }
-  .class-tools > .btn { justify-content: flex-start; width: 100%; min-height: 48px; padding: 0 6px; border: 0; border-bottom: 1px solid #f0f1f7; border-radius: 0; background: transparent; box-shadow: none; color: #242c49; font-size: .9375rem; font-weight: 500; text-align: left; }
+  .class-tools.flex { gap: 2px; }
+  .class-tools > .btn { justify-content: flex-start; width: 100%; min-height: 48px; padding: 0 12px; border: 0; border-radius: 12px; background: transparent; box-shadow: none; color: #242c49; font-size: .9375rem; font-weight: 500; text-align: left; transition: background-color .15s; }
+  .class-tools > .btn:active, .class-tools > .btn:not(.ai-toggle)[aria-pressed="true"] { background: #f1f3fa; }
   .class-tools > .class-tools-end { justify-content: center; margin-top: 10px; border: 0; border-radius: 12px; background: #fdeeee; color: #992f34; }
   .class-tools > .class-tools-end.btn-primary { background: #2454e8; color: #fff; }
 
@@ -1282,6 +1300,8 @@ svg g[color] { transition: color .45s ease-in-out; }
   .topic-strip-label, .topic-card-desc { display: none; }
   .topic-card, .topic-card[data-live] { width: auto; max-width: 13rem; align-items: center; padding: .3rem .45rem .3rem .35rem; box-shadow: none; }
   .topic-card-live { display: none; }
+  /* Chips shrink (title ends in …) instead of running past the row's edge. */
+  .topic-strip-list > .topic-card { flex: 0 1 auto; min-width: 7rem; }
   .topic-card:not([data-live]) .topic-card-edit { display: none; }
   .topic-card-num { margin-top: 0; }
   .board-topbar .segmented button { gap: 0; padding: 0 .6rem; font-size: 0; }
@@ -1314,9 +1334,6 @@ svg g[color] { transition: color .45s ease-in-out; }
   .notebook[data-dock] .teacher-dock .notebook-tool svg { width: 18px; height: 18px; }
   .notebook[data-dock] .classroom-stage { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
   /* Pen tray: floats just above the dock. */
-  .notebook[data-dock] .ink-collapse { position: fixed; left: 10px; right: 10px; bottom: calc(78px + env(safe-area-inset-bottom)); z-index: 44; margin: 0; }
-  .notebook[data-dock] .ink-collapse:not([data-open="true"]) { pointer-events: none; }
-  .notebook[data-dock] .ink-tray { justify-content: center; border: 1px solid #e3e6f2; border-radius: 16px; background: #fff; box-shadow: 0 10px 30px #18234824; }
   .notebook[data-dock] .board-toast { bottom: calc(124px + env(safe-area-inset-bottom)); }
 
   /* Smoother on phone GPUs: no live blurs, and no springy or staggered pop-ins. */
@@ -1332,3 +1349,32 @@ svg g[color] { transition: color .45s ease-in-out; }
 }
 @keyframes sheet-up { from { transform: translateY(100%); } }
 @keyframes dock-rise { from { opacity: 0; transform: translateY(6px); } }
+
+/* Tablets and laptops: when the header can't fit on one row (data-compact, measured in Classroom), the class tools
+   fold into a ⋯ menu that drops down from the right, and the main buttons stay out. */
+@media (min-width: 40rem) {
+  .notebook-header[data-compact] { flex-wrap: nowrap; }
+  .notebook-header[data-compact] .header-break { display: none; }
+  /* Students keep their study buttons out; they stay on the row and slide sideways if space runs short. */
+  .notebook-header[data-compact] [role="group"][aria-label="Study tools"] { flex: 0 1 auto; flex-wrap: nowrap; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .notebook-header[data-compact] > div:has(> h1) { flex: 1 1 0; }
+  .notebook-header[data-compact] [role="group"][aria-label="Study tools"]::-webkit-scrollbar { display: none; }
+  .notebook-header[data-compact] [role="group"][aria-label="Study tools"] > * { flex: 0 0 auto; }
+  .notebook-header[data-compact] .header-more-wrap { display: block; }
+  .notebook-header[data-compact] .header-more-label { display: none; }
+  .notebook-header[data-compact] .header-more-icon { display: block; }
+  .notebook-header[data-compact] .header-more-badge { display: block; }
+  .notebook-header[data-compact] .class-tools { display: none; }
+  .notebook-header[data-compact] .class-tools.flex {
+    position: absolute; top: calc(100% + 6px); right: 12px; z-index: 60; display: flex; flex-direction: column; flex-wrap: nowrap;
+    align-items: stretch; gap: 2px; width: 280px; max-height: calc(100dvh - 120px); overflow-y: auto; padding: 8px;
+    border: 1px solid #e3e6f2; border-radius: 16px; background: #fff; box-shadow: 0 16px 40px #1823482e; transform-origin: top right;
+  }
+  .notebook-header[data-compact] .class-tools > .btn { justify-content: flex-start; width: 100%; min-height: 44px; padding: 0 12px; border: 0; border-radius: 12px; background: transparent; box-shadow: none; color: #242c49; text-align: left; }
+  .notebook-header[data-compact] .class-tools > .btn:hover, .notebook-header[data-compact] .class-tools > .btn:not(.ai-toggle)[aria-pressed="true"] { background: #f1f3fa; }
+  .notebook-header[data-compact] .class-tools-backdrop { display: block; position: fixed; inset: 0; z-index: 58; background: transparent; }
+  .notebook-header[data-compact] > span[aria-hidden="true"].md\:block { display: none; }
+}
+@media (min-width: 40rem) and (prefers-reduced-motion: no-preference) {
+  .notebook-header[data-compact] .class-tools.flex { animation: ink-pop-in .18s cubic-bezier(.2, .9, .3, 1) both; }
+}
