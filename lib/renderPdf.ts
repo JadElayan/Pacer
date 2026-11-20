@@ -1,3 +1,4 @@
+import { slideBlob } from "./slideImage";
 import type { LocalSlide } from "./slides";
 
 export async function renderPdf(file: File): Promise<LocalSlide[]> {
@@ -17,9 +18,7 @@ export async function renderPdf(file: File): Promise<LocalSlide[]> {
       canvas.width = Math.ceil(viewport.width);
       canvas.height = Math.ceil(viewport.height);
       await page.render({ canvas, viewport, background: "#fff" }).promise;
-      const image = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
-        (blob) => blob ? resolve(blob) : reject(new Error("Could not render a PDF page.")), "image/webp", 0.87,
-      ));
+      const image = await slideBlob(canvas, "Could not render a PDF page.");
       const content = await page.getTextContent();
       const text = content.items.flatMap((item) => "str" in item ? [item.str] : []).join(" ").slice(0, 1200);
       slides.push({ id: crypto.randomUUID(), width: canvas.width, height: canvas.height, text, image });

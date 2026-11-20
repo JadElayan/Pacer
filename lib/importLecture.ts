@@ -1,3 +1,4 @@
+import { slideBlob } from "./slideImage";
 import { renderPdf } from "./renderPdf";
 import type { LocalSlide } from "./slides";
 
@@ -30,9 +31,7 @@ export const rememberDeck = (id: string, pages: LocalSlide[]) => deckStore("read
 export const recoverDeck = (id: string) => deckStore<LocalSlide[] | undefined>("readonly", (store) => store.get(id));
 
 async function encode(canvas: HTMLCanvasElement, text = ""): Promise<LocalSlide> {
-  const image = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
-    (blob) => blob ? resolve(blob) : reject(new Error("Could not render this page.")), "image/webp", 0.87,
-  ));
+  const image = await slideBlob(canvas, "Could not render this page.");
   return { id: crypto.randomUUID(), width: canvas.width, height: canvas.height, text, image };
 }
 
