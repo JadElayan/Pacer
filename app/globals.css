@@ -1295,26 +1295,17 @@ svg g[color] { transition: color .45s ease-in-out; }
   .board-actions[data-open] .btn { justify-content: flex-start; min-height: 44px; border: 0; }
   .board-actions-pop { right: 0; left: auto; }
 
-  /* Teacher dock: the main tools float at the bottom, icon only; + unfolds every tool with labels. */
+  /* Teacher dock: every tool in one labeled row at the bottom that slides sideways. */
   .notebook[data-dock] .teacher-dock {
     position: fixed; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 45; translate: -50% 0;
-    width: max-content; max-width: calc(100vw - 20px); flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: center;
-    gap: 2px; padding: 5px; overflow: visible; border: 1px solid #e3e6f2; border-radius: 18px; background: #fff;
-    box-shadow: 0 10px 30px #18234824, 0 1px 3px #1823481a;
+    width: calc(100vw - 20px); flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: flex-start;
+    gap: 2px; padding: 5px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none;
+    border: 1px solid #e3e6f2; border-radius: 18px; background: #fff; box-shadow: 0 10px 30px #18234824, 0 1px 3px #1823481a;
   }
-  .notebook[data-dock] .teacher-dock .notebook-tool-group { gap: 2px; padding: 0; border: 0; background: transparent; box-shadow: none; }
-  .notebook[data-dock] .teacher-dock .notebook-tool { min-width: 40px; width: 40px; height: 40px; padding: 0; gap: 0; font-size: 0; border-radius: 12px; }
-  .notebook[data-dock] .teacher-dock .notebook-tool svg { width: 21px; height: 21px; }
-  .notebook[data-dock] .teacher-dock [data-dock-extra] { display: none; }
-  /* + open: every tool in one row that slides sideways; the close button stays pinned at the right end. */
-  .notebook[data-dock] .teacher-dock[data-more] { justify-content: flex-start; width: calc(100vw - 20px); overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none; }
-  .notebook[data-dock] .teacher-dock[data-more]::-webkit-scrollbar { display: none; }
-  .notebook[data-dock] .teacher-dock[data-more] .notebook-tool-group { flex: 0 0 auto; }
-  .notebook[data-dock] .teacher-dock[data-more] [data-dock-extra] { display: flex; }
-  .notebook[data-dock] .teacher-dock[data-more] .notebook-tool:not(.dock-more) { min-width: 58px; width: 58px; height: 46px; gap: 2px; font-size: .625rem; scroll-snap-align: start; }
-  .notebook[data-dock] .teacher-dock[data-more] .notebook-tool:not(.dock-more) svg { width: 18px; height: 18px; }
-  .notebook[data-dock] .teacher-dock[data-more] .dock-more { position: sticky; right: 0; z-index: 2; height: 46px; background: #fff; box-shadow: -10px 0 10px #fff; }
-  .notebook[data-dock] .dock-more[aria-expanded="true"] svg { rotate: 45deg; }
+  .notebook[data-dock] .teacher-dock::-webkit-scrollbar { display: none; }
+  .notebook[data-dock] .teacher-dock .notebook-tool-group { flex: 0 0 auto; gap: 2px; padding: 0; border: 0; background: transparent; box-shadow: none; }
+  .notebook[data-dock] .teacher-dock .notebook-tool { min-width: 58px; width: 58px; height: 46px; padding: 0; gap: 2px; font-size: .625rem; border-radius: 12px; scroll-snap-align: start; }
+  .notebook[data-dock] .teacher-dock .notebook-tool svg { width: 18px; height: 18px; }
   .notebook[data-dock] .classroom-stage { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
   /* Pen tray: floats just above the dock. */
   .notebook[data-dock] .ink-collapse { position: fixed; left: 10px; right: 10px; bottom: calc(70px + env(safe-area-inset-bottom)); z-index: 44; margin: 0; }
@@ -1330,9 +1321,8 @@ svg g[color] { transition: color .45s ease-in-out; }
 @media (width < 40rem) and (prefers-reduced-motion: no-preference) {
   .class-tools.flex { animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1) both; }
   .class-tools-backdrop { animation: panel-fade .2s ease-out both; }
-  .board-actions[data-open], .notebook[data-dock] .teacher-dock[data-more] { animation: dock-rise .18s ease-out both; }
+  .board-actions[data-open] { animation: dock-rise .18s ease-out both; }
   .board-toast { animation: dock-rise .18s ease-out both; }
-  .notebook[data-dock] .dock-more svg { transition: rotate .18s ease-out; }
 }
 @keyframes sheet-up { from { transform: translateY(100%); } }
 @keyframes dock-rise { from { opacity: 0; transform: translateY(6px); } }
