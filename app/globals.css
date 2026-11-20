@@ -401,7 +401,7 @@ button.notebook-section { display: flex; justify-content: space-between; }
 /* Height-animated open and close (Motion.tsx Collapse): content below slides instead of jumping. */
 .collapse-motion { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .3s cubic-bezier(.2, .8, .2, 1), margin .3s cubic-bezier(.2, .8, .2, 1), opacity .22s ease; }
 .collapse-motion[data-open="true"] { grid-template-rows: 1fr; opacity: 1; }
-.collapse-motion > div { min-height: 0; overflow: hidden; }
+.collapse-motion > div { min-width: 0; min-height: 0; overflow: hidden; } /* min-width: a wide child (the slide strip) must not stretch the page */
 .collapse-motion[data-settled="true"] > div { overflow: visible; }
 .collapse-motion > div > * { transition: transform .3s cubic-bezier(.2, .8, .2, 1); transform: translateY(-8px) scale(.97); }
 .collapse-motion[data-open="true"] > div > * { transform: none; }
@@ -1272,7 +1272,9 @@ svg g[color] { transition: color .45s ease-in-out; }
   .notebook-header [role="group"][aria-label="Study tools"] { gap: 6px; }
   .notebook-header [role="group"][aria-label="Study tools"] .btn-sm { padding-inline: .7rem; }
   .notebook-header [role="group"][aria-label="Study tools"] .segmented button { padding: 0 .65rem; }
-  .class-tools > .btn { justify-content: flex-start; width: 100%; min-height: 48px; padding: 0 6px; border: 0; border-bottom: 1px solid #f0f1f7; border-radius: 0; background: transparent; box-shadow: none; color: #242c49; font-size: .9375rem; font-weight: 500; text-align: left; }
+  .class-tools.flex { gap: 2px; }
+  .class-tools > .btn { justify-content: flex-start; width: 100%; min-height: 48px; padding: 0 12px; border: 0; border-radius: 12px; background: transparent; box-shadow: none; color: #242c49; font-size: .9375rem; font-weight: 500; text-align: left; transition: background-color .15s; }
+  .class-tools > .btn:active, .class-tools > .btn:not(.ai-toggle)[aria-pressed="true"] { background: #f1f3fa; }
   .class-tools > .class-tools-end { justify-content: center; margin-top: 10px; border: 0; border-radius: 12px; background: #fdeeee; color: #992f34; }
   .class-tools > .class-tools-end.btn-primary { background: #2454e8; color: #fff; }
 
@@ -1282,6 +1284,8 @@ svg g[color] { transition: color .45s ease-in-out; }
   .topic-strip-label, .topic-card-desc { display: none; }
   .topic-card, .topic-card[data-live] { width: auto; max-width: 13rem; align-items: center; padding: .3rem .45rem .3rem .35rem; box-shadow: none; }
   .topic-card-live { display: none; }
+  /* Chips shrink (title ends in …) instead of running past the row's edge. */
+  .topic-strip-list > .topic-card { flex: 0 1 auto; min-width: 7rem; }
   .topic-card:not([data-live]) .topic-card-edit { display: none; }
   .topic-card-num { margin-top: 0; }
   .board-topbar .segmented button { gap: 0; padding: 0 .6rem; font-size: 0; }

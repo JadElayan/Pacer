@@ -1329,8 +1329,6 @@ export function Classroom({ code, review }: { code: string; review?: {
           onKeyDown={(event) => { if (event.key === "Escape" && showClassTools) setShowClassTools(false); }} {...sheetDragProps}>
           <span className="class-tools-grab sm:hidden" aria-hidden="true" />
           {isTeacher && <button className="btn btn-outline btn-sm sm:!hidden" onClick={() => { setShowClassTools(false); setShowInvite(true); }}>Invite · {code}</button>}
-          {isTeacher && !state.ended && <button className="btn btn-outline btn-sm md:!hidden" disabled={slideBusy}
-            onClick={() => { setShowClassTools(false); startUpload(); }}>Upload slides or notes</button>}
           {isTeacher && !state.ended && <button className={`btn btn-sm ai-toggle ${aiOff ? "is-off" : ""}`} aria-pressed={!!state.aiPaused}
             aria-label={`Student AI: ${state.aiPaused ? "paused" : aiOff ? "paused while your question is open" : "on"}${aiOff && blockedEvents ? `, ${blockedEvents} blocked` : ""}`}
             title={state.aiPaused ? "Students can't use AI help. Click to turn it back on."
