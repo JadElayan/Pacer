@@ -991,7 +991,7 @@ export function Classroom({ code, review }: { code: string; review?: {
       if (selection.image) void cleanClip(selection.image).then((image) => topicNotes.addClip({ topicId, image, text, label: "From the board" }));
       else topicNotes.addClip({ topicId, text, label: "From the board" });
     }
-    setClipToast(notesOpen || mobilePane === "notes" ? "Copied to your notes" : "Copied to your notes. Show notes to see it.");
+    setClipToast(notesOpen || mobilePane === "notes" ? "Copied to your notes" : phone ? "Copied to your notes. Tap Notes to see it." : "Copied to your notes. Show notes to see it.");
   };
   const askAboutSlide = (selection?: Anchor) => {
     const capture = captureSlideArea(selection);
@@ -1388,7 +1388,7 @@ export function Classroom({ code, review }: { code: string; review?: {
                 setSnip(!(snip && clipMode)); setClipMode(!(snip && clipMode));
                 setAnchor(null);
               }}>Clip</button>}
-            {snip && <span role="status" className="snip-hint">{clipMode ? "Drag a box to copy it into your notes" : "Drag a box around what you want explained"} <kbd>Esc</kbd> to cancel</span>}
+            {snip && <span role="status" className="snip-hint">{clipMode ? "Drag a box to copy it into your notes" : "Drag a box around what you want explained"}<span className="snip-hint-esc"> <kbd>Esc</kbd> to cancel</span></span>}
             {!snip && clipToast && <span role="status" className="snip-hint">{clipToast}</span>}
             {!snip && !clipToast && aiNotice && <span role="status" className="snip-hint ai-hint">{aiNotice}</span>}
             {!review && <button className="btn btn-outline btn-sm" onClick={() => openCatchup(null)}><span className="sm:hidden">Catch up</span><span className="max-sm:hidden">Catch me up</span></button>}
