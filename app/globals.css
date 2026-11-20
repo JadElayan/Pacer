@@ -20,6 +20,9 @@
 }
 
 html { background: var(--color-eggshell); color: var(--color-ink); }
+/* Classroom pages: the page behind the classroom matches the board area, so Safari's toolbar strip and any
+   space past the classroom's bottom edge (iPhone and iPad) aren't a white band. */
+html:has(.notebook) { background: #f0f1f9; }
 body { font-family: var(--font-sans); letter-spacing: 0.01em; line-height: 1.5; -webkit-font-smoothing: antialiased; }
 
 .display { font-weight: 300; letter-spacing: -0.02em; line-height: 1.08; }
@@ -960,9 +963,12 @@ button.progress-topic[aria-pressed="true"] { border-color: #2454e8; box-shadow: 
 
 /* Tablets in portrait (iPad and similar): board on top and notebook below, both visible, no Board/Notes switch. */
 @media (min-width: 48rem) and (max-width: 63.99rem) and (orientation: portrait) {
-  .classroom-stage { display: flex !important; max-height: 60dvh; overflow-y: auto; }
+  /* Students only: their notebook takes the rest. A teacher's board fills the whole height. */
+  .notebook:has(#student-notebook) .classroom-stage { display: flex !important; max-height: 60dvh; overflow-y: auto; }
   #student-notebook { display: flex !important; min-height: 38dvh; }
   .pane-switch { display: none !important; }
+  /* No tab bar here, so no room kept for it at the bottom. */
+  .notebook:has(.pane-switch):has(#student-notebook) { padding-bottom: 0; }
 }
 /* Touch screens: bigger targets (at least 40 to 44px) for fingers. */
 @media (pointer: coarse) {
@@ -1349,6 +1355,11 @@ svg g[color] { transition: color .45s ease-in-out; }
 @media (min-width: 40rem) {
   .notebook-header[data-compact] { flex-wrap: nowrap; }
   .notebook-header[data-compact] .header-break { display: none; }
+  /* Students keep their study buttons out; they stay on the row and slide sideways if space runs short. */
+  .notebook-header[data-compact] [role="group"][aria-label="Study tools"] { flex: 0 1 auto; flex-wrap: nowrap; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .notebook-header[data-compact] > div:has(> h1) { flex: 1 1 0; }
+  .notebook-header[data-compact] [role="group"][aria-label="Study tools"]::-webkit-scrollbar { display: none; }
+  .notebook-header[data-compact] [role="group"][aria-label="Study tools"] > * { flex: 0 0 auto; }
   .notebook-header[data-compact] .header-more-wrap { display: block; }
   .notebook-header[data-compact] .header-more-label { display: none; }
   .notebook-header[data-compact] .header-more-icon { display: block; }

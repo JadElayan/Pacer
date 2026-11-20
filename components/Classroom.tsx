@@ -410,9 +410,13 @@ export function Classroom({ code, review }: { code: string; review?: {
   const [attachTo, setAttachTo] = useState<{ id: string; position?: [number, number] }>();
   const collaborationId = state?.collaborationId;
   const collaboration = useBoardCollaboration(review ? undefined : collaborationId, code, user?.id, isTeacher);
-  const privateNotes = usePrivateAnnotations(collaborationId, user?.id,
-    !isTeacher && authReady && (!!review || collaboration.ready), review ? code : undefined);
-  const privateEditing = !isTeacher && (!!user || !!review) && annotationMode && privateNotes.ready;
+  // Students' private annotations on the teacher's board. Signed in with a shared board, they sync to the account;
+  // otherwise (a guest, or a teacher who isn't signed in) they're kept on this device for this room. Either way
+  // only the student sees them.
+  const cloudAnnotations = !!user && !!collaborationId && !review;
+  const privateNotes = usePrivateAnnotations(cloudAnnotations ? collaborationId : undefined, cloudAnnotations ? user?.id : undefined,
+    !isTeacher && authReady && (!cloudAnnotations || collaboration.ready), review ? code : `room-${code}`);
+  const privateEditing = !isTeacher && annotationMode && privateNotes.ready;
   // Students follow the teacher's slide, except while they are annotating: then they stay put to finish,
   // and a banner offers the teacher's new slide. Annotations always stay on the slide they were made on.
   const offTeacherSlide = !isTeacher && !!deck && !!studentSlide && studentSlide !== deck.current;
@@ -1367,7 +1371,7 @@ export function Classroom({ code, review }: { code: string; review?: {
                 setAnchor(null);
                 setSnip(false);
               }}
-              options={[{ value: "follow", label: phone ? "Follow" : "Follow teacher" }, { value: "browse", label: phone ? "Browse" : "Browse notes" }] as const} />}
+              options={[{ value: "follow", label: phone || compactHeader ? "Follow" : "Follow teacher" }, { value: "browse", label: phone || compactHeader ? "Browse" : "Browse notes" }] as const} />}
             <button className={`btn btn-sm ${snip && !clipMode ? "btn-primary" : "btn-outline"} ${aiOff ? "ai-locked" : ""}`} aria-pressed={snip && !clipMode}
               title={aiOff ? "AI help is paused by your teacher" : "Draw a box to get an explanation"}
               onClick={() => {
@@ -1470,7 +1474,7 @@ export function Classroom({ code, review }: { code: string; review?: {
         {!isTeacher && privateNotes.ready && <nav aria-label="Private annotation tools"
           className={`notebook-rail flex shrink-0 gap-2 overflow-x-auto p-2 lg:w-max lg:flex-col lg:overflow-y-auto ${mobilePane === "notes" ? "max-lg:!hidden" : ""}`}>
           <ToolGroup>
-            <button type="button" className="notebook-tool" aria-label="Edit my annotations" title="Edit my annotations"
+            <button type="button" className="notebook-tool" aria-label="Annotate privately" title="Annotate the board. Only you see it."
               aria-pressed={privateEditing} disabled={!privateNotes.ready}
               onClick={() => privateEditing ? leaveAnnotationMode() : chooseAnnotationTool("select")}>
               <BoardToolIcon tool="sticky" />Annotate
@@ -1865,9 +1869,9 @@ export function Classroom({ code, review }: { code: string; review?: {
             onBackOnTrack={(topic) => { sendEvent("helped", null, topic?.id ?? live); rec("helped", topic?.id ?? live); }}
             onViewBoard={review ? undefined : (id) => { setBrowsedTopicId(id); setStudentView({ zoom: 1 }); setAnchor(null); setSnip(false); setMobilePane("board"); }}
             headerExtra={(!privateNotes.ready || privateNotes.status === "Retry" || (!review && authReady && !user && signInEnabled)) ? <>
-              {!review && authReady && !user && signInEnabled && <span>Notes stay on this device. <button type="button" className="nb-link" onClick={() => void signIn()}>Sign in</button> to keep them in your account and annotate the board.</span>}
+              {!review && authReady && !user && signInEnabled && <span>Notes and board annotations stay on this device. <button type="button" className="nb-link" onClick={() => void signIn()}>Sign in</button> to keep them in your account.</span>}
               {(user || review) && !privateNotes.ready && privateNotes.status !== "Retry" && <span role="status">
-                {review ? "Loading board annotations…" : collaborationId ? "Connecting board annotations…" : "Board annotations open once your teacher's board is saved."}
+                {review ? "Loading board annotations…" : "Connecting board annotations…"}
               </span>}
               {(user || review) && privateNotes.status === "Retry" && <span role="status" className="text-amber-800">Board annotations didn&apos;t sync. <button type="button" className="nb-link" onClick={privateNotes.retry}>Try again</button></span>}
             </> : undefined} />
