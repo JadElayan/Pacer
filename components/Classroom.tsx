@@ -259,6 +259,31 @@ export function Classroom({ code, review }: { code: string; review?: {
     read(); query.addEventListener("change", read);
     return () => query.removeEventListener("change", read);
   }, []);
+  // Phones (teacher): the tool dock's extra tools, the Clear menu, and the pen tray open only on request.
+  const [dockMore, setDockMore] = useState(false);
+  const [boardMenu, setBoardMenu] = useState(false);
+  const [inkTray, setInkTray] = useState(false);
+  const boardMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!boardMenu) return;
+    const close = (event: PointerEvent) => { if (!boardMenuRef.current?.contains(event.target as Node)) setBoardMenu(false); };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [boardMenu]);
+  // A short message above the dock, for things like "Upload isn't set up here".
+  const [toast, setToast] = useState("");
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(""), 6000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+  // Upload stays tappable: when it can't run yet, say why (or start sign-in) instead of looking broken.
+  const startUpload = () => {
+    if (uploadEnabled) { uploadInput.current?.click(); return; }
+    if (teacherStorageEnabled && signInEnabled && authReady && !user) { setToast("Sign in to upload slides or notes."); void signIn(); return; }
+    setToast(teacherStorageEnabled && signInEnabled ? "Checking your sign-in. Try Upload again in a moment."
+      : "Uploads aren't set up on this site yet. They need teacher storage and sign-in turned on.");
+  };
   // Students: the class recap the teacher shared. The banner can be hidden; a newer share shows it again.
   const [recapOpen, setRecapOpen] = useState(false);
   const [recapHidden, setRecapHidden] = useState<number>();
@@ -1167,7 +1192,9 @@ export function Classroom({ code, review }: { code: string; review?: {
   const pill = status === "live" ? "Connected" : status === "waiting" ? "Waiting for teacher…" : "Connecting…";
 
   return (
-    <div className="notebook relative flex min-h-dvh flex-col lg:h-dvh lg:overflow-clip" data-reduce-motion={prefs.reduceMotion} data-focus={focusMode || undefined} data-snipping={snip || undefined}>
+    <div className="notebook relative flex min-h-dvh flex-col lg:h-dvh lg:overflow-clip" data-reduce-motion={prefs.reduceMotion} data-focus={focusMode || undefined} data-snipping={snip || undefined}
+      data-dock={(isTeacher && !state.ended && !review) || undefined}>
+      {toast && <p role="status" className="board-toast" onClick={() => setToast("")}>{toast}</p>}
       {focusMode && <button type="button" className="focus-exit" onClick={() => setFocusMode(false)}>
         <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M6 2.5H2.5V6M10 2.5h3.5V6M6 13.5H2.5V10M10 13.5h3.5V10" /></svg>Exit focus <kbd>Esc</kbd>
       </button>}
@@ -1209,15 +1236,18 @@ export function Classroom({ code, review }: { code: string; review?: {
           {review ? "Saved lesson" : isTeacher ? <>{state.ended ? "Ended" : "Live"}<span className="max-sm:hidden"> · {connected} connected</span><span className="sm:hidden" aria-label={`${connected} connected`}> · {connected}</span></> : pill}
         </span>
         <div className="md:hidden">
-          <button type="button" className="btn btn-outline btn-sm" aria-controls="classroom-more"
+          <button type="button" className="btn btn-outline btn-sm header-more" aria-controls="classroom-more"
+            aria-label={`More${isTeacher && alerts.length ? `, ${alerts.length} insight${alerts.length === 1 ? "" : "s"}` : ""}`}
             aria-expanded={showClassTools} onClick={() => setShowClassTools((open) => !open)}>
-            More{isTeacher && alerts.length ? ` (${alerts.length})` : ""}
+            <span className="max-sm:hidden">More{isTeacher && alerts.length ? ` (${alerts.length})` : ""}</span>
+            <svg className="sm:hidden" aria-hidden="true" viewBox="0 0 20 20"><circle cx="4.5" cy="10" r="1.6" /><circle cx="10" cy="10" r="1.6" /><circle cx="15.5" cy="10" r="1.6" /></svg>
+            {isTeacher && alerts.length > 0 && <span className="header-more-badge sm:hidden" aria-hidden="true">{alerts.length}</span>}
           </button>
         </div>
-        <div className="basis-full md:hidden" aria-hidden="true" />
+        <div className={`basis-full md:hidden ${isTeacher ? "max-sm:hidden" : ""}`} aria-hidden="true" />
         {isTeacher ? (
           <>
-            <button className="btn btn-outline btn-sm" aria-expanded={showInvite} onClick={() => setShowInvite((v) => !v)}>Invite<span className="max-sm:hidden"> · {code}</span></button>
+            <button className="btn btn-outline btn-sm max-sm:!hidden" aria-expanded={showInvite} onClick={() => setShowInvite((v) => !v)}>Invite · {code}</button>
           </>
         ) : (
           <div role="group" aria-label="Study tools" className="flex flex-wrap items-center gap-2">
@@ -1261,9 +1291,13 @@ export function Classroom({ code, review }: { code: string; review?: {
           </div>
         )}
         <span aria-hidden="true" className="hidden h-6 w-px bg-stone md:block" />
-        <div id="classroom-more" role="group" aria-label="Class tools" className={`class-tools ${showClassTools ? "flex" : "hidden"} max-md:order-last w-full flex-wrap items-center gap-2 rounded-xl bg-white/70 p-2 md:flex md:w-auto md:bg-transparent md:p-0`}>
-          {isTeacher && !state.ended && <button className="btn btn-outline btn-sm md:!hidden" disabled={slideBusy || !uploadEnabled}
-            onClick={() => { setShowClassTools(false); uploadInput.current?.click(); }}>Upload slides or notes</button>}
+        {showClassTools && <button type="button" tabIndex={-1} className="class-tools-backdrop sm:hidden" aria-label="Close menu" onClick={() => setShowClassTools(false)} />}
+        <div id="classroom-more" role="group" aria-label="Class tools" className={`class-tools ${showClassTools ? "flex" : "hidden"} max-md:order-last w-full flex-wrap items-center gap-2 rounded-xl bg-white/70 p-2 md:flex md:w-auto md:bg-transparent md:p-0`}
+          onKeyDown={(event) => { if (event.key === "Escape" && showClassTools) setShowClassTools(false); }}>
+          <span className="class-tools-grab sm:hidden" aria-hidden="true" />
+          {isTeacher && <button className="btn btn-outline btn-sm sm:!hidden" onClick={() => { setShowClassTools(false); setShowInvite(true); }}>Invite · {code}</button>}
+          {isTeacher && !state.ended && <button className="btn btn-outline btn-sm md:!hidden" disabled={slideBusy}
+            onClick={() => { setShowClassTools(false); startUpload(); }}>Upload slides or notes</button>}
           {isTeacher && !state.ended && <button className={`btn btn-sm ai-toggle ${aiOff ? "is-off" : ""}`} aria-pressed={!!state.aiPaused}
             aria-label={`Student AI: ${state.aiPaused ? "paused" : aiOff ? "paused while your question is open" : "on"}${aiOff && blockedEvents ? `, ${blockedEvents} blocked` : ""}`}
             title={state.aiPaused ? "Students can't use AI help. Click to turn it back on."
@@ -1289,8 +1323,10 @@ export function Classroom({ code, review }: { code: string; review?: {
             <button className="btn btn-outline btn-sm" onClick={() => { setShowClassTools(false); setShowProfile(true); }}>My profile</button>
             <button className="btn btn-outline btn-sm" title={`Reading mode: ${prefs.mode}`} onClick={() => { setShowClassTools(false); setShowSettings(true); }}>Settings</button>
           </>}
+          {isTeacher && <button className={`btn btn-sm class-tools-end sm:!hidden ${state.ended ? "btn-primary" : "btn-outline notebook-danger"}`}
+            onClick={() => { setShowClassTools(false); setShowFinish(true); }}>{state.ended ? "Save lecture" : "End lecture"}</button>}
         </div>
-        {isTeacher && <button className={`btn btn-sm ${state.ended ? "btn-primary" : "btn-outline notebook-danger"}`} onClick={() => setShowFinish(true)}>{state.ended ? "Save lecture" : "End lecture"}</button>}
+        {isTeacher && <button className={`btn btn-sm max-sm:!hidden ${state.ended ? "btn-primary" : "btn-outline notebook-danger"}`} onClick={() => setShowFinish(true)}>{state.ended ? "Save lecture" : "End lecture"}</button>}
       </header>
       {transportKind === "local" && isTeacher && <p className="bg-taupe px-4 py-1 text-center text-xs text-smoke">Local classroom · Join from another tab in this browser.</p>}
       {isTeacher && !review && lock === "conflict" && <p role="alert" className="bg-amber-50 px-4 py-2 text-center text-sm text-amber-900">Students can&apos;t verify updates from this browser because another device holds this room&apos;s key. Start a new meeting to continue teaching.</p>}
@@ -1378,41 +1414,58 @@ export function Classroom({ code, review }: { code: string; review?: {
           </ToolGroup>
         </nav>}
         {isTeacher && !state.ended && (
-          <nav aria-label="Teacher whiteboard tools" className="notebook-rail flex shrink-0 gap-2 overflow-x-auto p-2 lg:w-max lg:flex-col lg:overflow-y-auto">
+          <nav aria-label="Teacher whiteboard tools" className="notebook-rail teacher-dock flex shrink-0 gap-2 overflow-x-auto p-2 lg:w-max lg:flex-col lg:overflow-y-auto"
+            data-more={dockMore || undefined}
+            onClick={(event) => {
+              // Phones: picking any tool from the expanded dock folds it back down.
+              const target = (event.target as HTMLElement).closest("button");
+              if (dockMore && target && !target.classList.contains("dock-more")) setDockMore(false);
+            }}>
             <ToolGroup>
             {BOARD_TOOLS.map(([value, label]) => <button key={value} type="button" className="notebook-tool"
-              aria-label={label} title={label} data-tool={value}
-              aria-pressed={!placement && !connectorMode && tool === value} onClick={() => { setConnectorMode(false); setTool(value); setInsertPanel(undefined); setPlacement(undefined); }}><BoardToolIcon tool={value} />{value === "highlight" ? "Highlight" : label}</button>)}
+              aria-label={label} title={label} data-tool={value} data-dock-extra={value === "select" || undefined}
+              aria-pressed={!placement && !connectorMode && tool === value}
+              onClick={() => {
+                // Phones: tapping the active pen or highlighter again shows its colors and widths.
+                if (phone && (value === "pen" || value === "highlight") && tool === value && !placement && !connectorMode) { setInkTray((open) => !open); return; }
+                setInkTray(false);
+                setConnectorMode(false); setTool(value); setInsertPanel(undefined); setPlacement(undefined);
+              }}><BoardToolIcon tool={value} />{value === "highlight" ? "Highlight" : label}</button>)}
             </ToolGroup>
             <ToolGroup>
                 {(["text", "equation", "sticky"] as const).map((value) => <button key={value} type="button" className="notebook-tool"
-                  data-tool={value}
+                  data-tool={value} data-dock-extra={value !== "sticky" || undefined}
                   aria-pressed={placement === value}
                   onClick={() => { setConnectorMode(false); setTool("select"); setInsertPanel(undefined); setPlacement((current) => current === value ? undefined : value); }}>
                   <BoardToolIcon tool={value} />{value === "text" ? "Text" : value === "equation" ? "Equation" : "Sticky"}
                 </button>)}
                 {([["shapes", "Shapes"], ["templates", "Templates"]] as const).map(([value, label]) => (
-                  <button key={value} type="button" className="notebook-tool" data-tool={value} aria-expanded={insertPanel === value}
+                  <button key={value} type="button" className="notebook-tool" data-tool={value} data-dock-extra={value === "templates" || undefined} aria-expanded={insertPanel === value}
                     onClickCapture={anchorInsert} onClick={() => { setConnectorMode(false); setTool("select"); setPlacement(undefined); setInsertPanel((open) => open === value ? undefined : value); }}>
                     <BoardToolIcon tool={value} />{label}
                   </button>
                 ))}
-                <button type="button" className="notebook-tool" aria-pressed={connectorMode}
+                <button type="button" className="notebook-tool" aria-pressed={connectorMode} data-dock-extra
                   onClick={() => { setTool("select"); setPlacement(undefined); setInsertPanel(undefined); setConnectorMode((value) => !value); }}>
                   <BoardToolIcon tool="arrow" />Connector
                 </button>
-              <button type="button" className="notebook-tool" disabled={slideBusy || !uploadEnabled}
+              <button type="button" className="notebook-tool" disabled={slideBusy} data-dock-extra data-unavailable={!uploadEnabled || undefined}
                 aria-label="Upload slides or notes" title="Upload slides or notes. PDF preserves layout. Maximum 20 MB and 50 pages."
-                aria-describedby="lecture-upload-help" onClick={() => uploadInput.current?.click()}>
+                aria-describedby="lecture-upload-help" onClick={startUpload}>
                 <BoardToolIcon tool="upload" />Upload
               </button>
             </ToolGroup>
             <ToolGroup>
               {(["undo", "redo"] as const).map((action) => <button key={action} type="button" className="notebook-tool capitalize"
+                data-dock-extra={action === "redo" || undefined}
                 disabled={onSlideSide ? !currentSlideHistory?.[action].length : !inkHistory.current[action].length} onClick={() => restoreInk(action)}>
                 <BoardToolIcon tool={action} />{action}
               </button>)}
             </ToolGroup>
+            <button type="button" className="notebook-tool dock-more sm:!hidden" aria-label={dockMore ? "Fewer tools" : "More tools"} aria-expanded={dockMore}
+              onClick={() => { setDockMore((open) => !open); setInkTray(false); }}>
+              <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M10 4.5v11M4.5 10h11" /></svg>
+            </button>
           </nav>
         )}
         {slidePage && deck && isTeacher && <aside className={`notebook-pages shrink-0 p-3 lg:overflow-y-auto ${showPages ? "lg:w-44" : "lg:w-20"}`} data-open={showPages} style={{ viewTransitionName: "pacer-pages" }}>
@@ -1453,8 +1506,13 @@ export function Classroom({ code, review }: { code: string; review?: {
                   ) }))} />
               )}
               {isTeacher && !state.ended && (
-                <div className="board-actions-wrap">
-                  <div role="group" aria-label={clearsSlide ? "Board actions, clearing the slide" : "Board actions"} className="board-actions">
+                <div ref={boardMenuRef} className="board-actions-wrap">
+                  <button type="button" className="board-actions-toggle sm:!hidden" aria-label="New topic and clear" aria-expanded={boardMenu}
+                    onClick={() => setBoardMenu((open) => !open)}>
+                    <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M8.5 16.5h8M3.8 11.7l6.9-6.9a1.5 1.5 0 0 1 2.1 0l2.4 2.4a1.5 1.5 0 0 1 0 2.1l-6.4 6.4a1 1 0 0 1-.7.3H6.4a1 1 0 0 1-.7-.3l-1.9-1.9a1.5 1.5 0 0 1 0-2.1zM7.5 8l4.5 4.5" /></svg>
+                  </button>
+                  <div role="group" aria-label={clearsSlide ? "Board actions, clearing the slide" : "Board actions"} className="board-actions"
+                    data-open={boardMenu || undefined} onClick={(event) => { if ((event.target as HTMLElement).closest("button")) setBoardMenu(false); }}>
                     <button type="button" className="btn btn-sm btn-outline" aria-expanded={chooseBoard}
                       onClick={() => { if (asksToKeepBoard) setChooseBoard((open) => !open); else startTopic(false); }}>Start new topic</button>
                     <button type="button" className="btn btn-sm btn-outline" disabled={!canClearPen} title={clearsSlide ? "Clear pen marks on this slide" : "Clear pen marks on the whiteboard"}
@@ -1500,7 +1558,7 @@ export function Classroom({ code, review }: { code: string; review?: {
               <button className="btn btn-outline btn-sm" onClick={() => setSpotSeen(spot.ts)}>Got it</button>
             </div>
           )}
-          <Collapse open={((isTeacher && !state.ended) || privateEditing) && (tool === "pen" || tool === "highlight")} reduced={prefs.reduceMotion}
+          <Collapse open={((isTeacher && !state.ended) || privateEditing) && (tool === "pen" || tool === "highlight") && (!phone || !isTeacher || inkTray)} reduced={prefs.reduceMotion}
             className="ink-collapse" innerClassName="flex justify-center">
             <div role="group" aria-label="Ink settings" className="ink-tray notebook-tray flex flex-wrap items-center gap-x-4 gap-y-2 p-2 [@media(pointer:coarse)]:[&_button]:min-h-11 [@media(pointer:coarse)]:[&_button]:min-w-11 [@media(pointer:coarse)]:[&_select]:min-h-11">
                 <div key={inkTool} className="ink-swatches">
