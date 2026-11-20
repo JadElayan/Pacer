@@ -270,6 +270,40 @@ export function Classroom({ code, review }: { code: string; review?: {
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [boardMenu]);
+  // Phones: drag the More sheet down to close it. A tap still reaches the row under the finger;
+  // dragging starts only after the finger moves down a little.
+  const sheetDrag = useRef<{ id: number; y: number; dy: number; dragging: boolean } | null>(null);
+  const endSheetDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = sheetDrag.current;
+    sheetDrag.current = null;
+    if (!drag?.dragging) return;
+    const sheet = event.currentTarget;
+    sheet.style.transition = "";
+    sheet.style.transform = "";
+    if (drag.dy > Math.min(90, sheet.offsetHeight / 4)) setShowClassTools(false);
+  };
+  const sheetDragProps = phone ? {
+    onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0 || event.currentTarget.scrollTop > 0) return;
+      sheetDrag.current = { id: event.pointerId, y: event.clientY, dy: 0, dragging: false };
+    },
+    onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = sheetDrag.current;
+      if (!drag || drag.id !== event.pointerId) return;
+      const dy = event.clientY - drag.y;
+      if (!drag.dragging) {
+        if (dy < -8) { sheetDrag.current = null; return; }
+        if (dy < 8) return;
+        drag.dragging = true;
+        try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* pointer already released */ }
+      }
+      drag.dy = Math.max(0, dy);
+      event.currentTarget.style.transition = "none";
+      event.currentTarget.style.transform = `translateY(${drag.dy}px)`;
+    },
+    onPointerUp: endSheetDrag,
+    onPointerCancel: endSheetDrag,
+  } : {};
   // A short message above the dock, for things like "Upload isn't set up here".
   const [toast, setToast] = useState("");
   useEffect(() => {
@@ -1287,13 +1321,13 @@ export function Classroom({ code, review }: { code: string; review?: {
             {snip && <span role="status" className="snip-hint">{clipMode ? "Drag a box to copy it into your notes" : "Drag a box around what you want explained"} <kbd>Esc</kbd> to cancel</span>}
             {!snip && clipToast && <span role="status" className="snip-hint">{clipToast}</span>}
             {!snip && !clipToast && aiNotice && <span role="status" className="snip-hint ai-hint">{aiNotice}</span>}
-            {!review && <button className={`btn btn-outline btn-sm ${!wantTeacher && authReady ? "max-sm:!hidden" : ""}`} onClick={() => openCatchup(null)}>Catch me up</button>}
+            {!review && <button className="btn btn-outline btn-sm" onClick={() => openCatchup(null)}><span className="sm:hidden">Catch up</span><span className="max-sm:hidden">Catch me up</span></button>}
           </div>
         )}
         <span aria-hidden="true" className="hidden h-6 w-px bg-stone md:block" />
         {showClassTools && <button type="button" tabIndex={-1} className="class-tools-backdrop sm:hidden" aria-label="Close menu" onClick={() => setShowClassTools(false)} />}
         <div id="classroom-more" role="group" aria-label="Class tools" className={`class-tools ${showClassTools ? "flex" : "hidden"} max-md:order-last w-full flex-wrap items-center gap-2 rounded-xl bg-white/70 p-2 md:flex md:w-auto md:bg-transparent md:p-0`}
-          onKeyDown={(event) => { if (event.key === "Escape" && showClassTools) setShowClassTools(false); }}>
+          onKeyDown={(event) => { if (event.key === "Escape" && showClassTools) setShowClassTools(false); }} {...sheetDragProps}>
           <span className="class-tools-grab sm:hidden" aria-hidden="true" />
           {isTeacher && <button className="btn btn-outline btn-sm sm:!hidden" onClick={() => { setShowClassTools(false); setShowInvite(true); }}>Invite · {code}</button>}
           {isTeacher && !state.ended && <button className="btn btn-outline btn-sm md:!hidden" disabled={slideBusy}
@@ -1415,12 +1449,7 @@ export function Classroom({ code, review }: { code: string; review?: {
         </nav>}
         {isTeacher && !state.ended && (
           <nav aria-label="Teacher whiteboard tools" className="notebook-rail teacher-dock flex shrink-0 gap-2 overflow-x-auto p-2 lg:w-max lg:flex-col lg:overflow-y-auto"
-            data-more={dockMore || undefined}
-            onClick={(event) => {
-              // Phones: picking any tool from the expanded dock folds it back down.
-              const target = (event.target as HTMLElement).closest("button");
-              if (dockMore && target && !target.classList.contains("dock-more")) setDockMore(false);
-            }}>
+            data-more={dockMore || undefined}>
             <ToolGroup>
             {BOARD_TOOLS.map(([value, label]) => <button key={value} type="button" className="notebook-tool"
               aria-label={label} title={label} data-tool={value} data-dock-extra={value === "select" || undefined}
@@ -1509,7 +1538,8 @@ export function Classroom({ code, review }: { code: string; review?: {
                 <div ref={boardMenuRef} className="board-actions-wrap">
                   <button type="button" className="board-actions-toggle sm:!hidden" aria-label="New topic and clear" aria-expanded={boardMenu}
                     onClick={() => setBoardMenu((open) => !open)}>
-                    <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M8.5 16.5h8M3.8 11.7l6.9-6.9a1.5 1.5 0 0 1 2.1 0l2.4 2.4a1.5 1.5 0 0 1 0 2.1l-6.4 6.4a1 1 0 0 1-.7.3H6.4a1 1 0 0 1-.7-.3l-1.9-1.9a1.5 1.5 0 0 1 0-2.1zM7.5 8l4.5 4.5" /></svg>
+                    <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M11.5 2.5H6A1.5 1.5 0 0 0 4.5 4v12A1.5 1.5 0 0 0 6 17.5h8a1.5 1.5 0 0 0 1.5-1.5V6.5zM11.5 2.5v4h4M10 9v6M7 12h6" /></svg>
+                    <svg aria-hidden="true" className="board-actions-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5 6 7.5 9 4.5" /></svg>
                   </button>
                   <div role="group" aria-label={clearsSlide ? "Board actions, clearing the slide" : "Board actions"} className="board-actions"
                     data-open={boardMenu || undefined} onClick={(event) => { if ((event.target as HTMLElement).closest("button")) setBoardMenu(false); }}>
