@@ -17,11 +17,11 @@ function Toggle({ label, help, checked, onChange }: { label: string; help: strin
   </label>;
 }
 
-export function SettingsSheet({ prefs, update, reset, onClose }: { prefs: Prefs; update: (p: Partial<Prefs>) => void; reset: () => void; onClose: () => void }) {
+export function SettingsSheet({ prefs, update, reset, onClose, teacher = false }: { prefs: Prefs; update: (p: Partial<Prefs>) => void; reset: () => void; onClose: () => void; teacher?: boolean }) {
   return (
-    <Sheet title="My view" label="Learning settings" onClose={onClose} subtitle="How Pacer looks and explains things for you. Saved on this device."
+    <Sheet title="My view" label={teacher ? "Teacher settings" : "Learning settings"} onClose={onClose} subtitle="Your view preferences. Saved on this device."
       footer={<button className="btn btn-outline btn-sm" onClick={reset}>Reset my settings</button>}>
-      <section className="sheet-card">
+      {!teacher && <section className="sheet-card">
         <h3 className="sheet-card-title">Learning mode</h3>
         <div role="radiogroup" aria-label="Learning mode" className="mt-2 grid gap-2">
           {MODES.map((m) => (
@@ -31,7 +31,7 @@ export function SettingsSheet({ prefs, update, reset, onClose }: { prefs: Prefs;
             </button>
           ))}
         </div>
-      </section>
+      </section>}
       <section className="sheet-card mt-3">
         <div className="flex items-baseline justify-between">
           <h3 className="sheet-card-title"><label htmlFor="ts">Text size</label></h3>
@@ -43,10 +43,10 @@ export function SettingsSheet({ prefs, update, reset, onClose }: { prefs: Prefs;
       </section>
       <section className="sheet-card mt-3 grid gap-1">
         <Toggle label="Reduce motion" help="Turn off animations in the classroom." checked={prefs.reduceMotion} onChange={(value) => update({ reduceMotion: value })} />
-        <Toggle label="Show AI suggestions" help="Short tips like “Want a simpler explanation?”." checked={prefs.popups} onChange={(value) => update({ popups: value })} />
-        <Toggle label="Guided review" help="When you open a saved lesson, walk through each slide and topic with you." checked={prefs.guide} onChange={(value) => update({ guide: value })} />
+        {!teacher && <Toggle label="Show AI suggestions" help="Short tips like “Want a simpler explanation?”." checked={prefs.popups} onChange={(value) => update({ popups: value })} />}
+        {!teacher && <Toggle label="Guided review" help="When you open a saved lesson, walk through each slide and topic with you." checked={prefs.guide} onChange={(value) => update({ guide: value })} />}
       </section>
-      <p className="mt-4 px-1 text-xs leading-relaxed text-smoke">Helpful and not-helpful taps adjust a simple preference score. It shows what you liked, not what you understood.</p>
+      {!teacher && <p className="mt-4 px-1 text-xs leading-relaxed text-smoke">Helpful and not-helpful taps adjust a simple preference score. It shows what you liked, not what you understood.</p>}
     </Sheet>
   );
 }

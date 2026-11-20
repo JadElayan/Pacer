@@ -33,7 +33,7 @@ import { bump, loadProfile, loadStudy, mergeStudy, saveProfile, saveStudy, subje
 import { ProfileSheet } from "./ProfileSheet";
 import { mergeProfiles, pullLearning, pushProfile } from "@/lib/cloudProfile";
 import { useAuth } from "@/lib/useAuth";
-import { loadLessons, pushLesson, saveLesson } from "@/lib/lessons";
+import { loadLessons, pushLesson, saveLesson, storeLessons } from "@/lib/lessons";
 import { ArchiveSheet } from "./ArchiveSheet";
 import { Sheet } from "./Sheet";
 import { SplitBoards } from "./SplitBoards";
@@ -123,12 +123,25 @@ export function Classroom({ code, review }: { code: string; review?: {
   // Notes synced from the account fill the notebook on a device that has none yet.
   const syncedNotes = useMemo(() => {
     const lesson = loadLessons(user?.id).find((saved) => saved.code === code);
-    return lesson && { notes: lesson.myNotes, clips: lesson.myClips };
+    return lesson && { notes: lesson.myNotes, clips: lesson.myClips, sections: lesson.mySections };
   }, [code, user?.id]);
   const topicNotes = useTopicNotes(studentNotesKey, syncedNotes);
+  const [notebookSection, setNotebookSection] = useState(GENERAL_NOTES);
+  const clipDestination = notebookSection;
   const [mobilePane, setMobilePane] = useState<"board" | "notes">("board");
   // Students can hide their notebook on laptops to give the board the full width; the choice is remembered.
   const [notesOpen, setNotesOpen] = useState(true);
+  const [notebookWidth, setNotebookWidth] = useState(440);
+  useEffect(() => {
+    try {
+      const stored = Number(localStorage.getItem("pacer:notebook-width"));
+      if (stored >= 340 && stored <= 800) setNotebookWidth(stored);
+    } catch { /* Use the default width. */ }
+  }, []);
+  const resizeNotebook = (width: number) => {
+    setNotebookWidth(width);
+    try { localStorage.setItem("pacer:notebook-width", String(width)); } catch { /* Keep the width for this visit. */ }
+  };
   useEffect(() => { try { setNotesOpen(localStorage.getItem("pacer:notes-open") !== "0"); } catch { /* keep open */ } }, []);
   // Focus mode: hide everything but the board and its tools (button, F key; Esc or the pill to leave).
   const [focusMode, setFocusMode] = useState(false);
@@ -341,44 +354,8 @@ export function Classroom({ code, review }: { code: string; review?: {
     setToast(teacherStorageEnabled && signInEnabled ? "Checking your sign-in. Try Upload again in a moment."
       : "Uploads aren't set up on this site yet. They need teacher storage and sign-in turned on.");
   };
-  // Tablets and laptops: when the header can't fit on one row, the class tools fold into the ⋯ menu (as on phones),
-  // keeping the main buttons out. It unfolds again once everything fits.
-  const headerRef = useRef<HTMLElement>(null);
-  const [compactHeader, setCompactHeader] = useState(false);
-  const headerNeeds = useRef(0);
-  useLayoutEffect(() => {
-    const header = headerRef.current;
-    if (!header) return;
-    const natural = (element: Element): number => {
-      // Wrapping groups report their squeezed width; add up their items instead.
-      if (element.matches('.class-tools, [role="group"]')) {
-        const items = [...element.children].filter((child) => (child as HTMLElement).offsetParent !== null);
-        const gap = parseFloat(getComputedStyle(element).columnGap) || 0;
-        return items.reduce((sum, child) => sum + child.getBoundingClientRect().width, 0) + gap * Math.max(0, items.length - 1);
-      }
-      return element.getBoundingClientRect().width;
-    };
-    const measure = () => {
-      if (window.matchMedia("(max-width: 39.99rem)").matches) { setCompactHeader(false); return; }
-      const style = getComputedStyle(header);
-      const room = header.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-      if (header.dataset.compact === undefined) {
-        const items = [...header.children].filter((child) => (child as HTMLElement).offsetParent !== null && getComputedStyle(child).position !== "fixed"
-          && !child.classList.contains("header-break"));
-        const gap = parseFloat(style.columnGap) || 0;
-        // The title may shrink to about 10rem before the header counts as full.
-        headerNeeds.current = items.reduce((sum, child) => sum + (child.querySelector("h1") ? 160 : natural(child)), 0) + gap * Math.max(0, items.length - 1);
-        if (headerNeeds.current > room + 1) setCompactHeader(true);
-      } else if (headerNeeds.current && headerNeeds.current <= room - 12) setCompactHeader(false);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(header);
-    // Labels and badges change too (an Insights count, End lecture becoming Save lecture).
-    const content = new MutationObserver(measure);
-    content.observe(header, { childList: true, subtree: true, characterData: true });
-    return () => { observer.disconnect(); content.disconnect(); };
-  }, [!!state, isTeacher]);
+  // Keep one stable compact header at every width; extra actions live in More.
+  const compactHeader = true;
   // Students: the class recap the teacher shared. The banner can be hidden; a newer share shows it again.
   const [recapOpen, setRecapOpen] = useState(false);
   const [recapHidden, setRecapHidden] = useState<number>();
@@ -921,13 +898,22 @@ export function Classroom({ code, review }: { code: string; review?: {
   }), [state?.code, state?.title, state?.subject, state?.blocks, state?.topics, state?.strokes, state?.archive, state?.slides, state?.collaborationId, state?.ended, state?.showSlides, state?.currentTopicId, state?.teacherName, state?.classRef, state?.sharedRecap]);
   const myNotes = topicNotes.ready ? topicNotes.notes : undefined;
   useEffect(() => {
-    if (review || !authReady || isTeacher || wantTeacher || !lessonContent || !myNotes) return;
+    if (!authReady || isTeacher || wantTeacher || !lessonContent || !myNotes) return;
     const timer = setTimeout(() => {
-      const lesson = saveLesson(lessonContent, userId, myNotes, topicNotes.clips);
+      if (review) {
+        const all = loadLessons(userId);
+        const saved = all.find((lesson) => lesson.code === code);
+        if (!saved) return;
+        const updated = { ...saved, myNotes, mySections: topicNotes.sections };
+        storeLessons(all.map((lesson) => lesson.code === code ? updated : lesson), userId);
+        if (userId) void pushLesson(userId, updated).catch(() => setSyncError(true));
+        return;
+      }
+      const lesson = saveLesson(lessonContent, userId, myNotes, topicNotes.clips, topicNotes.sections);
       if (lesson && userId) void pushLesson(userId, lesson).catch(() => setSyncError(true));
     }, 800);
     return () => clearTimeout(timer);
-  }, [lessonContent, myNotes, topicNotes.clips, authReady, isTeacher, wantTeacher, userId, !!review]);
+  }, [lessonContent, myNotes, topicNotes.clips, topicNotes.sections, authReady, isTeacher, wantTeacher, userId, !!review]);
 
   // ---- student: AI ----
   const selectedBlocks = (a: Anchor | null) => (a ? blocks.filter((b) => a.ids.includes(b.id)) : []);
@@ -940,7 +926,7 @@ export function Classroom({ code, review }: { code: string; review?: {
     const history = msgs.slice(-6).filter((m) => m.text.trim()).map((m) => ({ role: m.role, text: m.text })).filter((m, i, arr) => !(i === 0 && m.role === "assistant" && arr.length > 0));
     setMsgs((m) => [...m, { role: "user", text: guided ? "Step by step" : label[k] }]); setLoading(true); setError(""); setFed("");
     sendEvent("ask", sel[0]?.id ?? null, sel[0]?.topicId ?? null); rec("asks");
-    recordStudy({ id: uid(), lecture: state.title, topic: tp?.title ?? state.topics.find((t) => t.id === live)?.title ?? state.title,
+    recordStudy({ id: uid(), lecture: state.title, topic: a.slideTitle ?? tp?.title ?? state.topics.find((t) => t.id === live)?.title ?? state.title,
       question: question?.trim() || (guided ? "Step by step" : label[k]), ts: Date.now() });
     try {
       const r = await askRoomAI({ kind: k, selected: a.slideText ? a.slideText.match(/[\s\S]{1,550}/g) ?? [] : sel.map((b) => b.content),
@@ -956,7 +942,7 @@ export function Classroom({ code, review }: { code: string; review?: {
     if (auto && (a.ids.length || a.image)) void ask(a, auto);
   };
   /** A picture of the slide (or the boxed part of it) with the teacher's ink and the student's own notes on it. */
-  const captureSlideArea = (selection?: Anchor) => {
+  const captureSlideArea = (selection?: Anchor, includeAnnotations = true) => {
     const element = (split ? slideRef : boardRef).current;
     const image = element?.querySelector<HTMLImageElement>('img[alt="Lecture slide"]');
     if (!element || !image || !slidePage) return;
@@ -967,7 +953,7 @@ export function Classroom({ code, review }: { code: string; review?: {
       right: (bounds.left + rect.right - media.left) / media.width, bottom: (bounds.top + rect.bottom - media.top) / media.height,
     };
     const ownInk = !isTeacher ? privateNotes.data.strokes.filter((stroke) => stroke.surface === slidePage.id) : [];
-    return captureSlideSafe(image, [...slideInk, ...ownInk], crop);
+    return captureSlideSafe(image, includeAnnotations ? [...slideInk, ...ownInk] : [], crop);
   };
   // Clip: copy part of the slide or board into the notebook, no AI involved (so it works even when AI is paused).
   const [clipMode, setClipMode] = useState(false);
@@ -978,7 +964,7 @@ export function Classroom({ code, review }: { code: string; review?: {
   const saveClip = (selection: Anchor, onSlide: boolean) => {
     setSnip(false); setClipMode(false);
     if (onSlide && slidePage) {
-      const topicId = live ?? GENERAL_NOTES, label = `${deck?.name ?? "Slide"} · Slide ${slideNumber}`;
+      const topicId = clipDestination, label = `${deck?.name ?? "Slide"} · Slide ${slideNumber}`;
       void captureSlideArea(selection)?.then((image) => {
         if (!image) { setClipToast("Couldn't copy that part of the slide. Try again."); return; }
         // Trim the empty margin so the clip is just what was boxed (no AI).
@@ -990,7 +976,7 @@ export function Classroom({ code, review }: { code: string; review?: {
       const picked = state?.blocks.filter((block) => selection.ids.includes(block.id)) ?? [];
       const text = picked.map((block) => block.content).join("\n");
       if (!text && !selection.image) { setClipToast("Nothing to copy there. Draw the box around writing or a drawing."); return; }
-      const topicId = picked[0]?.topicId ?? live ?? GENERAL_NOTES;
+      const topicId = clipDestination;
       if (selection.image) void cleanClip(selection.image).then((image) => topicNotes.addClip({ topicId, image, text, label: "From the board" }));
       else topicNotes.addClip({ topicId, text, label: "From the board" });
     }
@@ -998,9 +984,9 @@ export function Classroom({ code, review }: { code: string; review?: {
   };
   const askAboutSlide = (selection?: Anchor) => {
     const rect = selection?.rect;
-    const page = slidePage, title = `${deck?.name} · Slide ${slideNumber}`;
+    const page = slidePage, title = `${deck?.name ?? "Presentation"} · Slide ${slideNumber}`;
     setSnip(false);
-    void captureSlideArea(selection)?.then((capture) => {
+    void captureSlideArea(selection, !!selection)?.then((capture) => {
       if (!capture || !page) { setClipToast("Couldn't read that part of the slide. Try again."); return; }
       openAnchor({ ids: [], source: "snip", rect: rect ?? { left: 12, top: 12, right: 12, bottom: 12 },
         image: capture, slideText: page.text, slideTitle: title });
@@ -1011,18 +997,18 @@ export function Classroom({ code, review }: { code: string; review?: {
     if (f === "another") { void ask(anchor, "another"); return; }
     setFed(f); sendEvent(f, sel?.id ?? null, sel?.topicId ?? null); score(prefs.mode, f === "helped" ? 1 : -1); rec(f === "helped" ? "helped" : "confused", sel?.topicId);
     if (f === "confused" && state) {
-      const topic = state.topics.find((t) => t.id === (sel?.topicId ?? live))?.title ?? state.title;
+      const topic = anchor.slideTitle ?? state.topics.find((t) => t.id === (sel?.topicId ?? live))?.title ?? state.title;
       const entry = { id: uid(), lecture: state.title, topic, ts: Date.now() };
       recordStudy(entry);
-      if (!aiOff) void askRoomAI({ kind: "followup", topicTitle: topic, selected: selectedBlocks(anchor).map((b) => b.content),
-        context: [], image: anchor.image, mode: "standard",
+      if (!aiOff) void askRoomAI({ kind: "followup", topicTitle: topic, selected: anchor.slideTitle ? anchor.slideText?.match(/[\s\S]{1,550}/g) ?? [] : selectedBlocks(anchor).map((b) => b.content),
+        context: [], image: anchor.image, slide: !!anchor.slideTitle, mode: "standard",
         question: "I marked this material as confusing. Based only on the selected content, suggest one specific concept and one short practice step to review. Do not assume what I misunderstood." })
         .then((r) => { if (r.source === "ai" && r.text.trim()) recordStudy({ ...entry, suggestion: r.text.trim() }); })
         .catch(() => { /* The student's review flag remains saved. */ });
     }
   };
   /** Which notebook topic something from the board belongs to: its notes' topic, the topic it was asked about, or the live one. */
-  const noteTopicFor = (a: Anchor) => selectedBlocks(a)[0]?.topicId ?? state?.topics.find((topic) => topic.title === a.topicTitle)?.id ?? live ?? GENERAL_NOTES;
+  const noteTopicFor = (_anchor: Anchor) => clipDestination;
   const notebookHelp = (kind: "lost" | "ask" | "catchup", topic: { id: string; title: string } | null) => {
     if (!state) return;
     const topicId = topic?.id ?? live;
@@ -1280,9 +1266,10 @@ export function Classroom({ code, review }: { code: string; review?: {
         mutate((room) => ({ ...room, removedBlockPositions: origin ? { ...room.removedBlockPositions, [id]: origin } : room.removedBlockPositions, blocks: room.blocks.filter((block) => block.id !== id)
           .map((block) => detached?.[block.id] ? { ...block, connector: detached[block.id] } : block) }));
       }}>
-      {anchor && !isTeacher && !aiOff && rect && showAsk && (
-        <AskPanel key={`${anchor.rect.left}:${anchor.rect.top}:${anchor.ids.join()}:${anchor.image?.length ?? 0}`} rect={anchor.rect} boardW={rect.width} boardH={rect.height} empty={anchor.ids.length === 0 && !anchor.image && !anchor.topicTitle}
-          excerpt={[...(anchor.image ? ["✎ handwriting"] : []), ...sel.map((b) => b.content)].join("  ·  ") || `Topic: ${anchor.topicTitle}`} basedOn={`${state.topics.find((t) => t.id === sel[0]?.topicId)?.title ?? anchor.topicTitle ?? "lecture"} · ${sel.length} note${sel.length === 1 ? "" : "s"}, plus nearby lecture context`}
+      <AnimatedPanel open={!!anchor && !isTeacher && !aiOff && !!rect && showAsk} reduced={prefs.reduceMotion}>
+      {anchor && rect && (
+        <AskPanel reduced={prefs.reduceMotion} key={`${anchor.slideTitle ?? "board"}:${anchor.rect.left}:${anchor.rect.top}:${anchor.ids.join()}:${anchor.image?.length ?? 0}`} rect={anchor.rect} boardW={rect.width} boardH={rect.height} empty={anchor.ids.length === 0 && !anchor.image && !anchor.topicTitle}
+          excerpt={anchor.slideTitle ?? ([...(anchor.image ? ["Board selection"] : []), ...sel.map((b) => b.content)].join("  ·  ") || `Topic: ${anchor.topicTitle}`)} basedOn={anchor.slideTitle ? "Selected slide only" : `${state.topics.find((t) => t.id === sel[0]?.topicId)?.title ?? anchor.topicTitle ?? "lecture"} · ${sel.length} note${sel.length === 1 ? "" : "s"}, plus nearby lecture context`}
           msgs={msgs} loading={loading} error={error} suggestion={suggestion} fed={fed}
           onSend={(k, q, g) => void ask(anchor, k as AIKind, q, g)} onQuiz={(ok) => rec(ok ? "quizRight" : "quizWrong")} onClose={() => { setAnchor(null); setMsgs([]); }} onFeedback={feedback}
           onSaveClip={wantTeacher || anchor.topicTitle || (!sel.length && !anchor.image) ? undefined : () => topicNotes.addClip({
@@ -1290,6 +1277,7 @@ export function Classroom({ code, review }: { code: string; review?: {
             label: anchor.slideTitle ?? (sel.length ? "From the board" : "Handwriting from the board") })}
           onSaveAnswer={wantTeacher ? undefined : (text) => topicNotes.appendCard(noteTopicFor(anchor), "Explanation (AI)", plainNote(text))} />
       )}
+      </AnimatedPanel>
     </Whiteboard>
     );
   };
@@ -1308,7 +1296,7 @@ export function Classroom({ code, review }: { code: string; review?: {
       {focusMode && <button type="button" className="focus-exit" onClick={() => setFocusMode(false)}>
         <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M6 2.5H2.5V6M10 2.5h3.5V6M6 13.5H2.5V10M10 13.5h3.5V10" /></svg>Exit focus <kbd>Esc</kbd>
       </button>}
-      <header ref={headerRef} data-compact={compactHeader || undefined} className="notebook-header relative flex flex-wrap items-center gap-2 border-b px-3 py-2 md:gap-3 md:px-6 md:py-3">
+      <header data-compact={compactHeader || undefined} className="notebook-header relative flex flex-wrap items-center gap-2 border-b px-3 py-2 md:gap-3 md:px-6 md:py-3">
         <Link href={isTeacher ? "/?view=teaching" : "/"} aria-label="Pacer home"
           onClick={(event) => { if (isTeacher && !state.ended) { event.preventDefault(); setShowFinish(true); } }}><Logo height={24} compact /></Link>
         <div className="min-w-0 flex-1 basis-[25%] border-l border-stone pl-2 text-base font-semibold md:basis-auto">
@@ -1429,8 +1417,8 @@ export function Classroom({ code, review }: { code: string; review?: {
               <svg aria-hidden="true" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2" /><path d="M10 2.5v11" /></svg>{notesOpen ? "Hide notes" : "Show notes"}
             </button>}
             <button className="btn btn-outline btn-sm" onClick={() => { setShowClassTools(false); setShowProfile(true); }}>My profile</button>
-            <button className="btn btn-outline btn-sm" title={`Reading mode: ${prefs.mode}`} onClick={() => { setShowClassTools(false); setShowSettings(true); }}>Settings</button>
           </>}
+          <button className="btn btn-outline btn-sm" onClick={() => { setShowClassTools(false); setShowSettings(true); }}>Settings</button>
           {isTeacher && <button className={`btn btn-sm class-tools-end sm:!hidden ${state.ended ? "btn-primary" : "btn-outline notebook-danger"}`}
             onClick={() => { setShowClassTools(false); setShowFinish(true); }}>{state.ended ? "Save lecture" : "End lecture"}</button>}
         </div>
@@ -1734,7 +1722,7 @@ export function Classroom({ code, review }: { code: string; review?: {
           )}
           <div className="relative z-30">
           <AnimatedPanel open={((isTeacher && !state.ended) || privateEditing) && !!insertPanel} reduced={prefs.reduceMotion}>
-            {insertPanel && <BoardObjects panel={insertPanel} anchor={insertAnchor} onClose={() => setInsertPanel(undefined)}
+            {insertPanel && <BoardObjects reduced={prefs.reduceMotion} panel={insertPanel} anchor={insertAnchor} onClose={() => setInsertPanel(undefined)}
               onChooseShape={(shape) => {
                 if (shape === "arrow") setConnectorMode(true);
                 else setPlacement(shape);
@@ -1768,7 +1756,7 @@ export function Classroom({ code, review }: { code: string; review?: {
           </AnimatedPanel>
           </div>
           {!review && deck && slidePage && (
-            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Slide controls">
+            <div className="slide-controls flex flex-wrap items-center gap-2" data-split={split} role="group" aria-label="Slide controls">
               {(!isTeacher || !state.ended) && <div aria-label="Slide navigation" role="group" className="flex items-center gap-2">
                 <button type="button" className="btn btn-sm btn-outline" aria-label="Previous slide"
                   disabled={slideBusy || !previousSlide}
@@ -1804,8 +1792,8 @@ export function Classroom({ code, review }: { code: string; review?: {
           {!review && collaborationId && user && collaboration.error && <p role="status" className="text-sm">{collaboration.error}</p>}
           {split && slidePage ? (
             <SplitBoards activeSide={activeSide} onSide={setActiveSide} preferStacked={!isTeacher && notesOpen && !focusMode && !wantTeacher && authReady}
-              slide={(maxHeight) => renderBoard(slidePage, slidePage.id, slideRef, activeSide === "slide", maxHeight)}
-              board={renderBoard(undefined, undefined, boardRef, activeSide === "board")} />
+              slide={(maxHeight) => renderBoard(slidePage, slidePage.id, slideRef, !!anchor?.slideTitle, maxHeight)}
+              board={renderBoard(undefined, undefined, boardRef, !anchor?.slideTitle)} />
           ) : <div className={`board-view flex flex-col ${slidePage ? "" : "min-h-0 flex-1"}`} style={{ viewTransitionName: slidePage ? "pacer-slide" : "pacer-board" }}>
             {renderBoard(slidePage, slidePage?.id ?? review?.surface, boardRef, true)}
           </div>}
@@ -1867,9 +1855,14 @@ export function Classroom({ code, review }: { code: string; review?: {
         </main>
 
         {!isTeacher && !wantTeacher && authReady && <aside id="student-notebook" aria-label="Notebook" data-open={notesOpen} inert={!notesOpen ? true : undefined}
+          style={{ ["--notes-width" as string]: `${notebookWidth}px` }}
           className={`student-notebook flex min-h-0 flex-col p-3 lg:w-[clamp(320px,30vw,440px)] lg:shrink-0 lg:border-l lg:border-[var(--notebook-border)] lg:p-0 ${mobilePane === "board" ? "max-lg:hidden" : ""}`}>
           <Notebook lessonTitle={state.title} topics={state.topics.map((topic) => ({ id: topic.id, title: topic.title }))} liveId={live} review={!!review}
-            notes={topicNotes.notes} clips={topicNotes.clips} status={topicNotes.status} ready={topicNotes.ready} onChange={topicNotes.update} onRemoveClip={topicNotes.removeClip}
+            notes={topicNotes.notes} clips={topicNotes.clips} sections={topicNotes.sections} onSectionsChange={topicNotes.updateSections}
+            onSectionFocus={setNotebookSection}
+            width={notebookWidth} onWidthChange={resizeNotebook}
+            reduced={prefs.reduceMotion}
+            status={topicNotes.status} ready={topicNotes.ready} onChange={topicNotes.update} onRemoveClip={topicNotes.removeClip}
             ink={topicNotes.ink} onInk={topicNotes.setInk}
             onHelp={notebookHelp}
             onBackOnTrack={(topic) => { sendEvent("helped", null, topic?.id ?? live); rec("helped", topic?.id ?? live); }}
@@ -1922,7 +1915,7 @@ export function Classroom({ code, review }: { code: string; review?: {
       </Sheet>}
       </AnimatedPanel>
       <AnimatedPanel open={showSettings} motion="drawer" reduced={prefs.reduceMotion}>
-        <SettingsSheet prefs={prefs} update={update} reset={reset} onClose={() => setShowSettings(false)} />
+        <SettingsSheet teacher={isTeacher} prefs={prefs} update={update} reset={reset} onClose={() => setShowSettings(false)} />
       </AnimatedPanel>
       <AnimatedPanel open={!!catchup} motion="drawer" reduced={prefs.reduceMotion}>
         {catchup && <Sheet title="Catch me up" label="Catch me up" onClose={() => setCatchup(null)}
@@ -1931,7 +1924,7 @@ export function Classroom({ code, review }: { code: string; review?: {
             <button className="btn btn-primary btn-sm" onClick={() => { setCatchup(null); setLastViewed(live); setAnchor(null); boardRef.current?.querySelector("[role=region]")?.scrollTo({ top: 1e6 }); }}>Return to live</button>
             {catchup.text && !catchupLoading && <button className="btn btn-outline btn-sm" onClick={() => void explainCatchup("long")}>Explain more</button>}
             {catchup.text && !catchupLoading && !wantTeacher && authReady && <button className="btn btn-outline btn-sm ml-auto" disabled={catchupSaved}
-              onClick={() => { topicNotes.appendCard(catchupTopic ?? live ?? GENERAL_NOTES, "Catch-up", plainNote(catchup.text)); setCatchupSaved(true); }}>{catchupSaved ? "Added to notes" : "Add to my notes"}</button>}
+              onClick={() => { topicNotes.appendCard(clipDestination, "Catch-up", plainNote(catchup.text)); setCatchupSaved(true); }}>{catchupSaved ? "Added to notes" : "Add to my notes"}</button>}
           </>}>
           <ol className="grid gap-2">
             {catchupTopics(catchupTopic).map((topic, i) => <li key={topic.id} className="sheet-card pop-in !p-3" style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}>

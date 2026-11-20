@@ -36,7 +36,7 @@ function toggleChecklist(editor: HTMLElement) {
 export function applyFormat(format: Format | `block:${Block}` | `align:${"left" | "center" | "right"}` | `color:${string}` | `highlight:${string}`) {
   const editor = activeEditor();
   if (!editor) return;
-  run("styleWithCSS", "true");
+  run("styleWithCSS", "false");
   if (format === "checklist") toggleChecklist(editor);
   else if (format.startsWith("block:")) run("formatBlock", format.slice(6));
   else if (format.startsWith("align:")) run({ left: "justifyLeft", center: "justifyCenter", right: "justifyRight" }[format.slice(6) as "left"]);
@@ -103,7 +103,7 @@ export function RichNote({ value, placeholder, label, onChange, onFocus }: {
   };
   return <div ref={ref} role="textbox" aria-multiline="true" aria-label={label} contentEditable suppressContentEditableWarning spellCheck
     className="nb-text nb-rich" data-placeholder={placeholder}
-    onFocus={() => { run("styleWithCSS", "true"); onFocus(); }}
+    onFocus={() => { run("styleWithCSS", "false"); onFocus(); }}
     onInput={(event) => emit(event.currentTarget)}
     onBlur={(event) => emit(event.currentTarget)}
     onPaste={(event) => {
@@ -194,12 +194,15 @@ function Dropdown({ label, title, button, children, wide }: { label: string; tit
 
 /** The formatting bar. It acts on whichever topic editor has the cursor, or the active topic's editor. */
 export function FormatBar({ target }: { target: () => HTMLElement | null }) {
+  const savedRange = useRef<Range | null>(null);
   const [state, setState] = useState<Record<string, boolean | string>>({});
   const [linking, setLinking] = useState<{ url: string; range?: Range } | null>(null);
   useEffect(() => {
     const read = () => {
       const el = selectionElement();
       if (!el?.closest(".nb-rich")) return;
+      const selection = window.getSelection();
+      if (selection?.rangeCount) savedRange.current = selection.getRangeAt(0).cloneRange();
       const block = String(document.queryCommandValue("formatBlock")).toLowerCase();
       setState({
         bold: document.queryCommandState("bold"), italic: document.queryCommandState("italic"),
@@ -214,11 +217,24 @@ export function FormatBar({ target }: { target: () => HTMLElement | null }) {
       });
     };
     document.addEventListener("selectionchange", read);
-    return () => document.removeEventListener("selectionchange", read);
+    document.addEventListener("pacer:note-format", read);
+    return () => {
+      document.removeEventListener("selectionchange", read);
+      document.removeEventListener("pacer:note-format", read);
+    };
   }, []);
   /** Puts the cursor in an editor before formatting, if none has it yet. */
   const ready = () => {
-    if (activeEditor()) return true;
+    if (activeEditor() && document.activeElement === activeEditor()) return true;
+    const saved = savedRange.current;
+    const owner = saved?.commonAncestorContainer;
+    const editorWithSelection = owner && (owner.nodeType === Node.ELEMENT_NODE ? owner as Element : owner.parentElement)?.closest<HTMLElement>(".nb-rich");
+    if (saved && editorWithSelection?.isConnected) {
+      editorWithSelection.focus({ preventScroll: true });
+      window.getSelection()?.removeAllRanges();
+      window.getSelection()?.addRange(saved);
+      return true;
+    }
     const editor = target();
     if (!editor) return false;
     editor.focus();
@@ -229,7 +245,11 @@ export function FormatBar({ target }: { target: () => HTMLElement | null }) {
     window.getSelection()?.addRange(range);
     return true;
   };
-  const apply = (format: Parameters<typeof applyFormat>[0]) => { if (ready()) applyFormat(format); };
+  const apply = (format: Parameters<typeof applyFormat>[0]) => {
+    if (!ready()) return;
+    applyFormat(format);
+    document.dispatchEvent(new Event("pacer:note-format"));
+  };
 
   const openLink = () => {
     if (!ready()) return;
@@ -262,7 +282,7 @@ export function FormatBar({ target }: { target: () => HTMLElement | null }) {
 
   const button = (format: Format, label: string, content: ReactNode, pressed?: boolean, disabled?: boolean) =>
     <button type="button" className="nb-fmt" aria-label={label} title={label} aria-pressed={pressed} disabled={disabled}
-      onMouseDown={(event) => event.preventDefault()} onClick={() => apply(format)}>{content}</button>;
+      onPointerDown={(event) => event.preventDefault()} onMouseDown={(event) => event.preventDefault()} onClick={() => apply(format)}>{content}</button>;
   const sep = <span aria-hidden="true" className="nb-format-sep" />;
   const mod = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
 
