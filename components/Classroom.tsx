@@ -259,8 +259,7 @@ export function Classroom({ code, review }: { code: string; review?: {
     read(); query.addEventListener("change", read);
     return () => query.removeEventListener("change", read);
   }, []);
-  // Phones (teacher): the tool dock's extra tools, the Clear menu, and the pen tray open only on request.
-  const [dockMore, setDockMore] = useState(false);
+  // Phones (teacher): the Clear menu and the pen tray open only on request.
   const [boardMenu, setBoardMenu] = useState(false);
   const [inkTray, setInkTray] = useState(false);
   const boardMenuRef = useRef<HTMLDivElement>(null);
@@ -1448,37 +1447,37 @@ export function Classroom({ code, review }: { code: string; review?: {
           </ToolGroup>
         </nav>}
         {isTeacher && !state.ended && (
-          <nav aria-label="Teacher whiteboard tools" className="notebook-rail teacher-dock flex shrink-0 gap-2 overflow-x-auto p-2 lg:w-max lg:flex-col lg:overflow-y-auto"
-            data-more={dockMore || undefined}>
+          <nav aria-label="Teacher whiteboard tools" className="notebook-rail teacher-dock flex shrink-0 gap-2 overflow-x-auto p-2 lg:w-max lg:flex-col lg:overflow-y-auto">
             <ToolGroup>
             {BOARD_TOOLS.map(([value, label]) => <button key={value} type="button" className="notebook-tool"
-              aria-label={label} title={label} data-tool={value} data-dock-extra={value === "select" || undefined}
+              aria-label={label} title={label} data-tool={value}
               aria-pressed={!placement && !connectorMode && tool === value}
               onClick={() => {
-                // Phones: tapping the active pen or highlighter again shows its colors and widths.
-                if (phone && (value === "pen" || value === "highlight") && tool === value && !placement && !connectorMode) { setInkTray((open) => !open); return; }
-                setInkTray(false);
+                // Phones: picking the pen or highlighter shows its colors and widths above the dock; tapping it again hides them.
+                const inks = value === "pen" || value === "highlight";
+                if (phone && inks && tool === value && !placement && !connectorMode) { setInkTray((open) => !open); return; }
+                setInkTray(inks);
                 setConnectorMode(false); setTool(value); setInsertPanel(undefined); setPlacement(undefined);
               }}><BoardToolIcon tool={value} />{value === "highlight" ? "Highlight" : label}</button>)}
             </ToolGroup>
             <ToolGroup>
                 {(["text", "equation", "sticky"] as const).map((value) => <button key={value} type="button" className="notebook-tool"
-                  data-tool={value} data-dock-extra={value !== "sticky" || undefined}
+                  data-tool={value}
                   aria-pressed={placement === value}
                   onClick={() => { setConnectorMode(false); setTool("select"); setInsertPanel(undefined); setPlacement((current) => current === value ? undefined : value); }}>
                   <BoardToolIcon tool={value} />{value === "text" ? "Text" : value === "equation" ? "Equation" : "Sticky"}
                 </button>)}
                 {([["shapes", "Shapes"], ["templates", "Templates"]] as const).map(([value, label]) => (
-                  <button key={value} type="button" className="notebook-tool" data-tool={value} data-dock-extra={value === "templates" || undefined} aria-expanded={insertPanel === value}
+                  <button key={value} type="button" className="notebook-tool" data-tool={value} aria-expanded={insertPanel === value}
                     onClickCapture={anchorInsert} onClick={() => { setConnectorMode(false); setTool("select"); setPlacement(undefined); setInsertPanel((open) => open === value ? undefined : value); }}>
                     <BoardToolIcon tool={value} />{label}
                   </button>
                 ))}
-                <button type="button" className="notebook-tool" aria-pressed={connectorMode} data-dock-extra
+                <button type="button" className="notebook-tool" aria-pressed={connectorMode}
                   onClick={() => { setTool("select"); setPlacement(undefined); setInsertPanel(undefined); setConnectorMode((value) => !value); }}>
                   <BoardToolIcon tool="arrow" />Connector
                 </button>
-              <button type="button" className="notebook-tool" disabled={slideBusy} data-dock-extra
+              <button type="button" className="notebook-tool" disabled={slideBusy}
                 aria-label="Upload slides or notes" title="Upload slides or notes. PDF preserves layout. Maximum 20 MB and 50 pages."
                 aria-describedby="lecture-upload-help" onClick={startUpload}>
                 <BoardToolIcon tool="upload" />Upload
@@ -1486,15 +1485,10 @@ export function Classroom({ code, review }: { code: string; review?: {
             </ToolGroup>
             <ToolGroup>
               {(["undo", "redo"] as const).map((action) => <button key={action} type="button" className="notebook-tool capitalize"
-                data-dock-extra={action === "redo" || undefined}
                 disabled={onSlideSide ? !currentSlideHistory?.[action].length : !inkHistory.current[action].length} onClick={() => restoreInk(action)}>
                 <BoardToolIcon tool={action} />{action}
               </button>)}
             </ToolGroup>
-            <button type="button" className="notebook-tool dock-more sm:!hidden" aria-label={dockMore ? "Fewer tools" : "More tools"} aria-expanded={dockMore}
-              onClick={() => { setDockMore((open) => !open); setInkTray(false); }}>
-              <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M10 4.5v11M4.5 10h11" /></svg>
-            </button>
           </nav>
         )}
         {slidePage && deck && isTeacher && <aside className={`notebook-pages shrink-0 p-3 lg:overflow-y-auto ${showPages ? "lg:w-44" : "lg:w-20"}`} data-open={showPages} style={{ viewTransitionName: "pacer-pages" }}>
@@ -1566,6 +1560,23 @@ export function Classroom({ code, review }: { code: string; review?: {
                 board={collaborationId} userId={user.id} teacher={isTeacher} allowed={collaboration.allowed && state.studentStickyPermission !== "closed"}
                 notes={collaboration.notes} ended={state.ended} connected={connected} reduced={prefs.reduceMotion}
                 onAccessChange={(allowed) => { if (isTeacher) mutate((room) => ({ ...room, studentStickyPermission: allowed ? "open" : "closed" })); }} />}
+              {/* Teachers always see Share. Until the shared board is ready, it says why instead of disappearing. */}
+              {isTeacher && !state.ended && !(collaborationId && user && collaboration.ready) && (
+                <div className="board-share">
+                  <button type="button" className="board-share-btn board-share-primary"
+                    onClick={() => {
+                      if (!user) {
+                        setToast(signInEnabled ? "Sign in to share the board with students." : "Sharing needs sign-in, which isn't set up on this site.");
+                        if (signInEnabled && authReady) void signIn();
+                        return;
+                      }
+                      setToast(collaboration.error || "Share is still connecting. Try again in a moment.");
+                    }}>
+                    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="5.5" r="2.5" /><path d="M1.5 13.5c.6-2.4 2.4-3.6 4.5-3.6s3.9 1.2 4.5 3.6M11 3.2a2.4 2.4 0 0 1 0 4.6M12.8 9.9c1 .5 1.6 1.6 1.9 3.1" /></svg>
+                    Share
+                  </button>
+                </div>
+              )}
             </div>
           )}
           {!isTeacher && state.sharedRecap && recapHidden !== state.sharedRecap.ts && <div role="status" className="recap-banner pop-in">
