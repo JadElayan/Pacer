@@ -259,9 +259,33 @@ export function Classroom({ code, review }: { code: string; review?: {
     read(); query.addEventListener("change", read);
     return () => query.removeEventListener("change", read);
   }, []);
-  // Phones (teacher): the Clear menu and the pen tray open only on request.
+  // Phones (teacher): the Clear menu opens only on request.
   const [boardMenu, setBoardMenu] = useState(false);
+  // Pen and highlighter colors and widths: tapping the active pen or highlighter again opens them in a small
+  // popover that grows out of that button (beside a vertical rail, above or below a horizontal one).
   const [inkTray, setInkTray] = useState(false);
+  const [inkAnchor, setInkAnchor] = useState<{ left: number; top: number; right: number; bottom: number; side: "right" | "top" | "bottom" }>();
+  const inkTrayRef = useRef<HTMLDivElement>(null);
+  const toggleInkTray = (button: HTMLElement) => {
+    if (inkTray) { setInkTray(false); return; }
+    const box = button.getBoundingClientRect();
+    const rail = button.closest("nav");
+    const side = rail && getComputedStyle(rail).flexDirection === "column" ? "right" : box.top > window.innerHeight / 2 ? "top" : "bottom";
+    setInkAnchor({ left: box.left, top: box.top, right: box.right, bottom: box.bottom, side });
+    setInkTray(true);
+  };
+  useEffect(() => {
+    if (!inkTray) return;
+    const close = (event: PointerEvent) => {
+      const target = event.target as HTMLElement;
+      if (inkTrayRef.current?.contains(target) || target.closest?.('.notebook-tool:is([data-tool="pen"], [data-tool="highlight"])')) return;
+      setInkTray(false);
+    };
+    const shut = () => setInkTray(false);
+    document.addEventListener("pointerdown", close);
+    window.addEventListener("resize", shut);
+    return () => { document.removeEventListener("pointerdown", close); window.removeEventListener("resize", shut); };
+  }, [inkTray]);
   const boardMenuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!boardMenu) return;
@@ -317,6 +341,44 @@ export function Classroom({ code, review }: { code: string; review?: {
     setToast(teacherStorageEnabled && signInEnabled ? "Checking your sign-in. Try Upload again in a moment."
       : "Uploads aren't set up on this site yet. They need teacher storage and sign-in turned on.");
   };
+  // Tablets and laptops: when the header can't fit on one row, the class tools fold into the ⋯ menu (as on phones),
+  // keeping the main buttons out. It unfolds again once everything fits.
+  const headerRef = useRef<HTMLElement>(null);
+  const [compactHeader, setCompactHeader] = useState(false);
+  const headerNeeds = useRef(0);
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const natural = (element: Element): number => {
+      // Wrapping groups report their squeezed width; add up their items instead.
+      if (element.matches('.class-tools, [role="group"]')) {
+        const items = [...element.children].filter((child) => (child as HTMLElement).offsetParent !== null);
+        const gap = parseFloat(getComputedStyle(element).columnGap) || 0;
+        return items.reduce((sum, child) => sum + child.getBoundingClientRect().width, 0) + gap * Math.max(0, items.length - 1);
+      }
+      return element.getBoundingClientRect().width;
+    };
+    const measure = () => {
+      if (window.matchMedia("(max-width: 39.99rem)").matches) { setCompactHeader(false); return; }
+      const style = getComputedStyle(header);
+      const room = header.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      if (header.dataset.compact === undefined) {
+        const items = [...header.children].filter((child) => (child as HTMLElement).offsetParent !== null && getComputedStyle(child).position !== "fixed"
+          && !child.classList.contains("header-break"));
+        const gap = parseFloat(style.columnGap) || 0;
+        // The title may shrink to about 10rem before the header counts as full.
+        headerNeeds.current = items.reduce((sum, child) => sum + (child.querySelector("h1") ? 160 : natural(child)), 0) + gap * Math.max(0, items.length - 1);
+        if (headerNeeds.current > room + 1) setCompactHeader(true);
+      } else if (headerNeeds.current && headerNeeds.current <= room - 12) setCompactHeader(false);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    // Labels and badges change too (an Insights count, End lecture becoming Save lecture).
+    const content = new MutationObserver(measure);
+    content.observe(header, { childList: true, subtree: true, characterData: true });
+    return () => { observer.disconnect(); content.disconnect(); };
+  }, [!!state, isTeacher]);
   // Students: the class recap the teacher shared. The banner can be hidden; a newer share shows it again.
   const [recapOpen, setRecapOpen] = useState(false);
   const [recapHidden, setRecapHidden] = useState<number>();
@@ -1221,6 +1283,11 @@ export function Classroom({ code, review }: { code: string; review?: {
     </Whiteboard>
     );
   };
+  // Where the ink popover sits and which point it grows from: the middle of the button that opened it.
+  const inkStyle: React.CSSProperties | undefined = inkAnchor && (inkAnchor.side === "right"
+    ? { left: inkAnchor.right + 10, top: (inkAnchor.top + inkAnchor.bottom) / 2, translate: "0 -50%", transformOrigin: "0 50%" }
+    : { left: 10, right: 10, ...(inkAnchor.side === "top" ? { bottom: window.innerHeight - inkAnchor.top + 10 } : { top: inkAnchor.bottom + 10 }),
+      transformOrigin: `${(inkAnchor.left + inkAnchor.right) / 2 - 10}px ${inkAnchor.side === "top" ? "100%" : "0"}` });
   const joinUrl = typeof window !== "undefined" ? `${window.location.origin}/room/${code}` : "";
   const pill = status === "live" ? "Connected" : status === "waiting" ? "Waiting for teacher…" : "Connecting…";
 
@@ -1231,7 +1298,7 @@ export function Classroom({ code, review }: { code: string; review?: {
       {focusMode && <button type="button" className="focus-exit" onClick={() => setFocusMode(false)}>
         <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M6 2.5H2.5V6M10 2.5h3.5V6M6 13.5H2.5V10M10 13.5h3.5V10" /></svg>Exit focus <kbd>Esc</kbd>
       </button>}
-      <header className="notebook-header flex flex-wrap items-center gap-2 border-b px-3 py-2 md:gap-3 md:px-6 md:py-3">
+      <header ref={headerRef} data-compact={compactHeader || undefined} className="notebook-header relative flex flex-wrap items-center gap-2 border-b px-3 py-2 md:gap-3 md:px-6 md:py-3">
         <Link href={isTeacher ? "/?view=teaching" : "/"} aria-label="Pacer home"
           onClick={(event) => { if (isTeacher && !state.ended) { event.preventDefault(); setShowFinish(true); } }}><Logo height={24} compact /></Link>
         <div className="min-w-0 flex-1 basis-[25%] border-l border-stone pl-2 text-base font-semibold md:basis-auto">
@@ -1268,16 +1335,16 @@ export function Classroom({ code, review }: { code: string; review?: {
           <span aria-hidden className={`size-2 rounded-full bg-current`} />
           {review ? "Saved lesson" : isTeacher ? <>{state.ended ? "Ended" : "Live"}<span className="max-sm:hidden"> · {connected} connected</span><span className="sm:hidden" aria-label={`${connected} connected`}> · {connected}</span></> : pill}
         </span>
-        <div className="md:hidden">
+        <div className="header-more-wrap md:hidden">
           <button type="button" className="btn btn-outline btn-sm header-more" aria-controls="classroom-more"
             aria-label={`More${isTeacher && alerts.length ? `, ${alerts.length} insight${alerts.length === 1 ? "" : "s"}` : ""}`}
             aria-expanded={showClassTools} onClick={() => setShowClassTools((open) => !open)}>
-            <span className="max-sm:hidden">More{isTeacher && alerts.length ? ` (${alerts.length})` : ""}</span>
-            <svg className="sm:hidden" aria-hidden="true" viewBox="0 0 20 20"><circle cx="4.5" cy="10" r="1.6" /><circle cx="10" cy="10" r="1.6" /><circle cx="15.5" cy="10" r="1.6" /></svg>
+            <span className="header-more-label max-sm:hidden">More{isTeacher && alerts.length ? ` (${alerts.length})` : ""}</span>
+            <svg className="header-more-icon sm:hidden" aria-hidden="true" viewBox="0 0 20 20"><circle cx="4.5" cy="10" r="1.6" /><circle cx="10" cy="10" r="1.6" /><circle cx="15.5" cy="10" r="1.6" /></svg>
             {isTeacher && alerts.length > 0 && <span className="header-more-badge sm:hidden" aria-hidden="true">{alerts.length}</span>}
           </button>
         </div>
-        <div className={`basis-full md:hidden ${isTeacher ? "max-sm:hidden" : ""}`} aria-hidden="true" />
+        <div className={`header-break basis-full md:hidden ${isTeacher ? "max-sm:hidden" : ""}`} aria-hidden="true" />
         {isTeacher ? (
           <>
             <button className="btn btn-outline btn-sm max-sm:!hidden" aria-expanded={showInvite} onClick={() => setShowInvite((v) => !v)}>Invite · {code}</button>
@@ -1324,7 +1391,7 @@ export function Classroom({ code, review }: { code: string; review?: {
           </div>
         )}
         <span aria-hidden="true" className="hidden h-6 w-px bg-stone md:block" />
-        {showClassTools && <button type="button" tabIndex={-1} className="class-tools-backdrop sm:hidden" aria-label="Close menu" onClick={() => setShowClassTools(false)} />}
+        {showClassTools && <button type="button" tabIndex={-1} className="class-tools-backdrop" aria-label="Close menu" onClick={() => setShowClassTools(false)} />}
         <div id="classroom-more" role="group" aria-label="Class tools" className={`class-tools ${showClassTools ? "flex" : "hidden"} max-md:order-last w-full flex-wrap items-center gap-2 rounded-xl bg-white/70 p-2 md:flex md:w-auto md:bg-transparent md:p-0`}
           onKeyDown={(event) => { if (event.key === "Escape" && showClassTools) setShowClassTools(false); }} {...sheetDragProps}>
           <span className="class-tools-grab sm:hidden" aria-hidden="true" />
@@ -1417,7 +1484,13 @@ export function Classroom({ code, review }: { code: string; review?: {
           <ToolGroup>
             {BOARD_TOOLS.map(([value, label]) => <button key={value} type="button" className="notebook-tool" data-tool={value}
               aria-label={label} title={label} disabled={!privateNotes.ready}
-              aria-pressed={privateEditing && !snip && !placement && tool === value} onClick={() => chooseAnnotationTool(value)}>
+              aria-pressed={privateEditing && !snip && !placement && tool === value}
+              aria-expanded={value === "pen" || value === "highlight" ? privateEditing && tool === value && inkTray : undefined}
+              onClick={(event) => {
+                if ((value === "pen" || value === "highlight") && privateEditing && !snip && !placement && tool === value) { toggleInkTray(event.currentTarget); return; }
+                setInkTray(false);
+                chooseAnnotationTool(value);
+              }}>
               <BoardToolIcon tool={value} />{value === "highlight" ? "Highlight" : label}
             </button>)}
           </ToolGroup>
@@ -1450,11 +1523,11 @@ export function Classroom({ code, review }: { code: string; review?: {
             {BOARD_TOOLS.map(([value, label]) => <button key={value} type="button" className="notebook-tool"
               aria-label={label} title={label} data-tool={value}
               aria-pressed={!placement && !connectorMode && tool === value}
-              onClick={() => {
-                // Phones: picking the pen or highlighter shows its colors and widths above the dock; tapping it again hides them.
-                const inks = value === "pen" || value === "highlight";
-                if (phone && inks && tool === value && !placement && !connectorMode) { setInkTray((open) => !open); return; }
-                setInkTray(inks);
+              aria-expanded={value === "pen" || value === "highlight" ? tool === value && inkTray : undefined}
+              onClick={(event) => {
+                // Tapping the active pen or highlighter again opens or closes its colors and widths.
+                if ((value === "pen" || value === "highlight") && tool === value && !placement && !connectorMode) { toggleInkTray(event.currentTarget); return; }
+                setInkTray(false);
                 setConnectorMode(false); setTool(value); setInsertPanel(undefined); setPlacement(undefined);
               }}><BoardToolIcon tool={value} />{value === "highlight" ? "Highlight" : label}</button>)}
             </ToolGroup>
@@ -1597,9 +1670,8 @@ export function Classroom({ code, review }: { code: string; review?: {
               <button className="btn btn-outline btn-sm" onClick={() => setSpotSeen(spot.ts)}>Got it</button>
             </div>
           )}
-          <Collapse open={((isTeacher && !state.ended) || privateEditing) && (tool === "pen" || tool === "highlight") && (!phone || !isTeacher || inkTray)} reduced={prefs.reduceMotion}
-            className="ink-collapse" innerClassName="flex justify-center">
-            <div role="group" aria-label="Ink settings" className="ink-tray notebook-tray flex flex-wrap items-center gap-x-4 gap-y-2 p-2 [@media(pointer:coarse)]:[&_button]:min-h-11 [@media(pointer:coarse)]:[&_button]:min-w-11 [@media(pointer:coarse)]:[&_select]:min-h-11">
+          <AnimatedPanel open={((isTeacher && !state.ended) || privateEditing) && (tool === "pen" || tool === "highlight") && inkTray && !!inkAnchor} motion="pop" reduced={prefs.reduceMotion}>
+            <div role="group" aria-label="Ink settings" ref={inkTrayRef} data-side={inkAnchor?.side} style={inkStyle} className="ink-tray ink-pop notebook-tray flex flex-wrap items-center justify-center gap-x-4 gap-y-2 p-2 [@media(pointer:coarse)]:[&_button]:min-h-11 [@media(pointer:coarse)]:[&_button]:min-w-11 [@media(pointer:coarse)]:[&_select]:min-h-11">
                 <div key={inkTool} className="ink-swatches">
                   <LiquidSwatches label="Ink color" colors={inkTool === "pen" ? INK_COLORS : HIGHLIGHT_COLORS}
                     value={inkTool === "pen" ? penColor : highlightColor}
@@ -1615,7 +1687,7 @@ export function Classroom({ code, review }: { code: string; review?: {
                   </ChoiceMenu>
                 </div>
             </div>
-          </Collapse>
+          </AnimatedPanel>
           {browseTopic && (
             <div className="flex flex-wrap items-center gap-2">
               {state.topics.length > 1 && !slidePage && <div className="flex items-center gap-2 text-sm" title="Each topic has its own whiteboard. Pick one to look back at it.">

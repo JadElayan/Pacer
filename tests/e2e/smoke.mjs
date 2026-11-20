@@ -39,6 +39,8 @@ try {
   await t.fill('input[placeholder^="Ask the class"]', "What is x?"); await t.fill('input[placeholder^="Answer key"]', "4"); await t.click('button:has-text("Ask class")');
   await s.waitForSelector("text=What is x?", { timeout: 10000 });
   await s.fill('input[placeholder="Type your answer"]', "4"); await s.click('button:has-text("Send answer")'); await s.waitForSelector("text=Correct", { timeout: 10000 }); ok("check-in answer is graded");
+  // When the header can't fit on one row, class tools sit behind the ⋯ (More) button.
+  if (!(await t.locator('button:has-text("Post-class package")').isVisible())) await t.click(".header-more");
   await t.click('button:has-text("Post-class package")'); await t.waitForSelector("text=Recap", { timeout: 10000 }); ok("post-class package renders");
 } catch (e) { fail(String(e).slice(0, 300)); }
 await browser.close();
