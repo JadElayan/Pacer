@@ -4,7 +4,9 @@ import type { LocalSlide } from "./slides";
 const office = ["ppt", "pptx", "odp", "doc", "docx", "odt", "rtf"];
 const images = ["png", "jpg", "jpeg", "webp"];
 const canConvertOffice = process.env.NODE_ENV === "development";
-export const lectureFormats = ["pdf", ...images, "txt", "md", ...(canConvertOffice ? office : [])].map((ext) => `.${ext}`).join(",");
+// Extensions plus MIME types: phones (iOS Safari, Android) match files by type and grey out anything not listed that way.
+const mimeTypes = ["application/pdf", "image/png", "image/jpeg", "image/webp", "text/plain", "text/markdown"];
+export const lectureFormats = [...["pdf", ...images, "txt", "md", ...(canConvertOffice ? office : [])].map((ext) => `.${ext}`), ...mimeTypes].join(",");
 
 async function deckStore<T>(mode: IDBTransactionMode, operation: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   const db = await new Promise<IDBDatabase>((resolve, reject) => {

@@ -142,6 +142,7 @@ Motion lives in [components/Motion.tsx](../components/Motion.tsx) and the end of
 
 ## Gotchas
 
+- Phones (under 40rem): the classroom header uses the logo mark only, a short status pill and shorter Follow / Browse labels (`phone` from `matchMedia`), so it fits in two rows. Students switch Board / Notes with a fixed bottom tab bar (`.pane-switch`, hidden on portrait tablets where both show), and the More menu slides open; for teachers it also holds Upload, since the tool rail scrolls sideways. The upload picker lists MIME types as well as extensions (`lectureFormats`), because phones grey out files that only match by extension.
 - The student board's "Waiting for your teacher" hint depends on the teacher's content only (`empty` prop on `Whiteboard`), so it stays while a student annotates.
 - While a pen, highlighter or eraser is active, the board viewport turns off text selection and the pointer-down calls `preventDefault`, otherwise dragging ink also selects the text underneath.
 
